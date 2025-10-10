@@ -1,28 +1,50 @@
-import torch 
-import pandas as pd 
-import numpy as np 
-import matplotlib.pyplot
+import pandas as pd  
 from statsmodels.tsa.seasonal import MSTL
 from joblib import Parallel, delayed
 import multiprocessing
+import warnings
 
-"""
-Decompose time series into trend, seasonality, and residual
-seasonality(daily, weekly, monthly)
-"""
-def trend_seasonal_decomposition(time_dataset):
-    
-    daily_seasonal = []
-    weekly_seasonal = []
-    monthly_seasonal = []
-    trend = []
-    residual = []
-    mstl_periods = []
-    freq = pd.infer_freq(time_dataset.index)
-    inx = time_dataset.index
-    mstl_periods = timesteps_based_on_frequency(freq, time_dataset.index)
-    pass
 
+def mstl_decomposition_for_window(series_window, valid_periods):
+    res_mstl = MSTL(series_window, periods=valid_periods).fit()
+    trend_df = pd.DataFrame({"trend": res_mstl.trend})
+    seasonal_cols = ["seasonal_daily", "seasonal_weekly", "seasonal_monthly"]
+    seasonal_df = pd.DataFrame(res_mstl.seasonal, columns=seasonal_cols, index=series_window.index)
+    seasonal_daily = pd.DataFrame(seasonal_df[seasonal_cols[0]])
+    seasonal_weekly = pd.DataFrame(seasonal_df[seasonal_cols[1]])
+    seasonal_monthly = pd.DataFrame(seasonal_df[seasonal_cols[-1]])
+    seasonal_group = pd.concat([seasonal_monthly, seasonal_weekly, seasonal_daily], axis=1)
+    residual_df = pd.DataFrame({"residual": res_mstl.resid})
+
+    return pd.concat([
+        trend_df,
+        seasonal_group,
+        residual_df
+    ], axis=1)
+
+def decomposition_for_window_with_dw(series_window, dw_periods):
+    res_dw = MSTL(series_window, periods=dw_periods).fit()
+    trend_dw = pd.DataFrame({"trend": res_dw.trend})
+    seasonal_cols = ["seasonal_daily", "seasonal_weekly"]
+    seasonal_df = pd.DataFrame(res_dw.seasonal, columns=seasonal_cols, index=series_window.index)
+    seasonal_daily = pd.DataFrame(seasonal_df["seasonal_daily"])
+    seasonal_weekly = pd.DataFrame(seasonal_df["seasonal_weekly"])
+    seasonal_group_dw = pd.concat([seasonal_weekly, seasonal_daily], axis=1)
+    residual_dw = pd.DataFrame({"residual": res_dw.resid})
+    return pd.concat([trend_dw, seasonal_group_dw, residual_dw], axis=1) 
+
+
+def reorder_decomposition_for_window(series_window, valid_periods):
+    if len(valid_periods) > 1:
+        mstl_dw = decomposition_for_window_with_dw(series_window, valid_periods[:2])
+        return mstl_dw 
+    else:
+        warnings.warn(f"Not enough valid periods for window of size {len(series_window)}. Returning simple mean decomposition.")
+        # Simple decomposition: trend = mean, seasonality = 0, residual = deviations
+        trend = pd.DataFrame(pd.Series(series_window.mean(), index=series_window.index, name="trend"))
+        seasonal_daily = pd.DataFrame(pd.Series(0, index=series_window.index, name="seasonal_daily"))
+        residual = pd.DataFrame(pd.Series(series_window - series_window.mean(), index=series_window.index, name="residual"))
+        return pd.concat([trend, seasonal_daily, residual], axis=1)
 
 def timesteps_based_on_frequency(freq, index):
     """
@@ -62,13 +84,15 @@ def timesteps_based_on_frequency(freq, index):
     # Round to nearest integer and return as a list
     return [int(round(steps_per_day)), int(round(steps_per_week)), int(round(steps_per_month))]
 
+"""
+Gathers the dataFrames together for an input window 
+"""
 def decompose_window(series_window, periods):
-    res = MSTL(series_window, periods=periods).fit()
-    return pd.DataFrame({
-        "trend": res.trend,
-        "seasonal": res.seasonal,
-        "resid": res.resid
-    }, index=series_window.index)
+    valid_periods = [p for p in periods if p * 2 <= len(series_window)]
+    if len(valid_periods) < 3:
+        return reorder_decomposition_for_window(series_window, valid_periods)
+    
+    return mstl_decomposition_for_window(series_window, valid_periods)
 
 # --- Helper to decompose a single column ---
 def decompose_column(series, periods, window_size=None, n_jobs=1):
@@ -78,24 +102,28 @@ def decompose_column(series, periods, window_size=None, n_jobs=1):
         # Full series decomposition
         return decompose_window(series, periods)
     else:
-        # Sliding windows, parallelized
-        windows = [series.iloc[i:i+window_size] for i in range(len(series)-window_size+1)]
+        # Sliding windows, parallelized. Splits the data into windows
+        num_windows = len(series) - window_size + 1
+        if num_windows <= 0:
+            # Window size is larger than series, fall back to full decomposition
+            return decompose_window(series, periods)
+        windows = [series.iloc[i:i+window_size] for i in range(num_windows)]
         dfs = Parallel(n_jobs=n_jobs)(
             delayed(decompose_window)(w, periods) for w in windows
         )
         return pd.concat(dfs, keys=range(len(dfs)), names=["window", "time"])
 
 # --- Main function ---
-def trend_seasonal_decomposition_parallel(df, window_size=None, n_jobs=None):
+def trend_seasonal_decomposition_parallel(time_dataset, window_size=None, n_jobs=None):
     if n_jobs is None:
         n_jobs = multiprocessing.cpu_count()
-    
-    periods = infer_mstl_periods_from_index(df.index)
+    freq = pd.infer_freq(time_dataset.index)
+    periods = timesteps_based_on_frequency(freq, time_dataset.index)
     
     # Parallelize across columns
     results = Parallel(n_jobs=n_jobs)(
-        delayed(decompose_column)(df[col], periods, window_size, n_jobs=1)  # n_jobs=1 inside each column
-        for col in df.columns
+        delayed(decompose_column)(time_dataset[col], periods, window_size, n_jobs=1)  # n_jobs=1 inside each column
+        for col in time_dataset.columns
     )
     
-    return {col: res for col, res in zip(df.columns, results)}
+    return {col: res for col, res in zip(time_dataset.columns, results)}
