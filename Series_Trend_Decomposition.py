@@ -8,12 +8,12 @@ import warnings
 def mstl_decomposition_for_window(series_window, valid_periods):
     res_mstl = MSTL(series_window, periods=valid_periods).fit()
     trend_df = pd.DataFrame({"trend": res_mstl.trend})
-    seasonal_cols = ["seasonal_daily", "seasonal_weekly", "seasonal_monthly"]
+    seasonal_cols = ["seasonal_hourly", "seasonal_daily", "seasonal_weekly"]
     seasonal_df = pd.DataFrame(res_mstl.seasonal, columns=seasonal_cols, index=series_window.index)
-    seasonal_daily = pd.DataFrame(seasonal_df[seasonal_cols[0]])
-    seasonal_weekly = pd.DataFrame(seasonal_df[seasonal_cols[1]])
-    seasonal_monthly = pd.DataFrame(seasonal_df[seasonal_cols[-1]])
-    seasonal_group = pd.concat([seasonal_monthly, seasonal_weekly, seasonal_daily], axis=1)
+    seasonal_hourly = pd.DataFrame(seasonal_df[seasonal_cols[0]])
+    seasonal_daily = pd.DataFrame(seasonal_df[seasonal_cols[1]])
+    seasonal_weekly = pd.DataFrame(seasonal_df[seasonal_cols[-1]])
+    seasonal_group = pd.concat([seasonal_weekly, seasonal_daily, seasonal_hourly], axis=1)
     residual_df = pd.DataFrame({"residual": res_mstl.resid})
 
     return pd.concat([
@@ -22,29 +22,29 @@ def mstl_decomposition_for_window(series_window, valid_periods):
         residual_df
     ], axis=1)
 
-def decomposition_for_window_with_dw(series_window, dw_periods):
-    res_dw = MSTL(series_window, periods=dw_periods).fit()
-    trend_dw = pd.DataFrame({"trend": res_dw.trend})
-    seasonal_cols = ["seasonal_daily", "seasonal_weekly"]
-    seasonal_df = pd.DataFrame(res_dw.seasonal, columns=seasonal_cols, index=series_window.index)
-    seasonal_daily = pd.DataFrame(seasonal_df["seasonal_daily"])
-    seasonal_weekly = pd.DataFrame(seasonal_df["seasonal_weekly"])
-    seasonal_group_dw = pd.concat([seasonal_weekly, seasonal_daily], axis=1)
-    residual_dw = pd.DataFrame({"residual": res_dw.resid})
-    return pd.concat([trend_dw, seasonal_group_dw, residual_dw], axis=1) 
+def decomposition_for_window_with_hd(series_window, hd_periods):
+    res_hd = MSTL(series_window, periods=hd_periods).fit()
+    trend_hd = pd.DataFrame({"trend": res_hd.trend})
+    seasonal_cols = ["seasonal_hourly", "seasonal_daily"]
+    seasonal_df = pd.DataFrame(res_hd.seasonal, columns=seasonal_cols, index=series_window.index)
+    seasonal_hourly = pd.DataFrame(seasonal_df[seasonal_cols[0]])
+    seasonal_daily = pd.DataFrame(seasonal_df[seasonal_cols[-1]])
+    seasonal_group_hd = pd.concat([seasonal_daily, seasonal_hourly], axis=1)
+    residual_hd = pd.DataFrame({"residual": res_dw.resid})
+    return pd.concat([trend_hd, seasonal_group_hd, residual_hd], axis=1) 
 
 
 def reorder_decomposition_for_window(series_window, valid_periods):
     if len(valid_periods) > 1:
-        mstl_dw = decomposition_for_window_with_dw(series_window, valid_periods[:2])
+        mstl_dw = decomposition_for_window_with_hd(series_window, valid_periods[:2])
         return mstl_dw 
     else:
         warnings.warn(f"Not enough valid periods for window of size {len(series_window)}. Returning simple mean decomposition.")
         # Simple decomposition: trend = mean, seasonality = 0, residual = deviations
         trend = pd.DataFrame(pd.Series(series_window.mean(), index=series_window.index, name="trend"))
-        seasonal_daily = pd.DataFrame(pd.Series(0, index=series_window.index, name="seasonal_daily"))
+        seasonal_hourly = pd.DataFrame(pd.Series(0, index=series_window.index, name="seasonal_hourly"))
         residual = pd.DataFrame(pd.Series(series_window - series_window.mean(), index=series_window.index, name="residual"))
-        return pd.concat([trend, seasonal_daily, residual], axis=1)
+        return pd.concat([trend, seasonal_hourly, residual], axis=1)
 
 def timesteps_based_on_frequency(freq, index):
     """
@@ -62,7 +62,7 @@ def timesteps_based_on_frequency(freq, index):
     Returns
     -------
     list of int
-        Number of timesteps per day, week, and month: [daily, weekly, monthly]
+        Number of timesteps per hour, day, and week: [hourly, daily, weekly]
     """
     
     if freq is None:
@@ -77,12 +77,13 @@ def timesteps_based_on_frequency(freq, index):
         raise ValueError("Could not determine valid time step.")
 
     # Compute number of timesteps per seasonal cycle
-    steps_per_day = 86400 / step_seconds          # 86400 seconds in a day
+    steps_per_hour = 3600 / step_seconds          # 3600 seconds in an hour
+    steps_per_day = steps_per_hour * 24      #86400 / step_seconds # 86400 seconds in a day
     steps_per_week = steps_per_day * 7            # 7 days per week
-    steps_per_month = steps_per_day * 30          # approximate 30 days per month
+    # steps_per_month = steps_per_day * 30          # approximate 30 days per month
 
     # Round to nearest integer and return as a list
-    return [int(round(steps_per_day)), int(round(steps_per_week)), int(round(steps_per_month))]
+    return [int(round(steps_per_hour)), int(round(steps_per_day)), int(round(steps_per_week))]
 
 """
 Gathers the dataFrames together for an input window 
