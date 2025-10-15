@@ -24,9 +24,9 @@ def build_decomposition_tensors(df_components):
     residual_tensor = torch.tensor(df_components["residual"].values, dtype=torch.float32).unsqueeze(-1)
     seasonal_df = pd.concat(
         {
-            "hourly": df_components["seasonal_hourly"],
-            "daily": df_components["seasonal_daily"],
-            "weekly": df_components["seasonal_weekly"]
+            ("seasonal", "hourly"): df_components["seasonal_hourly"],
+            ("seasonal", "daily"): df_components["seasonal_daily"],
+            ("seasonal", "weekly"): df_components["seasonal_weekly"]
         },
         axis=1,
         names=['component', 'period']

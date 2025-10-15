@@ -13,7 +13,7 @@ class MambaEncoder(nn.Module):
         self.input_proj = nn.Linear(input_dim, hidden_dim)
         self.mamba = Mamba(
             d_model=hidden_dim,
-            n_layers=2,
+            n_layer=2,
             d_state=16,
             d_conv=4,
             expand=2
@@ -30,6 +30,23 @@ class MambaEncoder(nn.Module):
         y = y.mean(dim=1)                 # pooling -> [B, hidden_dim]
         return self.output_proj(y)        # -> [B, output_dim]
 
+class HierarchicalSeasonalEncoder(nn.Module):
+    def __init__(self, embed_dim, hidden_dim):
+        super().__init__()
+        self.hourly_enc = MambaEncoder(1, hidden_dim, embed_dim)
+        self.daily_enc = MambaEncoder(1, hidden_dim, embed_dim)
+        self.weekly_enc = MambaEncoder(1, hidden_dim, embed_dim)
+
+        self.fusion = nn.Linear(embed_dim * 3, embed_dim)
+
+    def forward(self, seasonal):
+        # seasonal: [B, T, 3]
+        z_hour = self.hourly_enc(seasonal[..., [0]])
+        z_day = self.daily_enc(seasonal[..., [1]])
+        z_week = self.weekly_enc(seasonal[..., [2]])
+        z_cat = torch.cat([z_hour, z_day, z_week], dim=-1)
+        z_season = self.fusion(z_cat)
+        return z_season
 
 # --------------------------
 # Parallel encoders + Lorentz manifold fusion

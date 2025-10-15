@@ -61,14 +61,23 @@ print(f"seq_len={seq_len}, window_size={window_size}, pred_len={pred_len}")
 # -------------------------------------------------------------
 # 4. Decompose training and validation data
 # -------------------------------------------------------------
+
 train_components = trend_seasonal_decomposition_parallel(train_df)
 val_components = trend_seasonal_decomposition_parallel(val_df)
+train_tensors_dict = {}
+val_tensors_dict = {}
 
-train_decomp = list(train_components.values())[0]
-val_decomp = list(val_components.values())[0]
+for col, df_decomp in train_components.items():
+    train_tensors_dict[col] = build_decomposition_tensors(df_decomp)
 
-train_tensors = build_decomposition_tensors(train_decomp)
-val_tensors = build_decomposition_tensors(val_decomp)
+for col, df_decomp in val_components.items():
+    val_tensors_dict[col] = build_decomposition_tensors(df_decomp)
+
+# train_decomp = list(train_components.values())[0]
+# val_decomp = list(val_components.values())[0]
+
+# train_tensors = build_decomposition_tensors(train_decomp)
+# val_tensors = build_decomposition_tensors(val_decomp)
 
 # -------------------------------------------------------------
 # 5. Slice tensors to desired window size

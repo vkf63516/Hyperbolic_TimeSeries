@@ -13,7 +13,7 @@ class MambaEncoder(nn.Module):
         self.input_proj = nn.Linear(input_dim, hidden_dim)
         self.mamba = Mamba(
             d_model=hidden_dim,
-            n_layers=2,
+            n_layer=2,
             d_state=16,
             d_conv=4,
             expand=2
