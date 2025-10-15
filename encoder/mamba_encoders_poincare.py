@@ -10,24 +10,26 @@ class MambaEncoder(nn.Module):
     def __init__(self, input_dim, hidden_dim, output_dim):
         super().__init__()
         self.input_proj = nn.Linear(input_dim, hidden_dim)
-        self.mamba = Mamba(
-            d_model=hidden_dim,
-            n_layer=2,
-            d_state=16,
-            d_conv=4,
-            expand=2
-        )
+        self.layers = nn.ModuleList([ 
+            Mamba(
+                d_model=hidden_dim,
+                d_state=16,
+                d_conv=4,
+                expand=2
+            ) for _ in range(n_layer)
+        ])
         self.output_proj = nn.Linear(hidden_dim, output_dim)
 
     def forward(self, x):
         """
-        x: [batch, seq_len, input_dim]
-        returns: [batch, output_dim]
+        x: [B, T, input_dim]
+        returns: [B, output_dim]  (Euclidean latent, tangent vectors)
         """
-        h = self.input_proj(x)
-        y = self.mamba(h)
-        y = y.mean(dim=1)            # temporal pooling
-        return self.output_proj(y)
+        x = self.input_proj(x)
+        for layer in self.layers:
+            x = layer(x)
+        x = x.mean(dim=1)              # mean pooling
+        return self.output_proj(x)
 
 
 # ---------------------------------------------------
