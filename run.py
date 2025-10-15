@@ -1,4 +1,6 @@
 import torch
+import random
+from sklearn.model_selection import train_test_split
 import torch.nn.functional as F
 import pandas as pd
 import geoopt
@@ -12,19 +14,31 @@ import numpy as np
 sys.path.append(str(Path(__file__).resolve().parents[0]))
 
 from encoder.mamba_encoders_lorentz import ParallelLorentzEncoder
-from Decomposition.Series_Trend_Decomposition import trend_seasonal_decomposition_parallel, build_decomposition_tensors
-from forecaster import HyperbolicSeqForecaster
+from Decomposition.Series_Trend_Decomposition import trend_seasonal_decomposition_parallel, timesteps_based_on_frequency
+from Decomposition.tensor_utils import build_decomposition_tensors
+from Forecaster import HyperbolicSeqForecaster
+
+def set_seed(seed=42):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    print(f"Random seed set to {seed}")
+
+set_seed(42)
 
 # -------------------------------------------------------------
 # 1. Device setup
 # -------------------------------------------------------------
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"✅ Using device: {device}")
+print(f"Using device: {device}")
 
 # -------------------------------------------------------------
 # 2. Load dataset
 # -------------------------------------------------------------
-df = pd.read_csv("dataset/weather/weather.csv", parse_dates=["date"], index_col="date")
+df = pd.read_csv("time-series-dataset/dataset/weather/weather.csv", parse_dates=["date"], index_col="date")
 df = df[["OT"]].dropna()
 
 train_df, val_df = train_test_split(df, test_size=0.2, shuffle=False)
@@ -33,7 +47,7 @@ train_df, val_df = train_test_split(df, test_size=0.2, shuffle=False)
 # 3. Compute adaptive periods and window lengths
 # -------------------------------------------------------------
 freq = pd.infer_freq(train_df.index)
-daily, weekly, monthly = timesteps_based_on_frequency(freq, train_df.index)
+hourly, daily, weekly = timesteps_based_on_frequency(freq, train_df.index)
 
 # Define adaptive windows
 seq_len = weekly          # one full weekly seasonal cycle
@@ -41,7 +55,7 @@ window_size = 2 * weekly  # two weeks of data per training window
 pred_len = int(daily)     # predict one day ahead
 
 print(f"🧮 Frequency: {freq}")
-print(f"Timesteps per day/week/month: {daily}, {weekly}, {monthly}")
+print(f"Timesteps per hour/day/week: {hourly}, {daily}, {weekly}")
 print(f"seq_len={seq_len}, window_size={window_size}, pred_len={pred_len}")
 
 # -------------------------------------------------------------
