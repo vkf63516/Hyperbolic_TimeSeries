@@ -64,7 +64,7 @@ class ParallelLorentzEncoder(nn.Module):
 
         # Branch encoders
         self.trend_encoder = MambaEncoder(input_dim=1, hidden_dim=hidden_dim, output_dim=embed_dim)
-        self.seasonal_encoder = MambaEncoder(input_dim=3, hidden_dim=hidden_dim, output_dim=embed_dim)  # daily, weekly, monthly
+        self.seasonal_encoder = MambaEncoder(input_dim=3, hidden_dim=hidden_dim, output_dim=embed_dim)  # hourly, daily, weekly
         self.resid_encoder = MambaEncoder(input_dim=1, hidden_dim=hidden_dim, output_dim=embed_dim)
 
         # Lorentz manifold (k controls scale; curvature = -1/k)
@@ -75,7 +75,7 @@ class ParallelLorentzEncoder(nn.Module):
         """
         Inputs:
           trend:    [B, seq_len, 1]
-          seasonal: [B, seq_len, 3]  (daily, weekly, monthly)
+          seasonal: [B, seq_len, 3]  (hourly, daily, weekly)
           resid:    [B, seq_len, 1]
 
         Returns dict with:
@@ -132,7 +132,7 @@ class ParallelLorentzEncoder(nn.Module):
 
 #     # Dummy inputs (normalized decomposition windows)
 #     trend = torch.randn(batch_size, seq_len, 1)
-#     seasonal = torch.randn(batch_size, seq_len, 3)  # daily, weekly, monthly (3 channels)
+#     seasonal = torch.randn(batch_size, seq_len, 3)  # hourly, daily, weekly (3 channels)
 #     resid = torch.randn(batch_size, seq_len, 1)
 
 #     out = model(trend, seasonal, resid)

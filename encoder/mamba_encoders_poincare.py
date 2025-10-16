@@ -41,7 +41,7 @@ class ParallelHyperbolicEncoder(nn.Module):
         
         # Three parallel Mamba encoder branches
         self.trend_encoder = MambaEncoder(1, hidden_dim, embed_dim)
-        self.seasonal_encoder = MambaEncoder(3, hidden_dim, embed_dim)  # daily, weekly, monthly
+        self.seasonal_encoder = MambaEncoder(3, hidden_dim, embed_dim)  # hourly, daily, weekly
         self.resid_encoder = MambaEncoder(1, hidden_dim, embed_dim)
         
         self.manifold = geoopt.PoincareBall(c=curvature)
@@ -49,7 +49,7 @@ class ParallelHyperbolicEncoder(nn.Module):
     def forward(self, trend, seasonal, resid):
         """
         trend:     [batch, seq_len, 1]
-        seasonal:  [batch, seq_len, 3] (daily, weekly, monthly)
+        seasonal:  [batch, seq_len, 3] (hourly, daily, weekly)
         resid:     [batch, seq_len, 1]
         """
         # --- Parallel encoders ---
@@ -85,7 +85,7 @@ class ParallelHyperbolicEncoder(nn.Module):
     
 #     # Dummy decomposition input
 #     trend = torch.randn(batch_size, seq_len, 1)
-#     seasonal = torch.randn(batch_size, seq_len, 3)  # daily, weekly, monthly
+#     seasonal = torch.randn(batch_size, seq_len, 3)  # hourly, daily, weekly
 #     resid = torch.randn(batch_size, seq_len, 1)
     
 #     out = model(trend, seasonal, resid)
