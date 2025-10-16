@@ -19,7 +19,7 @@ warnings.filterwarnings(
 sys.path.append(str(Path(__file__).resolve().parents[0]))
 
 from encoder.mamba_encoders_lorentz import ParallelLorentzEncoder
-from Decomposition.Series_Trend_Decomposition import trend_seasonal_decomposition_parallel, timesteps_based_on_frequency
+from Decomposition.TimeBaseMSTL import TimeBaseMSTL
 from Decomposition.tensor_utils import build_decomposition_tensors
 from Forecaster import HyperbolicSeqForecaster
 
@@ -51,41 +51,38 @@ train_df, val_df = train_test_split(df, test_size=0.2, shuffle=False)
 # -------------------------------------------------------------
 # 3. Compute adaptive periods and window lengths
 # -------------------------------------------------------------
-freq = pd.infer_freq(train_df.index)
-hourly, daily, weekly = timesteps_based_on_frequency(freq, train_df.index)
+timebase = TimeBaseMSTL(n_basis_components=5)
 
-# Define adaptive windows
-seq_len = weekly          # one full weekly seasonal cycle
-window_size = 2 * weekly + daily # two weeks of data per training window
-pred_len = int(daily)     # predict one day ahead
+# Automatically infers hourly, daily, weekly steps
+steps_per_period = timebase.timesteps_from_index(train_df)
+hourly, daily, weekly = steps_per_period
 
-# print(f"Frequency: {freq}")
+seq_len = weekly
+window_size = 2 * weekly + daily
+pred_len = int(daily)
+
 print(f"Timesteps per hour/day/week: {hourly}, {daily}, {weekly}")
 print(f"seq_len={seq_len}, window_size={window_size}, pred_len={pred_len}")
 
 # -------------------------------------------------------------
 # 4. Decompose training and validation data
 # -------------------------------------------------------------
-train_components = trend_seasonal_decomposition_parallel(train_df, window_size=window_size)
-val_components   = trend_seasonal_decomposition_parallel(val_df, window_size=window_size)
+print("Performing TimeBaseMSTL decomposition...")
 
-def select_last_window(components_dict):
-    """
-    Selects the latest decomposition window for each feature and
-    builds PyTorch tensors from its components.
-    """
-    out = {}
-    for col, df_decomp in components_dict.items():
-        last_win = df_decomp.loc[max(df_decomp.index.get_level_values('window'))]
-        out[col] = build_decomposition_tensors(last_win)
-    return out
+train_components = timebase.fit_transform(train_df)
+val_components   = timebase.fit_transform(val_df)
 
-train_tensors_dict = select_last_window(train_components)
-val_tensors_dict   = select_last_window(val_components)
+def build_timebase_tensors(decomp_dict):
+    tensors = {}
+    for name, comp in decomp_dict.items():
+        tensors[name] = build_decomposition_tensors(comp)
+    return tensors
 
+train_tensors_dict = build_timebase_tensors(train_components)
+val_tensors_dict   = build_timebase_tensors(val_components)
 # Convert each feature’s tensors to batch format
 def to_batch_feature_dict(feature_dict):
-    return {k: v.unsqueeze(0).to(device) for k, v in feature_dict.items()}
+    return {k: v.unsqueeze(0).float().to(device) for k, v in feature_dict.items()}
 
 # --------------------------------------------------------------------
 # 5. Initialize models
@@ -106,7 +103,10 @@ optimizer = geoopt.optim.RiemannianAdam(
 # 6. Hyperbolic loss helper
 # --------------------------------------------------------------------
 def hyperbolic_mse(manifold, z_pred):
-    dist = manifold.dist(z_pred[:, 1:], z_pred[:, :-1])
+    # z_pred: [B, H, D+1]
+    z1 = z_pred[:, 1:, :].reshape(-1, z_pred.size(-1))
+    z0 = z_pred[:, :-1, :].reshape(-1, z_pred.size(-1))
+    dist = manifold.dist(z1, z0)
     return (dist ** 2).mean()
 
 # --------------------------------------------------------------------
@@ -167,6 +167,6 @@ for epoch in range(1, num_epochs + 1):
             "epoch": epoch,
             "val_loss": val_loss
         }, save_path)
-        print(f"✅ Saved best model (Val MSE: {val_loss:.6f})")
+        print(f"Saved best model (Val MSE: {val_loss:.6f})")
 
 print("Training complete.")

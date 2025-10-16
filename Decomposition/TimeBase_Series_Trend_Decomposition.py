@@ -9,25 +9,21 @@ class TimeBaseMSTL:
     with dynamic period detection using pandas Timedelta.
     """
 
-    def __init__(self, periods_in_hours=[24, 168], n_basis_components=10):
+    def __init__(self, n_basis_components=10):
         """
         Parameters
         ----------
-        periods_in_hours : list of int
-            Seasonal periods expressed in hours (e.g., [24, 168] for daily, weekly).
         n_basis_components : int
             Number of PCA basis components to extract.
         """
-        self.periods_in_hours = periods_in_hours
         self.n_basis_components = n_basis_components
         self.basis_components = {}
         self.series_coefficients = {}
         
-    def timesteps_from_index(df, periods_in_hours=None):
+    def timesteps_from_index(df):
         """
         Flexible version combining both TimeBase and calendar logic.
-        If periods_in_hours is None, returns [hourly, daily, weekly] steps.
-        Otherwise computes user-defined periods dynamically.
+        Computes user-defined periods dynamically.
         """
         index = df.index
         freq = pd.infer_freq(index)
@@ -38,12 +34,7 @@ class TimeBaseMSTL:
             step_seconds = pd.Timedelta(pd.tseries.frequencies.to_offset(freq)).total_seconds()
         if step_seconds == 0:
             raise ValueError("Could not determine valid time step.")
-    
-        if periods_in_hours is None:
-            periods_seconds = [3600, 24*3600, 7*24*3600]
-        else:
-            periods_seconds = [p*3600 for p in periods_in_hours]
-    
+        periods_seconds = [3600, 24*3600, 7*24*3600]
         steps = [int(round(p / step_seconds)) for p in periods_seconds]
         return steps
 
@@ -158,7 +149,7 @@ class TimeBaseMSTL:
     def fit_transform(self, df):
         """Run full pipeline: extract segments → basis → MSTL → reconstruct."""
         print(f"Decomposing {df.shape[1]} series with dynamic TimeBase-MSTL...")
-        steps_per_period = self.timesteps_from_index(df, self.periods_in_hours)
+        steps_per_period = self.timesteps_from_index(df)
         print(f"⏱ Periods inferred as {steps_per_period} timesteps")
         
         # Extract segments
