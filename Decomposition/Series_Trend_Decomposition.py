@@ -2,6 +2,7 @@ import pandas as pd
 from statsmodels.tsa.seasonal import MSTL
 from joblib import Parallel, delayed
 import multiprocessing
+from pandas.tseries.frequencies import to_offset
 import warnings
 
 
@@ -71,7 +72,7 @@ def timesteps_based_on_frequency(freq, index):
         step_seconds = step.total_seconds()
     else:
         # Convert frequency string to timedelta in seconds
-        step_seconds = pd.tseries.frequencies.to_offset(freq).delta.total_seconds()
+        step_seconds = pd.Timedelta(to_offset(freq)).total_seconds()
     
     if step_seconds == 0:
         raise ValueError("Could not determine valid time step.")

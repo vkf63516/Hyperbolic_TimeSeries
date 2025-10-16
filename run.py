@@ -54,53 +54,37 @@ seq_len = weekly          # one full weekly seasonal cycle
 window_size = 2 * weekly  # two weeks of data per training window
 pred_len = int(daily)     # predict one day ahead
 
-print(f"🧮 Frequency: {freq}")
+print(f"Frequency: {freq}")
 print(f"Timesteps per hour/day/week: {hourly}, {daily}, {weekly}")
 print(f"seq_len={seq_len}, window_size={window_size}, pred_len={pred_len}")
 
 # -------------------------------------------------------------
 # 4. Decompose training and validation data
 # -------------------------------------------------------------
+train_components = trend_seasonal_decomposition_parallel(train_df, window_size=window_size)
+val_components   = trend_seasonal_decomposition_parallel(val_df, window_size=window_size)
 
-train_components = trend_seasonal_decomposition_parallel(train_df)
-val_components = trend_seasonal_decomposition_parallel(val_df)
-train_tensors_dict = {}
-val_tensors_dict = {}
+def select_last_window(components_dict):
+    """
+    Selects the latest decomposition window for each feature and
+    builds PyTorch tensors from its components.
+    """
+    out = {}
+    for col, df_decomp in components_dict.items():
+        last_win = df_decomp.loc[max(df_decomp.index.get_level_values('window'))]
+        out[col] = build_decomposition_tensors(last_win)
+    return out
 
-for col, df_decomp in train_components.items():
-    train_tensors_dict[col] = build_decomposition_tensors(df_decomp)
+train_tensors_dict = select_last_window(train_components)
+val_tensors_dict   = select_last_window(val_components)
 
-for col, df_decomp in val_components.items():
-    val_tensors_dict[col] = build_decomposition_tensors(df_decomp)
+# Convert each feature’s tensors to batch format
+def to_batch_feature_dict(feature_dict):
+    return {k: v.unsqueeze(0).to(device) for k, v in feature_dict.items()}
 
-# train_decomp = list(train_components.values())[0]
-# val_decomp = list(val_components.values())[0]
-
-# train_tensors = build_decomposition_tensors(train_decomp)
-# val_tensors = build_decomposition_tensors(val_decomp)
-
-# -------------------------------------------------------------
-# 5. Slice tensors to desired window size
-# -------------------------------------------------------------
-def slice_window(tensors, window_size, seq_len):
-    for key in tensors:
-        total_len = tensors[key].shape[0]
-        start = max(0, total_len - window_size)
-        tensors[key] = tensors[key][start:start + seq_len]
-    return tensors
-
-train_tensors = slice_window(train_tensors, window_size, seq_len)
-val_tensors = slice_window(val_tensors, window_size, seq_len)
-
-def to_batch(tensors):
-    return {k: v.unsqueeze(0).to(device) for k, v in tensors.items()}
-
-train_batch = to_batch(train_tensors)
-val_batch = to_batch(val_tensors)
-
-# -------------------------------------------------------------
-# 6. Initialize encoder + forecaster
-# -------------------------------------------------------------
+# --------------------------------------------------------------------
+# 5. Initialize models
+# --------------------------------------------------------------------
 embed_dim = 32
 hidden_dim = 64
 output_dim = 1
@@ -113,16 +97,16 @@ optimizer = geoopt.optim.RiemannianAdam(
     list(encoder.parameters()) + list(forecaster.parameters()), lr=1e-3
 )
 
-# -------------------------------------------------------------
-# 7. Helper: hyperbolic smoothness loss
-# -------------------------------------------------------------
+# --------------------------------------------------------------------
+# 6. Hyperbolic loss helper
+# --------------------------------------------------------------------
 def hyperbolic_mse(manifold, z_pred):
     dist = manifold.dist(z_pred[:, 1:], z_pred[:, :-1])
     return (dist ** 2).mean()
 
-# -------------------------------------------------------------
-# 8. Training loop
-# -------------------------------------------------------------
+# --------------------------------------------------------------------
+# 7. Training loop
+# --------------------------------------------------------------------
 num_epochs = 200
 best_val_loss = np.inf
 save_path = Path("checkpoints/best_model.pt")
@@ -133,30 +117,41 @@ for epoch in range(1, num_epochs + 1):
     forecaster.train()
     optimizer.zero_grad()
 
-    enc_out = encoder(train_batch["trend"], train_batch["seasonal"], train_batch["residual"])
-    zt, zs, zr = enc_out["trend_h"], enc_out["season_h"], enc_out["resid_h"]
+    train_losses = []
+    for feat, tensors_f in train_tensors_dict.items():
+        batch_f = to_batch_feature_dict(tensors_f)
 
-    x_hat, z_pred = forecaster.forecast(pred_len, trend_z=zt, seasonal_z=zs, resid_z=zr)
-    x_true = train_batch["trend"][:, -pred_len:, :]
+        enc_out = encoder(batch_f["trend"], batch_f["seasonal"], batch_f["residual"])
+        zt, zs, zr = enc_out["trend_h"], enc_out["season_h"], enc_out["resid_h"]
 
-    loss_rec = F.mse_loss(x_hat, x_true)
-    loss_geo = hyperbolic_mse(forecaster.manifold, z_pred)
-    loss = loss_rec + 0.1 * loss_geo
+        x_hat, z_pred = forecaster.forecast(pred_len, trend_z=zt, seasonal_z=zs, resid_z=zr)
+        x_true = batch_f["trend"][:, -pred_len:, :]
 
-    loss.backward()
+        loss_rec = F.mse_loss(x_hat, x_true)
+        loss_geo = hyperbolic_mse(forecaster.manifold, z_pred)
+        loss = loss_rec + 0.1 * loss_geo
+
+        loss.backward()
+        train_losses.append(loss_rec.detach().item())
+
     optimizer.step()
+    train_loss = float(np.mean(train_losses))
 
-    # Validation
+    # ---------------- Validation ----------------
     encoder.eval()
     forecaster.eval()
+    val_losses = []
     with torch.no_grad():
-        enc_val = encoder(val_batch["trend"], val_batch["seasonal"], val_batch["residual"])
-        zv_t, zv_s, zv_r = enc_val["trend_h"], enc_val["season_h"], enc_val["resid_h"]
-        x_val_hat, _ = forecaster.forecast(pred_len, trend_z=zv_t, seasonal_z=zv_s, resid_z=zv_r)
-        x_val_true = val_batch["trend"][:, -pred_len:, :]
-        val_loss = F.mse_loss(x_val_hat, x_val_true).item()
+        for feat, tensors_f in val_tensors_dict.items():
+            batch_f = to_batch_feature_dict(tensors_f)
+            enc_val = encoder(batch_f["trend"], batch_f["seasonal"], batch_f["residual"])
+            zv_t, zv_s, zv_r = enc_val["trend_h"], enc_val["season_h"], enc_val["resid_h"]
+            x_val_hat, _ = forecaster.forecast(pred_len, trend_z=zv_t, seasonal_z=zv_s, resid_z=zv_r)
+            x_val_true = batch_f["trend"][:, -pred_len:, :]
+            val_losses.append(F.mse_loss(x_val_hat, x_val_true).item())
 
-    print(f"Epoch [{epoch}/{num_epochs}] - Train Loss: {loss.item():.6f} | Val Loss: {val_loss:.6f}")
+    val_loss = float(np.mean(val_losses))
+    print(f"Epoch [{epoch}/{num_epochs}] - Train MSE: {train_loss:.6f} | Val MSE: {val_loss:.6f}")
 
     if val_loss < best_val_loss:
         best_val_loss = val_loss
@@ -167,6 +162,6 @@ for epoch in range(1, num_epochs + 1):
             "epoch": epoch,
             "val_loss": val_loss
         }, save_path)
-        print(f"Saved best model (Val Loss: {val_loss:.6f})")
+        print(f"✅ Saved best model (Val MSE: {val_loss:.6f})")
 
 print("Training complete.")
