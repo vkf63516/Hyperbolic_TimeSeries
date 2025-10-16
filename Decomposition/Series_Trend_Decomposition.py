@@ -31,7 +31,7 @@ def decomposition_for_window_with_hd(series_window, hd_periods):
     seasonal_hourly = pd.DataFrame(seasonal_df[seasonal_cols[0]])
     seasonal_daily = pd.DataFrame(seasonal_df[seasonal_cols[-1]])
     seasonal_group_hd = pd.concat([seasonal_daily, seasonal_hourly], axis=1)
-    residual_hd = pd.DataFrame({"residual": res_dw.resid})
+    residual_hd = pd.DataFrame({"residual": res_hd.resid})
     return pd.concat([trend_hd, seasonal_group_hd, residual_hd], axis=1) 
 
 
