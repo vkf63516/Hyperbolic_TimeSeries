@@ -20,7 +20,7 @@ class TimeBaseMSTL:
         self.basis_components = {}
         self.series_coefficients = {}
         
-    def timesteps_from_index(df):
+    def timesteps_from_index(self, df):
         """
         Flexible version combining both TimeBase and calendar logic.
         Computes user-defined periods dynamically.

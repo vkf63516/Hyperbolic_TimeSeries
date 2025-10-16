@@ -19,7 +19,7 @@ warnings.filterwarnings(
 sys.path.append(str(Path(__file__).resolve().parents[0]))
 
 from encoder.mamba_encoders_lorentz import ParallelLorentzEncoder
-from Decomposition.TimeBaseMSTL import TimeBaseMSTL
+from Decomposition.TimeBase_Series_Trend_Decomposition import TimeBaseMSTL
 from Decomposition.tensor_utils import build_decomposition_tensors
 from Forecaster import HyperbolicSeqForecaster
 
@@ -95,9 +95,9 @@ encoder = ParallelLorentzEncoder(seq_len=seq_len, embed_dim=embed_dim, hidden_di
 manifold = encoder.manifold
 forecaster = HyperbolicSeqForecaster(embed_dim=embed_dim, hidden_dim=hidden_dim, output_dim=output_dim, manifold=manifold).to(device)
 
-optimizer = geoopt.optim.RiemannianAdam(
-    list(encoder.parameters()) + list(forecaster.parameters()), lr=1e-3
-)
+params = list({p: None for p in list(encoder.parameters()) + list(forecaster.parameters())}.keys())
+optimizer = geoopt.optim.RiemannianAdam(params, lr=1e-4)
+
 
 # --------------------------------------------------------------------
 # 6. Hyperbolic loss helper
