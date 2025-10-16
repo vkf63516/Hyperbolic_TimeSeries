@@ -7,7 +7,12 @@ import geoopt
 from pathlib import Path
 import sys
 import numpy as np
-
+import warnings
+warnings.filterwarnings(
+    "ignore",
+    message="A period\\(s\\) is larger than half the length of time series",
+    category=UserWarning,
+)
 # --------------------------------------------------------------------
 # Setup paths (so local packages can be imported easily)
 # --------------------------------------------------------------------
@@ -51,10 +56,10 @@ hourly, daily, weekly = timesteps_based_on_frequency(freq, train_df.index)
 
 # Define adaptive windows
 seq_len = weekly          # one full weekly seasonal cycle
-window_size = 2 * weekly  # two weeks of data per training window
+window_size = 2 * weekly + daily # two weeks of data per training window
 pred_len = int(daily)     # predict one day ahead
 
-print(f"Frequency: {freq}")
+# print(f"Frequency: {freq}")
 print(f"Timesteps per hour/day/week: {hourly}, {daily}, {weekly}")
 print(f"seq_len={seq_len}, window_size={window_size}, pred_len={pred_len}")
 
