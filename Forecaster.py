@@ -64,6 +64,8 @@ class HyperbolicSeqForecaster(nn.Module):
                 z_cur = z_true_seq[:, k, :]
             else:
                 z_cur = z_next
+            if (k + 1) % K == 0:
+                z_cur = z_cur.detach()
 
         x_hat = torch.cat(preds_x, dim=1)
         z_pred = torch.cat(preds_z, dim=1)

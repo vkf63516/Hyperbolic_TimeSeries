@@ -15,27 +15,25 @@ class HyperbolicMambaDecoder(nn.Module):
 
     def forward(self, z_t):
         """
-        z_t : [B, D+1] current manifold point(Lorentz coordinates)
-        returns: z_next [B, D+1], v_proj [B, D+1]
+        z_t : [B, D+1] current manifold point (Lorentz coordinates)
+        returns:
+            z_next [B, D+1] : next manifold point
+            v_proj [B, D+1] : projected tangent update
         """
-        # map to tangent space at origin
-        tangent_zt = self.manifold.logmap0(z_t) # [B, D]
+        # 1) Map to tangent space at origin
+        tangent_zt = self.manifold.logmap0(z_t)  # [B, D]
 
-        # predict tangent update (Euclidean)
-        v_pred = self.start_net(tangent_zt)
+        # 2) Predict tangent update
+        v_pred = self.state_net(tangent_zt)
         gate = torch.sigmoid(self.gate(tangent_zt))
-        v_pred = gate * v_pred # selective gating (Mamba-like)
+        v_pred = gate * v_pred
 
-        # move tangent to the correct tangent space and project
-        v_proj = v_pred + torch.sum(-v_pred[:, :1] * z_t[:, :1] + v_pred[:, 1:] * z_t[:, 1:], dim=-1, keepdim=True) * z_t 
+        # 3) Project tangent vector to tangent space at z_t
+        lorentz_dot = (-z_t[:, :1] * v_pred[:, :1] + (z_t[:, 1:] * v_pred[:, 1:]).sum(dim=-1, keepdim=True))
+        v_proj = v_pred + lorentz_dot * z_t
 
-        # Exponential map to get the next manifold point
-        norm = torch.sqrt(torch.clamp(
-            -v_proj[:, :1]**2 + (v_proj[:, 1:]**2).sum(-1, keepdim=True), min=1e-6
-        ))
-        cosh = torch.cosh(norm)
-        sinh = torch.sinh(norm)
-        z_next = cosh * z_t + sinh * (v_proj / (norm + 1e-6))
+        # 4) Exponential map to next point on manifold
+        z_next = self.manifold.expmap(z_t, v_proj)
         z_next = self.manifold.projx(z_next)
         return z_next, v_proj
 
