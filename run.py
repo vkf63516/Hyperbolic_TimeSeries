@@ -8,11 +8,7 @@ from pathlib import Path
 import sys
 import numpy as np
 import warnings
-warnings.filterwarnings(
-    "ignore",
-    message="A period\\(s\\) is larger than half the length of time series",
-    category=UserWarning,
-)
+
 # --------------------------------------------------------------------
 # Setup paths (so local packages can be imported easily)
 # --------------------------------------------------------------------
@@ -51,7 +47,7 @@ train_df, val_df = train_test_split(df, test_size=0.2, shuffle=False)
 # -------------------------------------------------------------
 # 3. Compute adaptive periods and window lengths
 # -------------------------------------------------------------
-timebase = TimeBaseMSTL(n_basis_components=5)
+timebase = TimeBaseMSTL(n_basis_components=5, orthogonal_lr=1e-3, orthogonal_iters=300)
 
 # Automatically infers hourly, daily, weekly steps
 steps_per_period = timebase.timesteps_from_index(train_df)
