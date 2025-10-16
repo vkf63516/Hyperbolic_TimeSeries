@@ -7,7 +7,7 @@ from mamba_ssm import Mamba
 # 1. Mamba encoder block
 # ---------------------------------------------------
 class MambaEncoder(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim):
+    def __init__(self, input_dim, hidden_dim, output_dim, n_layer=3):
         super().__init__()
         self.input_proj = nn.Linear(input_dim, hidden_dim)
         self.layers = nn.ModuleList([ 
