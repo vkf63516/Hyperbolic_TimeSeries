@@ -40,7 +40,7 @@ print(f"Using device: {device}")
 # 2. Load dataset
 # -------------------------------------------------------------
 df = pd.read_csv("time-series-dataset/dataset/weather/weather.csv", parse_dates=["date"], index_col="date")
-df = df[["OT"]].dropna()
+df = df.select_dtypes(include=[np.number])
 
 train_df, val_df = train_test_split(df, test_size=0.2, shuffle=False)
 
@@ -63,6 +63,31 @@ print(f"seq_len={seq_len}, window_size={window_size}, pred_len={pred_len}")
 # -------------------------------------------------------------
 # 4. Decompose training and validation data
 # -------------------------------------------------------------
+def check_tensor_values(tensors_dict, name="Train"):
+    """
+    Check decomposition tensors before training to ensure there are no NaNs, infs,
+    or degenerate values in trend / seasonal / residual components.
+    """
+    print(f"\nChecking tensor values before training ({name} set):")
+    for feat, comps in tensors_dict.items():
+        for key in ["trend", "seasonal", "residual"]:
+            t = comps[key]
+            if torch.is_tensor(t):
+                t = t.detach().cpu()
+            has_nan = torch.isnan(t).any().item()
+            has_inf = torch.isinf(t).any().item()
+            vmin = t.min().item()
+            vmax = t.max().item()
+            mean = t.mean().item()
+            std = t.std().item()
+            print(
+                f"{feat:<10s} {key:<10s} "
+                f"NaN? {has_nan:<5} | Inf? {has_inf:<5} | "
+                f"min={vmin:.4f} | max={vmax:.4f} | mean={mean:.4f} | std={std:.4f}"
+            )
+
+# Example: after building train_tensors_dict and val_tensors_dict
+
 print("Performing TimeBaseMSTL decomposition...")
 
 train_components = timebase.fit_transform(train_df)
@@ -76,6 +101,8 @@ def build_timebase_tensors(decomp_dict):
 
 train_tensors_dict = build_timebase_tensors(train_components)
 val_tensors_dict   = build_timebase_tensors(val_components)
+check_tensor_values(train_tensors_dict, "Train")
+check_tensor_values(val_tensors_dict, "Validation")
 # Convert each feature’s tensors to batch format
 def to_batch_feature_dict(feature_dict):
     return {k: v.unsqueeze(0).float().to(device) for k, v in feature_dict.items()}
