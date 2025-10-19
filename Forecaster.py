@@ -37,7 +37,7 @@ class HyperbolicSeqForecaster(nn.Module):
         return self.combine_branches(*z_list)
 
     def forecast(self, pred_len, trend_z=None, seasonal_z=None, resid_z=None, z0=None,
-                 teacher_forcing=False, z_true_seq=None):
+                 teacher_forcing=False, z_true_seq=None, K=6):
         """
         Returns:
           x_hat:  [B, H, output_dim]  reconstructed Euclidean predictions

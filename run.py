@@ -43,9 +43,17 @@ df = pd.read_csv("time-series-dataset/dataset/weather/weather.csv", parse_dates=
 df = df.select_dtypes(include=[np.number])
 
 train_df, val_df = train_test_split(df, test_size=0.2, shuffle=False)
+# -------------------------------------------------------------
+# 3. Normalize using training statistics only
+# -------------------------------------------------------------
+train_mean = train_df.mean()
+train_std = train_df.std()
+
+train_df = (train_df - train_mean) / train_std
+val_df = (val_df - train_mean) / train_std
 
 # -------------------------------------------------------------
-# 3. Compute adaptive periods and window lengths
+# 4. Compute adaptive periods and window lengths
 # -------------------------------------------------------------
 timebase = TimeBaseMSTL(n_basis_components=5, orthogonal_lr=1e-3, orthogonal_iters=300)
 
@@ -61,8 +69,16 @@ print(f"Timesteps per hour/day/week: {hourly}, {daily}, {weekly}")
 print(f"seq_len={seq_len}, window_size={window_size}, pred_len={pred_len}")
 
 # -------------------------------------------------------------
-# 4. Decompose training and validation data
+# 5. Decompose training and validation data
 # -------------------------------------------------------------
+def check_nan_tensor(name, t):
+    if torch.isnan(t).any():
+        print(f"[NaN DETECTED] in {name}")
+    if torch.isinf(t).any():
+        print(f"[Inf DETECTED] in {name}")
+    if torch.isnan(t).any() or torch.isinf(t).any():
+        print(f"{name} stats:", t.min().item(), t.max().item(), t.mean().item())
+
 def check_tensor_values(tensors_dict, name="Train"):
     """
     Check decomposition tensors before training to ensure there are no NaNs, infs,
@@ -101,14 +117,14 @@ def build_timebase_tensors(decomp_dict):
 
 train_tensors_dict = build_timebase_tensors(train_components)
 val_tensors_dict   = build_timebase_tensors(val_components)
-check_tensor_values(train_tensors_dict, "Train")
-check_tensor_values(val_tensors_dict, "Validation")
+# check_tensor_values(train_tensors_dict, "Train")
+# check_tensor_values(val_tensors_dict, "Validation")
 # Convert each feature’s tensors to batch format
 def to_batch_feature_dict(feature_dict):
     return {k: v.unsqueeze(0).float().to(device) for k, v in feature_dict.items()}
 
 # --------------------------------------------------------------------
-# 5. Initialize models
+# 6. Initialize models
 # --------------------------------------------------------------------
 embed_dim = 32
 hidden_dim = 64
@@ -123,7 +139,7 @@ optimizer = geoopt.optim.RiemannianAdam(params, lr=1e-4)
 
 
 # --------------------------------------------------------------------
-# 6. Hyperbolic loss helper
+# 67. Hyperbolic loss helper
 # --------------------------------------------------------------------
 def hyperbolic_mse(manifold, z_pred):
     # z_pred: [B, H, D+1]
@@ -133,7 +149,7 @@ def hyperbolic_mse(manifold, z_pred):
     return (dist ** 2).mean()
 
 # --------------------------------------------------------------------
-# 7. Training loop
+# 8. Training loop
 # --------------------------------------------------------------------
 num_epochs = 200
 best_val_loss = np.inf
@@ -146,22 +162,32 @@ for epoch in range(1, num_epochs + 1):
     optimizer.zero_grad()
 
     train_losses = []
+    i = 0
     for feat, tensors_f in train_tensors_dict.items():
+        print(i)
         batch_f = to_batch_feature_dict(tensors_f)
 
         enc_out = encoder(batch_f["trend"], batch_f["seasonal"], batch_f["residual"])
+        check_nan_tensor("trend_h", enc_out["trend_h"])
+        check_nan_tensor("season_h", enc_out["season_h"])
+        check_nan_tensor("resid_h", enc_out["resid_h"])
+
         zt, zs, zr = enc_out["trend_h"], enc_out["season_h"], enc_out["resid_h"]
 
         x_hat, z_pred = forecaster.forecast(pred_len, trend_z=zt, seasonal_z=zs, resid_z=zr)
-        x_true = batch_f["trend"][:, -pred_len:, :]
-
+        x_true = (
+            batch_f["trend"][:, -pred_len:, :] +
+            batch_f["seasonal"][:, -pred_len:, :] + 
+            batch_f["residual"][:, -pred_len:, :]
+        )
         loss_rec = F.mse_loss(x_hat, x_true)
-        loss_geo = hyperbolic_mse(forecaster.manifold, z_pred)
-        loss = loss_rec + 0.1 * loss_geo
+        # loss_geo = hyperbolic_mse(forecaster.manifold, z_pred)
+        # loss = loss_rec + 0.1 * loss_geo
+        loss = loss_rec
 
         loss.backward()
         train_losses.append(loss_rec.detach().item())
-
+    torch.nn.utils.clip_grad_norm_(params, max_norm=5.0)
     optimizer.step()
     train_loss = float(np.mean(train_losses))
 
@@ -175,7 +201,11 @@ for epoch in range(1, num_epochs + 1):
             enc_val = encoder(batch_f["trend"], batch_f["seasonal"], batch_f["residual"])
             zv_t, zv_s, zv_r = enc_val["trend_h"], enc_val["season_h"], enc_val["resid_h"]
             x_val_hat, _ = forecaster.forecast(pred_len, trend_z=zv_t, seasonal_z=zv_s, resid_z=zv_r)
-            x_val_true = batch_f["trend"][:, -pred_len:, :]
+            x_val_true = (
+                batch_f["trend"][:, -pred_len:, :] +
+                batch_f["seasonal"][:, -pred_len:, :] +
+                batch_f["residual"][:, -pred_len:, :]
+            )
             val_losses.append(F.mse_loss(x_val_hat, x_val_true).item())
 
     val_loss = float(np.mean(val_losses))

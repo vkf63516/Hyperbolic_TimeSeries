@@ -64,7 +64,7 @@ class ParallelLorentzEncoder(nn.Module):
 
         # Branch encoders
         self.trend_encoder = MambaEncoder(input_dim=1, hidden_dim=hidden_dim, output_dim=embed_dim)
-        self.seasonal_encoder = MambaEncoder(input_dim=3, hidden_dim=hidden_dim, output_dim=embed_dim)  # hourly, daily, weekly
+        self.seasonal_encoder = MambaEncoder(input_dim=1, hidden_dim=hidden_dim, output_dim=embed_dim)  # hourly, daily, weekly
         self.resid_encoder = MambaEncoder(input_dim=1, hidden_dim=hidden_dim, output_dim=embed_dim)
 
         # Lorentz manifold (k controls scale; curvature = -1/k)
@@ -94,9 +94,9 @@ class ParallelLorentzEncoder(nn.Module):
         z_resid_h = self.manifold.expmap0(z_resid_t)
 
         # # (Optional) project to manifold numerically safely
-        # z_trend_h = self.manifold.projx(z_trend_h)
-        # z_season_h = self.manifold.projx(z_season_h)
-        # z_resid_h = self.manifold.projx(z_resid_h)
+        z_trend_h = self.manifold.projx(z_trend_h)
+        z_season_h = self.manifold.projx(z_season_h)
+        z_resid_h = self.manifold.projx(z_resid_h)
 
         # 3) Fuse: logmap0(manifold) -> tangent vectors -> sum -> expmap0 back
         u_trend = self.manifold.logmap0(z_trend_h)    # [B, D]

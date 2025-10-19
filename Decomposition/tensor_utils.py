@@ -67,10 +67,12 @@ def build_decomposition_tensors(df_components_or_dict):
         df[["seasonal_hourly", "seasonal_daily", "seasonal_weekly"]].values,
         dtype=torch.float32
     )
+    # Aggregate seasonalities
+    seasonal_tensor_comb = seasonal_tensor.sum(-1, keepdims=True)
 
     return {
         "trend": trend_tensor,
-        "seasonal": seasonal_tensor,
+        "seasonal": seasonal_tensor_comb,
         "residual": residual_tensor
     }
 
