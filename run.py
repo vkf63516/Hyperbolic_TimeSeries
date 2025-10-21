@@ -58,15 +58,14 @@ val_df = (val_df - train_mean) / train_std
 timebase = TimeBaseMSTL(n_basis_components=5, orthogonal_lr=1e-3, orthogonal_iters=300)
 
 # Automatically infers hourly, daily, weekly steps
-steps_per_period = timebase.timesteps_from_index(train_df)
+steps_per_period = timebase.timesteps_from_index(df)
 hourly, daily, weekly = steps_per_period
 
 seq_len = weekly
-window_size = 2 * weekly + daily
 pred_len = int(daily)
 
 print(f"Timesteps per hour/day/week: {hourly}, {daily}, {weekly}")
-print(f"seq_len={seq_len}, window_size={window_size}, pred_len={pred_len}")
+print(f"seq_len={seq_len}, pred_len={pred_len}")
 
 # -------------------------------------------------------------
 # 5. Decompose training and validation data

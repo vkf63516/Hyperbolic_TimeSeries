@@ -1,6 +1,9 @@
 import numpy as np
 import pandas as pd
-from statsmodels.tsa.seasonal import MSTL
+import sys 
+from pathlib import Path
+sys.path.append(str(Path(__file__).resolve().parents[0]))
+from Decomposition.BatchedMSTL import BatchedMSTL
 
 class TimeBaseMSTL:
     """
@@ -62,6 +65,10 @@ class TimeBaseMSTL:
                     if end_idx <= n_points:
                         segments[i, seg, :] = df[col].iloc[start_idx:end_idx].values
             segments_dict[period] = segments
+            print(
+            f"Extracted {n_segments} segments (period={period}, "
+            f"length={period}, total_features={n_series})"
+        )
         return segments_dict
 
     # -------------------------------
@@ -73,6 +80,7 @@ class TimeBaseMSTL:
         Instead of PCA, this uses a gradient-based orthogonalization process.
         """
         n_series, n_segments, seg_len = segments.shape
+        print(n_series)
         flattened = segments.reshape(-1, seg_len)
         valid_mask = np.any(flattened != 0, axis=1)
         valid_segments = flattened[valid_mask]
@@ -120,57 +128,122 @@ class TimeBaseMSTL:
     # -------------------------------
     # MSTL Decomposition
     # -------------------------------
-    def decompose_basis_components(self, basis_components, period):
-        """Decompose each orthogonal basis using MSTL."""
+
+    def decompose_basis_components(self, df, basis_components, periods, seasonal_type="seasonal_hourly"):
+        """
+        Decompose all orthogonal basis components together using BatchedMSTL.
+        Each basis is treated as a separate time series in the batch.
+        """
         decomposed_basis = {}
-        for i, component in enumerate(basis_components):
-            try:
-                repeated = np.tile(component, 10)
-                mstl = MSTL(repeated, periods=[period])
-                res = mstl.fit()
-                decomposed_basis[f'basis_{i}'] = {
-                    'trend': res.trend[:period],
-                    'seasonal': res.seasonal[:period] if res.seasonal.ndim == 1 else res.seasonal[:period, 0],
-                    'resid': res.resid[:period],
+        print(f"⏱ Decomposing {len(basis_components)} basis components using BatchedMSTL...")
+
+        try:
+            # --- Convert all basis components into a 2D array ---
+            basis_matrix = np.stack(basis_components, axis=0)  # [n_basis, n_timesteps]
+            n_basis, n_points = basis_matrix.shape
+
+            # --- Filter valid periods for this basis length ---
+            valid_periods = [p for p in periods if p < n_points / 2]
+            if not valid_periods:
+                valid_periods = [min(periods)]
+            print(f"Valid MSTL periods: {valid_periods}")
+
+            # --- Run Batched MSTL ---
+            mstl = BatchedMSTL(basis_matrix, periods=valid_periods)
+            batch_results = mstl.fit()  # list of DecomposeResult per basis
+
+            # --- Convert outputs into dictionary form ---
+            for i, res in enumerate(batch_results):
+                trend = res.trend.values if isinstance(res.trend, pd.Series) else res.trend
+                resid = res.resid.values if isinstance(res.resid, pd.Series) else res.resid
+
+                # Handle multiple seasonal columns
+                if isinstance(res.seasonal, pd.DataFrame):
+                    seasonal_total = res.seasonal.sum(axis=1).values
+                else:
+                    seasonal_total = res.seasonal.values
+
+                decomposed_basis[f"basis_{i}"] = {
+                    "trend": trend,
+                    seasonal_type: seasonal_total,
+                    "resid": resid,
                 }
-            except Exception as e:
-                print(f"Failed to decompose basis {i}: {e}")
-                decomposed_basis[f'basis_{i}'] = {
-                    'trend': np.mean(component) * np.ones_like(component),
-                    'seasonal': component - np.mean(component),
-                    'resid': np.zeros_like(component),
+
+        except Exception as e:
+            print(f" Batched MSTL failed: {e}")
+        # --- Safe fallback for entire batch ---
+            for i, component in enumerate(basis_components):
+                base = np.mean(component) * np.ones_like(component)
+                seas = component - np.mean(component)
+                decomposed_basis[f"basis_{i}"] = {
+                    "trend": base,
+                    "seasonal_hourly": seas if seasonal_type == "seasonal_hourly" else np.zeros_like(base),
+                    "seasonal_daily": seas if seasonal_type == "seasonal_daily" else np.zeros_like(base),
+                    "seasonal_weekly": seas if seasonal_type == "seasonal_weekly" else np.zeros_like(base),
+                    "resid": np.zeros_like(component),
                 }
+
         return decomposed_basis
+
 
     # -------------------------------
     # Reconstruct per-series signals
     # -------------------------------
-    def reconstruct_series_decomposition(self, df, decompositions, coeffs_dict):
+    """
+    Rebuilds (Trend + Seasonal + Residual) from segment level decompositions
+    """
+    def reconstruct_series_decomposition(self, df, decompositions, coeffs_dict, smooth_window_ratio=0.1):
         """Reconstruct each series from decomposed basis."""
         series_decompositions = {}
         n_points = len(df)
+        window = max(5, int(len(df) * smooth_window_ratio))
 
         for i, name in enumerate(df.columns):
-            total_trend = np.zeros(n_points)
-            total_seasonal = np.zeros(n_points)
+            trend_global = (
+                pd.Series(df[name].values)
+                .rolling(window=window, min_periods=1, center=True)
+                .mean()
+                .values
+            )
+
+            total_seasonal_hourly = np.zeros(n_points)
+            total_seasonal_daily = np.zeros(n_points)
+            total_seasonal_weekly = np.zeros(n_points)
 
             for period, basis_decomp in decompositions.items():
-                coeffs = coeffs_dict[period][i]
+                coeffs = coeffs_dict[period][i] # learned coefficients for this feature, telling how much each basis contributes.
+                # looping through each basis function (trend, seasonal, residual pattern).
                 for j, (bname, comp) in enumerate(basis_decomp.items()):
                     coeff = coeffs[j] if j < len(coeffs) else 0
                     repeats = (n_points + period - 1) // period
-                    for key in ["trend", "seasonal"]:
-                        tiled = np.tile(comp[key], repeats)[:n_points]
-                        if key == "trend":
-                            total_trend += coeff * tiled
-                        else:
-                            total_seasonal += coeff * tiled
+                    for key in ["seasonal_hourly", "seasonal_daily", "seasonal_weekly"]:
+                        if key not in comp:
+                            continue
+                        pattern = comp[key]
+                        if pattern is None or len(pattern) == 0:
+                            continue
+                        # Repeat pattern efficiently using modulo indexing
+                        idx = np.arange(n_points) % len(pattern)
+                        repeated = pattern[idx]
+                       
+                        if key == "seasonal_hourly":
+                            total_seasonal_hourly += coeff * repeated
+                        if key == "seasonal_daily":
+                            total_seasonal_daily += coeff * repeated 
+                        if key == "seasonal_weekly":
+                            total_seasonal_weekly += coeff * repeated 
 
-            residual_actual = df[name].values - (total_trend + total_seasonal)
+            residual_actual = df[name].values - (trend_global + (
+                                                                total_seasonal_weekly + 
+                                                                total_seasonal_daily +
+                                                                total_seasonal_hourly
+                                                                ))
             series_decompositions[name] = {
-                "trend": total_trend,
-                "seasonal": total_seasonal,
-                "residual": residual_actual,
+                "trend": trend_global,
+                "seasonal_weekly": total_seasonal_weekly,
+                "seasonal_daily": total_seasonal_daily,
+                "seasonal_hourly": total_seasonal_hourly,
+                "residual": residual_actual
             }
         return series_decompositions
 
@@ -183,12 +256,20 @@ class TimeBaseMSTL:
         print(f"⏱ Inferred periods: {steps_per_period} timesteps")
 
         segments_dict = self.extract_periodic_segments(df, steps_per_period)
-        decompositions, coeffs_dict = {}, {}
-
+        decompositions = {}
+        coeffs_dict = {}
+        print("Output of extract periodic segments: ", segments_dict)
+        period_lst = [int(key) for key in segments_dict.keys()]
         for period, segments in segments_dict.items():
             print(f"\nPeriod {period} → segments {segments.shape[1]}")
             basis, coeffs = self.learn_orthogonal_basis(segments)
-            decomposed_basis = self.decompose_basis_components(basis, period)
+            if period == min(period_lst):
+                seasonal_type = "seasonal_hourly"
+            elif period == max(period_lst):
+                seasonal_type = "seasonal_weekly"
+            else:
+                seasonal_type = "seasonal_daily"
+            decomposed_basis = self.decompose_basis_components(df, basis, period_lst, seasonal_type)
             decompositions[period] = decomposed_basis
             coeffs_dict[period] = coeffs
 

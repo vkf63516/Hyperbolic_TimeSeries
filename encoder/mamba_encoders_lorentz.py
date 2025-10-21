@@ -2,13 +2,16 @@ import torch
 import torch.nn as nn
 import geoopt
 from mamba_ssm import Mamba  # pip install mamba-ssm
-# geoopt should be >= 0.6.0 (API: geoopt.manifolds.Lorentz)
+from pathlib import Path
+import sys 
+sys.path.append(str(Path(__file__).resolve().parents[0]))
+from utils import safe_expmap0
 
 # --------------------------
 # Mamba encoder block
 # --------------------------
 class MambaEncoder(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim, n_layer=3):
+    def __init__(self, input_dim, hidden_dim, output_dim, n_layer=3, lookback=None):
         super().__init__()
         self.input_proj = nn.Linear(input_dim, hidden_dim)
         self.layers = nn.ModuleList([ 
@@ -20,12 +23,15 @@ class MambaEncoder(nn.Module):
             ) for _ in range(n_layer)
         ])
         self.output_proj = nn.Linear(hidden_dim, output_dim)
+        self.lookback = lookback #  number of timesteps to look back
 
     def forward(self, x):
         """
         x: [B, T, input_dim]
         returns: [B, output_dim]  (Euclidean latent, tangent vectors)
         """
+        if self.lookback is not None and x.size(1) > self.lookback:
+            x = x[:, -self.lookback:, :]
         x = self.input_proj(x)
         for layer in self.layers:
             x = layer(x)
@@ -88,10 +94,13 @@ class ParallelLorentzEncoder(nn.Module):
         z_season_t = self.seasonal_encoder(seasonal) # [B, D]
         z_resid_t = self.resid_encoder(resid)       # [B, D]
 
-        # 2) map to manifold points (expmap0: tangent -> manifold)
-        z_trend_h = self.manifold.expmap0(z_trend_t)    # manifold point
+        # 2) map to manifold points (safe expmap0: tangent -> manifold)
+        z_trend_h = self.manifold.expmap0(z_trend_t)
         z_season_h = self.manifold.expmap0(z_season_t)
         z_resid_h = self.manifold.expmap0(z_resid_t)
+        # z_trend_h = safe_expmap0(self.manifold, z_trend_t)    # manifold point
+        # z_season_h = safe_expmap0(self.manifold, z_season_t)
+        # z_resid_h = safe_expmap0(self.manifold, z_resid_t)
 
         # # (Optional) project to manifold numerically safely
         z_trend_h = self.manifold.projx(z_trend_h)

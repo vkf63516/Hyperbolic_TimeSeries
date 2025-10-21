@@ -2,6 +2,10 @@ import torch
 import torch.nn as nn
 import geoopt
 from mamba_ssm import Mamba  
+import sys 
+from pathlib import Path
+sys.path.append(str(Path(__file__).resolve().parents[0]))
+from utils import safe_expmap0
 
 # ---------------------------------------------------
 # 1. Mamba encoder block
@@ -53,14 +57,14 @@ class ParallelHyperbolicEncoder(nn.Module):
         resid:     [batch, seq_len, 1]
         """
         # --- Parallel encoders ---
-        z_trend = self.trend_encoder(trend)
-        z_season = self.seasonal_encoder(seasonal)
-        z_resid = self.resid_encoder(resid)
+        z_trend_t = self.trend_encoder(trend)
+        z_season_t = self.seasonal_encoder(seasonal)
+        z_resid_t = self.resid_encoder(resid)
         
         # --- Project to hyperbolic space ---
-        z_trend_h = self.manifold.expmap0(z_trend)
-        z_season_h = self.manifold.expmap0(z_season)
-        z_resid_h = self.manifold.expmap0(z_resid)
+        z_trend_h = safe_expmap0(self.manifold, z_trend_t)
+        z_season_h = safe_expmap0(self.manifold, z_season_t)
+        z_resid_h = safe_expmap0(self.manifold, z_resid_t)
         
         # --- Combine components in hyperbolic space ---
         z_combined = self.manifold.mobius_add(self.manifold.mobius_add(z_trend_h, z_season_h), z_resid_h)
