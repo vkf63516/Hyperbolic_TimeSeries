@@ -95,12 +95,12 @@ class ParallelLorentzEncoder(nn.Module):
         z_resid_t = self.resid_encoder(resid)       # [B, D]
 
         # 2) map to manifold points (safe expmap0: tangent -> manifold)
-        z_trend_h = self.manifold.expmap0(z_trend_t)
-        z_season_h = self.manifold.expmap0(z_season_t)
-        z_resid_h = self.manifold.expmap0(z_resid_t)
-        # z_trend_h = safe_expmap0(self.manifold, z_trend_t)    # manifold point
-        # z_season_h = safe_expmap0(self.manifold, z_season_t)
-        # z_resid_h = safe_expmap0(self.manifold, z_resid_t)
+        # z_trend_h = self.manifold.expmap0(z_trend_t)
+        # z_season_h = self.manifold.expmap0(z_season_t)
+        # z_resid_h = self.manifold.expmap0(z_resid_t)
+        z_trend_h = safe_expmap0(self.manifold, z_trend_t)    # manifold point
+        z_season_h = safe_expmap0(self.manifold, z_season_t)
+        z_resid_h = safe_expmap0(self.manifold, z_resid_t)
 
         # # (Optional) project to manifold numerically safely
         z_trend_h = self.manifold.projx(z_trend_h)
@@ -113,7 +113,8 @@ class ParallelLorentzEncoder(nn.Module):
         u_resid = self.manifold.logmap0(z_resid_h)
 
         combined_tangent = u_trend + u_season + u_resid  # tangent-space fusion (Euclidean sum)
-        combined_h = self.manifold.expmap0(combined_tangent)
+        combined_h = safe_expmap0(self.manifold, combined_tangent)
+        # combined_h = self.manifold.expmap0(combined_tangent)
         combined_h = self.manifold.projx(combined_h)
 
         return {

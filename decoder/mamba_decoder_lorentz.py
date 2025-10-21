@@ -38,8 +38,8 @@ class HyperbolicMambaDecoder(nn.Module):
         v_proj = v_pred + lorentz_dot * z_t
 
         # 4) Safe Exponential map to next point on manifold (This to prevent numerical instability)
-        z_next = self.manifold.expmap0(v_proj)
-        z_next = self.manifold.projx(z_next)
-        # z_next = safe_expmap0(self.manifold, v_proj)
+        #z_next = self.manifold.expmap0(v_proj)
+        #z_next = self.manifold.projx(z_next)
+        z_next = safe_expmap0(self.manifold, v_proj)
         return z_next, v_proj
 

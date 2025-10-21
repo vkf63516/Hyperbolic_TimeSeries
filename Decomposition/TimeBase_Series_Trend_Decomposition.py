@@ -215,7 +215,6 @@ class TimeBaseMSTL:
                 # looping through each basis function (trend, seasonal, residual pattern).
                 for j, (bname, comp) in enumerate(basis_decomp.items()):
                     coeff = coeffs[j] if j < len(coeffs) else 0
-                    repeats = (n_points + period - 1) // period
                     for key in ["seasonal_hourly", "seasonal_daily", "seasonal_weekly"]:
                         if key not in comp:
                             continue

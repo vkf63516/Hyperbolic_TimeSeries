@@ -45,7 +45,7 @@ class ParallelHyperbolicEncoder(nn.Module):
         
         # Three parallel Mamba encoder branches
         self.trend_encoder = MambaEncoder(1, hidden_dim, embed_dim)
-        self.seasonal_encoder = MambaEncoder(3, hidden_dim, embed_dim)  # hourly, daily, weekly
+        self.seasonal_encoder = MambaEncoder(1, hidden_dim, embed_dim)  # hourly, daily, weekly
         self.resid_encoder = MambaEncoder(1, hidden_dim, embed_dim)
         
         self.manifold = geoopt.PoincareBall(c=curvature)
@@ -77,27 +77,3 @@ class ParallelHyperbolicEncoder(nn.Module):
             "combined_h": z_combined
         }
 
-
-# # ---------------------------------------------------
-# # 3. Example usage
-# # ---------------------------------------------------
-# if __name__ == "__main__":
-#     batch_size = 8
-#     seq_len = 128
-
-#     model = ParallelHyperbolicEncoder(seq_len=seq_len, embed_dim=16, hidden_dim=64, curvature=1.0)
-    
-#     # Dummy decomposition input
-#     trend = torch.randn(batch_size, seq_len, 1)
-#     seasonal = torch.randn(batch_size, seq_len, 3)  # hourly, daily, weekly
-#     resid = torch.randn(batch_size, seq_len, 1)
-    
-#     out = model(trend, seasonal, resid)
-    
-#     print("Trend hyperbolic embedding:", out["trend_h"].shape)
-#     print("Seasonal hyperbolic embedding:", out["season_h"].shape)
-#     print("Residual hyperbolic embedding:", out["resid_h"].shape)
-#     print("Combined hyperbolic embedding:", out["combined_h"].shape)
-    
-#     dist = model.manifold.dist(out["combined_h"][0], out["combined_h"][1])
-#     print("Geodesic distance between two samples:", dist.item())
