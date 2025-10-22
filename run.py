@@ -23,7 +23,6 @@ from Decomposition.TimeBase_Series_Trend_Decomposition import TimeBaseMSTL
 from Decomposition.tensor_utils import build_decomposition_tensors
 from Decomposition.visualization_utils import plot_component_grid, plot_variance_contribution, plot_component_correlation_maps
 from Forecaster import HyperbolicSeqForecaster
-
 def set_seed(seed=42):
     random.seed(seed)
     np.random.seed(seed)
@@ -34,6 +33,109 @@ def set_seed(seed=42):
     print(f"Random seed set to {seed}")
 
 set_seed(42)
+
+# --------------------------------------------------------------------
+# 67. Hyperbolic loss helper
+# --------------------------------------------------------------------
+def hyperbolic_mse(manifold, z_pred, eps=1e-6):
+    # z_pred: [B, H, D+1]
+    z_pred = manifold.projx(z_pred)
+
+    z1 = z_pred[:, 1:, :].reshape(-1, z_pred.size(-1))
+    z0 = z_pred[:, :-1, :].reshape(-1, z_pred.size(-1))
+    if torch.isnan(z_pred).any() or torch.isinf(z_pred).any():
+        print("[NaN DETECTED] in z_pred passed to hyperbolic_mse")
+        print("z_pred stats:", torch.nanmean(z_pred))
+    # Compute Lorentz inner product manually and clamp it
+    inner = -manifold.inner(None, z1, z0)
+    if torch.isnan(inner).any() or torch.isinf(inner).any():
+        print("[NaN DETECTED] before clamp in hyperbolic_mse")
+
+    inner = torch.clamp(inner, min=1.0 + eps)
+    dist = torch.acosh(inner)
+    return (dist ** 2).mean()
+# --------------------------------------------------------------------
+# 8. Training loop
+# --------------------------------------------------------------------
+def training_and_validation(encoder, forecaster, optimizer, params, num_epochs, pred_len=96):
+
+    best_val_loss = np.inf
+    save_path = Path("checkpoints/best_model.pt")
+    save_path.parent.mkdir(exist_ok=True)
+    for epoch in range(1, num_epochs + 1):
+        encoder.train()
+        forecaster.train()
+        optimizer.zero_grad()
+
+        train_losses = []
+        for feat, tensors_f in train_tensors_dict.items():
+        #print("i = ", i)
+            batch_f = to_batch_feature_dict(tensors_f)
+
+            enc_out = encoder(batch_f["trend"], batch_f["seasonal"], batch_f["residual"])
+            check_nan_tensor("trend_h", enc_out["trend_h"])
+            check_nan_tensor("season_h", enc_out["season_h"])
+            check_nan_tensor("resid_h", enc_out["resid_h"])
+
+            zt, zs, zr = enc_out["trend_h"], enc_out["season_h"], enc_out["resid_h"]
+
+            x_hat, z_pred = forecaster.forecast(pred_len, trend_z=zt, seasonal_z=zs, resid_z=zr)
+            x_true = (
+                batch_f["trend"][:, -pred_len:, :] +
+                batch_f["seasonal"][:, -pred_len:, :] + 
+                batch_f["residual"][:, -pred_len:, :]
+            )
+            loss_rec = F.mse_loss(x_hat, x_true)
+            loss_geo = hyperbolic_mse(forecaster.manifold, z_pred)
+            loss = loss_rec + 0.1 * loss_geo
+            writer.add_scalar("Loss/train_total", loss.item(), epoch)
+            writer.add_scalar("Loss/train_reconstruction", loss_rec.item(), epoch)
+            writer.add_scalar("Loss/train_hyperbolic", loss_geo.item(), epoch)
+            loss.backward()
+            train_losses.append(loss.detach().item())
+        torch.nn.utils.clip_grad_norm_(params, max_norm=5.0)
+
+        optimizer.step()
+        train_loss = float(np.mean(train_losses))
+
+    # ---------------- Validation ----------------
+        encoder.eval()
+        forecaster.eval()
+        val_losses = []
+        with torch.no_grad():
+            for feat, tensors_f in val_tensors_dict.items():
+                batch_f = to_batch_feature_dict(tensors_f)
+                enc_val = encoder(batch_f["trend"], batch_f["seasonal"], batch_f["residual"])
+                zv_t, zv_s, zv_r = enc_val["trend_h"], enc_val["season_h"], enc_val["resid_h"]
+                x_val_hat, z_val_pred = forecaster.forecast(pred_len, trend_z=zv_t, seasonal_z=zv_s, resid_z=zv_r)
+                x_val_true = (
+                    batch_f["trend"][:, -pred_len:, :] +
+                    batch_f["seasonal"][:, -pred_len:, :] +
+                    batch_f["residual"][:, -pred_len:, :]
+                )
+                val_loss_rec = F.mse_loss(x_val_hat, x_val_true)
+                val_loss_geo = hyperbolic_mse(forecaster.manifold, z_val_pred)
+                val_loss = val_loss_rec + 0.1 * val_loss_geo
+                writer.add_scalar("Loss/train_total", val_loss.item(), epoch)
+                writer.add_scalar("Loss/train_reconstruction", val_loss_rec.item(), epoch)
+                writer.add_scalar("Loss/train_hyperbolic", val_loss_geo.item(), epoch)
+                val_losses.append(val_loss.detach().item())
+    
+        val_loss = float(np.mean(val_losses))
+        print(f"Epoch [{epoch}/{num_epochs}] - Train MSE: {train_loss:.6f} | Val MSE: {val_loss:.6f}")
+
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            torch.save({
+                "encoder": encoder.state_dict(),
+                "forecaster": forecaster.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "epoch": epoch,
+                "val_loss": val_loss
+            }, save_path)
+            print(f"Saved best model (Val MSE: {val_loss:.6f})")
+    print("Training complete.")
+
 
 # ---- NORMALIZATION HELPERS ----
 COMP_KEYS = ["trend", "seasonal_hourly", "seasonal_daily", "seasonal_weekly", "residual"]
@@ -186,108 +288,15 @@ manifold = encoder.manifold
 forecaster = HyperbolicSeqForecaster(embed_dim=embed_dim, hidden_dim=hidden_dim, output_dim=output_dim, manifold=manifold).to(device)
 
 params = list({p: None for p in list(encoder.parameters()) + list(forecaster.parameters())}.keys())
-optimizer = geoopt.optim.RiemannianAdam(params, lr=1e-4)
+optimizer = geoopt.optim.RiemannianAdam(
+    params, 
+    lr=1e-3,
+    betas=(0.9, 0.999),
+    eps=1e-8,
+    weight_decay=1e-4
+)
 num_epochs = 200
 training_and_validation(encoder=encoder, forecaster=forecaster, optimizer=optimizer, params=params, num_epochs=num_epochs, pred_len=pred_len_96)
+writer.flush()
+writer.close()
 #torch.autograd.set_detect_anomaly(True)
-# --------------------------------------------------------------------
-# 67. Hyperbolic loss helper
-# --------------------------------------------------------------------
-def hyperbolic_mse(manifold, z_pred, eps=1e-6):
-    # z_pred: [B, H, D+1]
-    z_pred = manifold.projx(z_pred)
-
-    z1 = z_pred[:, 1:, :].reshape(-1, z_pred.size(-1))
-    z0 = z_pred[:, :-1, :].reshape(-1, z_pred.size(-1))
-    if torch.isnan(z_pred).any() or torch.isinf(z_pred).any():
-        print("[NaN DETECTED] in z_pred passed to hyperbolic_mse")
-        print("z_pred stats:", torch.nanmean(z_pred))
-    # Compute Lorentz inner product manually and clamp it
-    inner = -manifold.inner(None, z1, z0)
-    if torch.isnan(inner).any() or torch.isinf(inner).any():
-        print("[NaN DETECTED] before clamp in hyperbolic_mse")
-
-    inner = torch.clamp(inner, min=1.0 + eps)
-    dist = torch.acosh(inner)
-    return (dist ** 2).mean()
-# --------------------------------------------------------------------
-# 8. Training loop
-# --------------------------------------------------------------------
-def training_and_validation(encoder, forecaster, optimizer, params, num_epochs, pred_len=96)
-
-    best_val_loss = np.inf
-    save_path = Path("checkpoints/best_model.pt")
-    save_path.parent.mkdir(exist_ok=True)
-    for epoch in range(1, num_epochs + 1):
-        encoder.train()
-        forecaster.train()
-        optimizer.zero_grad()
-
-        train_losses = []
-        for feat, tensors_f in train_tensors_dict.items():
-        #print("i = ", i)
-            batch_f = to_batch_feature_dict(tensors_f)
-
-            enc_out = encoder(batch_f["trend"], batch_f["seasonal"], batch_f["residual"])
-            check_nan_tensor("trend_h", enc_out["trend_h"])
-            check_nan_tensor("season_h", enc_out["season_h"])
-            check_nan_tensor("resid_h", enc_out["resid_h"])
-
-            zt, zs, zr = enc_out["trend_h"], enc_out["season_h"], enc_out["resid_h"]
-
-            x_hat, z_pred = forecaster.forecast(pred_len, trend_z=zt, seasonal_z=zs, resid_z=zr)
-            x_true = (
-                batch_f["trend"][:, -pred_len:, :] +
-                batch_f["seasonal"][:, -pred_len:, :] + 
-                batch_f["residual"][:, -pred_len:, :]
-            )
-            loss_rec = F.mse_loss(x_hat, x_true)
-            loss_geo = hyperbolic_mse(forecaster.manifold, z_pred)
-            loss = loss_rec + 0.1 * loss_geo
-            writer.add_scalar("Loss/train_total", loss.item(), epoch)
-            writer.add_scalar("Loss/train_reconstruction", loss_rec.item(), epoch)
-            writer.add_scalar("Loss/train_hyperbolic", loss_geo.item(), epoch)
-            loss.backward()
-            train_losses.append(loss.detach().item())
-        torch.nn.utils.clip_grad_norm_(params, max_norm=5.0)
-        
-        optimizer.step()
-        train_loss = float(np.mean(train_losses))
-
-    # ---------------- Validation ----------------
-        encoder.eval()
-        forecaster.eval()
-        val_losses = []
-        with torch.no_grad():
-            for feat, tensors_f in val_tensors_dict.items():
-                batch_f = to_batch_feature_dict(tensors_f)
-                enc_val = encoder(batch_f["trend"], batch_f["seasonal"], batch_f["residual"])
-                zv_t, zv_s, zv_r = enc_val["trend_h"], enc_val["season_h"], enc_val["resid_h"]
-                x_val_hat, z_val_pred = forecaster.forecast(pred_len, trend_z=zv_t, seasonal_z=zv_s, resid_z=zv_r)
-                x_val_true = (
-                    batch_f["trend"][:, -pred_len:, :] +
-                    batch_f["seasonal"][:, -pred_len:, :] +
-                    batch_f["residual"][:, -pred_len:, :]
-                )
-                val_loss_rec = F.mse_loss(x_val_hat, x_val_true)
-                val_loss_geo = hyperbolic_mse(forecaster.manifold, z_val_pred)
-                val_loss = val_loss_rec + 0.1 * val_loss_geo
-                writer.add_scalar("Loss/train_total", val_loss.item(), epoch)
-                writer.add_scalar("Loss/train_reconstruction", val_loss_rec.item(), epoch)
-                writer.add_scalar("Loss/train_hyperbolic", val_loss_geo.item(), epoch)
-                val_losses.append(val_loss.detach().item())
-    
-        val_loss = float(np.mean(val_losses))
-        print(f"Epoch [{epoch}/{num_epochs}] - Train MSE: {train_loss:.6f} | Val MSE: {val_loss:.6f}")
-
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            torch.save({
-                "encoder": encoder.state_dict(),
-                "forecaster": forecaster.state_dict(),
-                "optimizer": optimizer.state_dict(),
-                "epoch": epoch,
-                "val_loss": val_loss
-            }, save_path)
-            print(f"Saved best model (Val MSE: {val_loss:.6f})")
-    print("Training complete.")
