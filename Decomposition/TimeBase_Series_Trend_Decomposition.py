@@ -257,7 +257,6 @@ class TimeBaseMSTL:
         segments_dict = self.extract_periodic_segments(df, steps_per_period)
         decompositions = {}
         coeffs_dict = {}
-        print("Output of extract periodic segments: ", segments_dict)
         period_lst = [int(key) for key in segments_dict.keys()]
         for period, segments in segments_dict.items():
             print(f"\nPeriod {period} → segments {segments.shape[1]}")

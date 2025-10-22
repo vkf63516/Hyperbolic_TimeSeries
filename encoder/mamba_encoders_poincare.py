@@ -11,7 +11,7 @@ from utils import safe_expmap0
 # 1. Mamba encoder block
 # ---------------------------------------------------
 class MambaEncoder(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim, n_layer=3):
+    def __init__(self, input_dim, hidden_dim, output_dim, n_layer=3, lookback=None):
         super().__init__()
         self.input_proj = nn.Linear(input_dim, hidden_dim)
         self.layers = nn.ModuleList([ 
@@ -23,30 +23,33 @@ class MambaEncoder(nn.Module):
             ) for _ in range(n_layer)
         ])
         self.output_proj = nn.Linear(hidden_dim, output_dim)
+        self.lookback = lookback
 
     def forward(self, x):
         """
         x: [B, T, input_dim]
         returns: [B, output_dim]  (Euclidean latent, tangent vectors)
         """
+        if self.lookback is not None and x.size(1) > self.lookback:
+            x = x[:, -self.lookback:, :]
         x = self.input_proj(x)
         for layer in self.layers:
             x = layer(x)
         x = x.mean(dim=1)              # mean pooling
-        return self.output_proj(x)
+        return torch.tanh(self.output_proj(x))
 
 
 # ---------------------------------------------------
 # 2. Parallel Hyperbolic Encoder
 # ---------------------------------------------------
 class ParallelHyperbolicEncoder(nn.Module):
-    def __init__(self, seq_len, embed_dim=32, hidden_dim=64, curvature=1.0):
+    def __init__(self, lookback=None, embed_dim=32, hidden_dim=64, curvature=1.0):
         super().__init__()
         
         # Three parallel Mamba encoder branches
-        self.trend_encoder = MambaEncoder(1, hidden_dim, embed_dim)
-        self.seasonal_encoder = MambaEncoder(1, hidden_dim, embed_dim)  # hourly, daily, weekly
-        self.resid_encoder = MambaEncoder(1, hidden_dim, embed_dim)
+        self.trend_encoder = MambaEncoder(1, hidden_dim, embed_dim, lookback=lookback)
+        self.seasonal_encoder = MambaEncoder(1, hidden_dim, embed_dim, lookback=lookback)  # hourly, daily, weekly
+        self.resid_encoder = MambaEncoder(1, hidden_dim, embed_dim, lookback=lookback)
         
         self.manifold = geoopt.PoincareBall(c=curvature)
 

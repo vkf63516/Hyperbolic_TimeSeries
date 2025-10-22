@@ -36,7 +36,7 @@ class MambaEncoder(nn.Module):
         for layer in self.layers:
             x = layer(x)
         x = x.mean(dim=1)              # mean pooling
-        return self.output_proj(x)
+        return torch.tanh(self.output_proj(x))
 
 # class HierarchicalSeasonalEncoder(nn.Module):
 #     def __init__(self, embed_dim, hidden_dim):
@@ -60,7 +60,7 @@ class MambaEncoder(nn.Module):
 # Parallel encoders + Lorentz manifold fusion
 # --------------------------
 class ParallelLorentzEncoder(nn.Module):
-    def __init__(self, seq_len, embed_dim=32, hidden_dim=64, curvature=1.0):
+    def __init__(self, lookback=None, embed_dim=32, hidden_dim=64, curvature=1.0):
         """
         embed_dim: dimensionality of tangent-space vectors (intrinsic manifold dimension)
         For Lorentz model geoopt expects expmap/logmap shapes [B, embed_dim].
@@ -69,9 +69,9 @@ class ParallelLorentzEncoder(nn.Module):
         super().__init__()
 
         # Branch encoders
-        self.trend_encoder = MambaEncoder(input_dim=1, hidden_dim=hidden_dim, output_dim=embed_dim)
-        self.seasonal_encoder = MambaEncoder(input_dim=1, hidden_dim=hidden_dim, output_dim=embed_dim)  # hourly, daily, weekly
-        self.resid_encoder = MambaEncoder(input_dim=1, hidden_dim=hidden_dim, output_dim=embed_dim)
+        self.trend_encoder = MambaEncoder(input_dim=1, hidden_dim=hidden_dim, output_dim=embed_dim, lookback=lookback)
+        self.seasonal_encoder = MambaEncoder(input_dim=1, hidden_dim=hidden_dim, output_dim=embed_dim, lookback=lookback)  # hourly, daily, weekly
+        self.resid_encoder = MambaEncoder(input_dim=1, hidden_dim=hidden_dim, output_dim=embed_dim, lookback=lookback)
 
         # Lorentz manifold (k controls scale; curvature = -1/k)
         # Passing k = curvature (1.0 gives standard curvature -1)

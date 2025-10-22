@@ -11,7 +11,7 @@ def build_decomposition_tensors(df_components_or_dict):
     if isinstance(df_components_or_dict, pd.DataFrame):
         df = df_components_or_dict
 
-    # Case 2: TimeBaseMSTL single-series dictionary (Why is this the same values for all seasonal)
+    # Case 2: TimeBaseMSTL single-series dictionary 
     elif isinstance(df_components_or_dict, dict) and "trend" in df_components_or_dict:
         df = pd.DataFrame({
             "trend": df_components_or_dict["trend"],

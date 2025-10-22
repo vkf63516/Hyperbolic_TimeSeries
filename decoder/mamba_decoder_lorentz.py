@@ -41,5 +41,6 @@ class HyperbolicMambaDecoder(nn.Module):
         #z_next = self.manifold.expmap0(v_proj)
         #z_next = self.manifold.projx(z_next)
         z_next = safe_expmap0(self.manifold, v_proj)
+        z_next = torch.tanh(z_next)
         return z_next, v_proj
 
