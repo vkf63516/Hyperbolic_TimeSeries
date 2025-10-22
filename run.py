@@ -244,10 +244,13 @@ def training_and_validation(encoder, forecaster, optimizer, params, num_epochs, 
             loss_rec = F.mse_loss(x_hat, x_true)
             loss_geo = hyperbolic_mse(forecaster.manifold, z_pred)
             loss = loss_rec + 0.1 * loss_geo
-
+            writer.add_scalar("Loss/train_total", loss.item(), epoch)
+            writer.add_scalar("Loss/train_reconstruction", loss_rec.item(), epoch)
+            writer.add_scalar("Loss/train_hyperbolic", loss_geo.item(), epoch)
             loss.backward()
-            train_losses.append(loss_rec.detach().item())
+            train_losses.append(loss.detach().item())
         torch.nn.utils.clip_grad_norm_(params, max_norm=5.0)
+        
         optimizer.step()
         train_loss = float(np.mean(train_losses))
 
@@ -260,13 +263,19 @@ def training_and_validation(encoder, forecaster, optimizer, params, num_epochs, 
                 batch_f = to_batch_feature_dict(tensors_f)
                 enc_val = encoder(batch_f["trend"], batch_f["seasonal"], batch_f["residual"])
                 zv_t, zv_s, zv_r = enc_val["trend_h"], enc_val["season_h"], enc_val["resid_h"]
-                x_val_hat, _ = forecaster.forecast(pred_len, trend_z=zv_t, seasonal_z=zv_s, resid_z=zv_r)
+                x_val_hat, z_val_pred = forecaster.forecast(pred_len, trend_z=zv_t, seasonal_z=zv_s, resid_z=zv_r)
                 x_val_true = (
                     batch_f["trend"][:, -pred_len:, :] +
                     batch_f["seasonal"][:, -pred_len:, :] +
                     batch_f["residual"][:, -pred_len:, :]
                 )
-                val_losses.append(F.mse_loss(x_val_hat, x_val_true).item())
+                val_loss_rec = F.mse_loss(x_val_hat, x_val_true)
+                val_loss_geo = hyperbolic_mse(forecaster.manifold, z_val_pred)
+                val_loss = val_loss_rec + 0.1 * val_loss_geo
+                writer.add_scalar("Loss/train_total", val_loss.item(), epoch)
+                writer.add_scalar("Loss/train_reconstruction", val_loss_rec.item(), epoch)
+                writer.add_scalar("Loss/train_hyperbolic", val_loss_geo.item(), epoch)
+                val_losses.append(val_loss.detach().item())
     
         val_loss = float(np.mean(val_losses))
         print(f"Epoch [{epoch}/{num_epochs}] - Train MSE: {train_loss:.6f} | Val MSE: {val_loss:.6f}")
