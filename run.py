@@ -23,6 +23,7 @@ from Decomposition.TimeBase_Series_Trend_Decomposition import TimeBaseMSTL
 from Decomposition.tensor_utils import build_decomposition_tensors
 from Decomposition.visualization_utils import plot_component_grid, plot_variance_contribution, plot_component_correlation_maps
 from Forecaster import HyperbolicSeqForecaster
+from utils import RevIN, EarlyStopping
 def set_seed(seed=42):
     random.seed(seed)
     np.random.seed(seed)
@@ -57,11 +58,16 @@ def hyperbolic_mse(manifold, z_pred, eps=1e-6):
 # --------------------------------------------------------------------
 # 8. Training loop
 # --------------------------------------------------------------------
-def training_and_validation(encoder, forecaster, optimizer, params, num_epochs, pred_len=96):
+def training_and_validation(encoder, forecaster, optimizer,
+                            params, num_epochs, revin_trend,
+                            revin_seasonal, revin_resid, 
+                            revin_target, pred_len=96):
 
+    early_stopper = EarlyStopping(patience=10, verbose=True, delta=0.0)
     best_val_loss = np.inf
     save_path = Path("checkpoints/best_model.pt")
     save_path.parent.mkdir(exist_ok=True)
+    save_dir = save_path.parent
     for epoch in range(1, num_epochs + 1):
         encoder.train()
         forecaster.train()
@@ -69,30 +75,41 @@ def training_and_validation(encoder, forecaster, optimizer, params, num_epochs, 
 
         train_losses = []
         for feat, tensors_f in train_tensors_dict.items():
-        #print("i = ", i)
-            batch_f = to_batch_feature_dict(tensors_f)
+            batch_f = to_batch_feature_dict(tensors_f)  # dict of [B,T,C]
 
-            enc_out = encoder(batch_f["trend"], batch_f["seasonal"], batch_f["residual"])
-            check_nan_tensor("trend_h", enc_out["trend_h"])
+            # RevIN on inputs (ignore stats for inputs)
+            trend_n,   _ = revin_trend.normalize(batch_f["trend"])
+            seasonal_n, _ = revin_seasonal.normalize(batch_f["seasonal"])
+            resid_n,   _ = revin_resid.normalize(batch_f["residual"])
+
+            # Encode normalized inputs
+            enc_out = encoder(trend_n, seasonal_n, resid_n)
+            check_nan_tensor("trend_h",  enc_out["trend_h"])
             check_nan_tensor("season_h", enc_out["season_h"])
-            check_nan_tensor("resid_h", enc_out["resid_h"])
+            check_nan_tensor("resid_h",  enc_out["resid_h"])
 
             zt, zs, zr = enc_out["trend_h"], enc_out["season_h"], enc_out["resid_h"]
 
-            x_hat, z_pred = forecaster.forecast(pred_len, trend_z=zt, seasonal_z=zs, resid_z=zr)
-            x_true = (
-                batch_f["trend"][:, -pred_len:, :] +
-                batch_f["seasonal"][:, -pred_len:, :] + 
-                batch_f["residual"][:, -pred_len:, :]
-            )
-            loss_rec = F.mse_loss(x_hat, x_true)
+            # Forecast in target-normalized space
+            x_hat_n, z_pred = forecaster.forecast(pred_len, trend_z=zt, seasonal_z=zs, resid_z=zr)
+
+            # Build target and normalize with target RevIN (keep stats!)
+            x_true = batch_f["trend"] + batch_f["seasonal"] + batch_f["residual"]  # [B,T,C]
+            x_true_n, target_stats = revin_target.normalize(x_true)
+            x_true_n = x_true_n[:, -pred_len:, :]
+
+            # Losses
+            loss_rec = F.mse_loss(x_hat_n, x_true_n)
             loss_geo = hyperbolic_mse(forecaster.manifold, z_pred)
             loss = loss_rec + 0.1 * loss_geo
-            writer.add_scalar("Loss/train_total", loss.item(), epoch)
+
+            writer.add_scalar("Loss/train_total",          loss.item(),     epoch)
             writer.add_scalar("Loss/train_reconstruction", loss_rec.item(), epoch)
-            writer.add_scalar("Loss/train_hyperbolic", loss_geo.item(), epoch)
+            writer.add_scalar("Loss/train_hyperbolic",     loss_geo.item(), epoch)
+
             loss.backward()
-            train_losses.append(loss.detach().item())
+
+            train_losses.append(float(loss.detach().item()))
         torch.nn.utils.clip_grad_norm_(params, max_norm=5.0)
 
         optimizer.step()
@@ -102,28 +119,48 @@ def training_and_validation(encoder, forecaster, optimizer, params, num_epochs, 
         encoder.eval()
         forecaster.eval()
         val_losses = []
+        val_denorm_losses = []
         with torch.no_grad():
             for feat, tensors_f in val_tensors_dict.items():
                 batch_f = to_batch_feature_dict(tensors_f)
-                enc_val = encoder(batch_f["trend"], batch_f["seasonal"], batch_f["residual"])
+                trend_n,   _ = revin_trend.normalize(batch_f["trend"])
+                seasonal_n, _ = revin_seasonal.normalize(batch_f["seasonal"])
+                resid_n,   _ = revin_resid.normalize(batch_f["residual"])
+
+                enc_val = encoder(trend_n, seasonal_n, resid_n)
                 zv_t, zv_s, zv_r = enc_val["trend_h"], enc_val["season_h"], enc_val["resid_h"]
-                x_val_hat, z_val_pred = forecaster.forecast(pred_len, trend_z=zv_t, seasonal_z=zv_s, resid_z=zv_r)
-                x_val_true = (
-                    batch_f["trend"][:, -pred_len:, :] +
-                    batch_f["seasonal"][:, -pred_len:, :] +
-                    batch_f["residual"][:, -pred_len:, :]
+
+                x_val_hat_n, z_val_pred = forecaster.forecast(
+                    pred_len, trend_z=zv_t, seasonal_z=zv_s, resid_z=zv_r
                 )
-                val_loss_rec = F.mse_loss(x_val_hat, x_val_true)
+
+                x_val_true = batch_f["trend"] + batch_f["seasonal"] + batch_f["residual"]
+                x_val_true_n, target_stats = revin_target.normalize(x_val_true)
+                x_val_true_n = x_val_true_n[:, -pred_len:, :]
+
+                val_loss_rec = F.mse_loss(x_val_hat_n, x_val_true_n)
                 val_loss_geo = hyperbolic_mse(forecaster.manifold, z_val_pred)
                 val_loss = val_loss_rec + 0.1 * val_loss_geo
-                writer.add_scalar("Loss/train_total", val_loss.item(), epoch)
-                writer.add_scalar("Loss/train_reconstruction", val_loss_rec.item(), epoch)
-                writer.add_scalar("Loss/train_hyperbolic", val_loss_geo.item(), epoch)
+                writer.add_scalar("Loss/val_total", val_loss.item(), epoch)
+                writer.add_scalar("Loss/val_reconstruction", val_loss_rec.item(), epoch)
+                writer.add_scalar("Loss/val_hyperbolic", val_loss_geo.item(), epoch)
                 val_losses.append(val_loss.detach().item())
-    
-        val_loss = float(np.mean(val_losses))
-        print(f"Epoch [{epoch}/{num_epochs}] - Train MSE: {train_loss:.6f} | Val MSE: {val_loss:.6f}")
 
+                x_val_hat_den  = revin_target.denormalize(x_val_hat_n, target_stats)
+                x_val_true_den = revin_target.denormalize(x_val_true_n, target_stats)
+                val_denorm_losses.append(float(F.mse_loss(x_val_hat_den, x_val_true_den).item()))
+        val_loss = float(np.mean(val_losses))
+        log_msg = f"Epoch [{epoch}/{num_epochs}] - Train: {train_loss:.6f} | Val: {val_loss:.6f}"
+        if val_denorm_losses:
+            val_denorm = float(np.mean(val_denorm_losses))
+            log_msg += f" | Val (denorm): {val_denorm:.6f}"
+            writer.add_scalar("Loss/val_denorm_mse", val_denorm, epoch)
+        print(log_msg)
+
+        early_stopper(val_loss, forecaster, str(save_dir))
+        if early_stopper.early_stop:
+            print(f"Early stopping at epoch {epoch}.")
+            break
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             torch.save({
@@ -137,47 +174,16 @@ def training_and_validation(encoder, forecaster, optimizer, params, num_epochs, 
     print("Training complete.")
 
 
-# ---- NORMALIZATION HELPERS ----
-COMP_KEYS = ["trend", "seasonal_hourly", "seasonal_daily", "seasonal_weekly", "residual"]
-
-def compute_norm_stats(components_dict):
-    """
-    components_dict: { series_name: {component_key: 1D array of length T} }
-    returns: { series_name: {component_key: (mean, std)} }
-    """
-    stats = {}
-    for name, comp in components_dict.items():
-        stats[name] = {}
-        for k in COMP_KEYS:
-            x = np.asarray(comp[k], dtype=np.float64)
-            m = float(np.nanmean(x))
-            s = float(np.nanstd(x))
-            if not np.isfinite(s) or s < 1e-6:
-                s = 1.0  # avoid division by zero; keep scale ~1
-            stats[name][k] = (m, s)
-    return stats
-
-def apply_norm(components_dict, stats):
-    """
-    Apply (x - mean)/std using per-series, per-component stats.
-    """
-    out = {}
-    for name, comp in components_dict.items():
-        out[name] = {}
-        for k in COMP_KEYS:
-            x = np.asarray(comp[k], dtype=np.float64)
-            m, s = stats[name][k] if name in stats else (0.0, 1.0)
-            y = (x - m) / s
-            # sanitize any NaN/Inf that might sneak in
-            # y = np.nan_to_num(y, nan=0.0, posinf=0.0, neginf=0.0)
-            out[name][k] = y
-    return out
-
 
 # -------------------------------------------------------------
 # 1. Device setup
 # -------------------------------------------------------------
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+if device.type == "cuda":
+    # Enable TensorFloat-32 (TF32) on Ampere+ GPUs (e.g., A100)
+    torch.backends.cuda.matmul.allow_tf32 = True   # speeds up Linear/MatMul
+    torch.backends.cudnn.allow_tf32 = True         # speeds up Conv/related ops
+    
 print(f"Using device: {device}")
 
 # -------------------------------------------------------------
@@ -251,21 +257,14 @@ val_components   = timebase.fit_transform(val_df)
 #     plot_component_grid(name, train_components)
 # plot_variance_contribution(train_components)
 # plot_component_correlation_maps(train_components)
-
-# Normalize & tensors
-train_stats = compute_norm_stats(train_components)
-train_norm  = apply_norm(train_components, train_stats)
-val_norm    = apply_norm(val_components, train_stats)
-
-
 def build_timebase_tensors(decomp_dict):
     tensors = {}
     for name, comp in decomp_dict.items():
         tensors[name] = build_decomposition_tensors(comp)
     return tensors
 
-train_tensors_dict = build_timebase_tensors(train_norm)
-val_tensors_dict   = build_timebase_tensors(val_norm)
+train_tensors_dict = build_timebase_tensors(train_components)
+val_tensors_dict   = build_timebase_tensors(val_components)
 check_tensor_values(train_tensors_dict, "Train")
 check_tensor_values(val_tensors_dict, "Validation")
 
@@ -277,7 +276,7 @@ def to_batch_feature_dict(feature_dict):
 # 6. Initialize models
 # --------------------------------------------------------------------
 embed_dim = 32
-hidden_dim = 64
+hidden_dim = 128
 output_dim = 1
 pred_len_96 = 96
 pred_len_96 = 192
@@ -286,8 +285,18 @@ pred_len_96 = 720
 encoder = ParallelLorentzEncoder(lookback=lookback, embed_dim=embed_dim, hidden_dim=hidden_dim).to(device)
 manifold = encoder.manifold
 forecaster = HyperbolicSeqForecaster(embed_dim=embed_dim, hidden_dim=hidden_dim, output_dim=output_dim, manifold=manifold).to(device)
-
-params = list({p: None for p in list(encoder.parameters()) + list(forecaster.parameters())}.keys())
+revin_trend    = RevIN(num_channels=1, affine=True).to(device)
+revin_seasonal = RevIN(num_channels=1, affine=True).to(device)
+revin_resid    = RevIN(num_channels=1, affine=True).to(device)
+revin_target   = RevIN(num_channels=1, affine=True).to(device)
+params = list({p: None for p in (
+    list(encoder.parameters()) +
+    list(forecaster.parameters()) +
+    list(revin_trend.parameters()) +
+    list(revin_seasonal.parameters()) +
+    list(revin_resid.parameters()) +
+    list(revin_target.parameters())
+)}.keys())
 optimizer = geoopt.optim.RiemannianAdam(
     params, 
     lr=1e-3,
@@ -295,8 +304,18 @@ optimizer = geoopt.optim.RiemannianAdam(
     eps=1e-8,
     weight_decay=1e-4
 )
+
 num_epochs = 200
-training_and_validation(encoder=encoder, forecaster=forecaster, optimizer=optimizer, params=params, num_epochs=num_epochs, pred_len=pred_len_96)
+training_and_validation(encoder=encoder,
+                        forecaster=forecaster,
+                        optimizer=optimizer, 
+                        params=params, 
+                        num_epochs=num_epochs, 
+                        revin_trend=revin_trend, 
+                        revin_seasonal=revin_seasonal,
+                        revin_resid=revin_resid, 
+                        revin_target=revin_target,
+                        pred_len=pred_len_96)
 writer.flush()
 writer.close()
 #torch.autograd.set_detect_anomaly(True)
