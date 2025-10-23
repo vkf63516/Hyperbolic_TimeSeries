@@ -27,6 +27,7 @@ class TimeBaseMSTL:
         self.orthogonal_iters = orthogonal_iters
         self.basis_components = {}
         self.series_coefficients = {}
+        self.feature_names = None
 
     # -------------------------------
     # Period Detection
@@ -129,7 +130,7 @@ class TimeBaseMSTL:
     # MSTL Decomposition
     # -------------------------------
 
-    def decompose_basis_components(self, df, basis_components, periods, seasonal_type="seasonal_hourly"):
+    def decompose_basis_components(self, basis_components, periods, seasonal_type="seasonal_hourly"):
         """
         Decompose all orthogonal basis components together using BatchedMSTL.
         Each basis is treated as a separate time series in the batch.
@@ -249,26 +250,69 @@ class TimeBaseMSTL:
     # -------------------------------
     # Full Pipeline
     # -------------------------------
-    def fit_transform(self, df):
-        print(f"Decomposing {df.shape[1]} series using orthogonal TimeBase-MSTL...")
+    def fit(self, df):
+        """
+        Learn bases and coefficients from the training data,
+        but don't reconstruct or return anything yet.
+        """
+        print(f"Learning orthogonal bases from {df.shape[1]} series...")
         steps_per_period = self.timesteps_from_index(df)
-        print(f"⏱ Inferred periods: {steps_per_period} timesteps")
+        self.feature_names = list(df.columns)
+        self.steps_per_period = steps_per_period
 
         segments_dict = self.extract_periodic_segments(df, steps_per_period)
-        decompositions = {}
-        coeffs_dict = {}
+        self.basis_components = {}
+        self.series_coefficients = {}
+
         period_lst = [int(key) for key in segments_dict.keys()]
         for period, segments in segments_dict.items():
-            print(f"\nPeriod {period} → segments {segments.shape[1]}")
             basis, coeffs = self.learn_orthogonal_basis(segments)
+            self.basis_components[period] = basis
+            self.series_coefficients[period] = coeffs
+        return self
+
+    def transform(self, df):
+        """
+        Use the learned bases and coefficients from `fit()`
+        to decompose and reconstruct new data (val/test sets).
+        """
+        if not self.basis_components or not self.series_coefficients:
+            raise RuntimeError("Call fit(train_df) before transform().")
+
+        print(f"Reusing learned bases to decompose {df.shape[1]} series...")
+        period_lst = list(self.basis_components.keys())
+        decompositions = {}
+        for period, basis in self.basis_components.items():
             if period == min(period_lst):
                 seasonal_type = "seasonal_hourly"
             elif period == max(period_lst):
                 seasonal_type = "seasonal_weekly"
             else:
                 seasonal_type = "seasonal_daily"
-            decomposed_basis = self.decompose_basis_components(df, basis, period_lst, seasonal_type)
+            decomposed_basis = self.decompose_basis_components(basis, period_lst, seasonal_type)
             decompositions[period] = decomposed_basis
-            coeffs_dict[period] = coeffs
+        return self.reconstruct_series_decomposition(df, decompositions, self.series_coefficients)
 
-        return self.reconstruct_series_decomposition(df, decompositions, coeffs_dict)
+    # def fit_transform(self, df):
+    #     print(f"Decomposing {df.shape[1]} series using orthogonal TimeBase-MSTL...")
+    #     steps_per_period = self.timesteps_from_index(df)
+    #     print(f"⏱ Inferred periods: {steps_per_period} timesteps")
+
+    #     segments_dict = self.extract_periodic_segments(df, steps_per_period)
+    #     decompositions = {}
+    #     coeffs_dict = {}
+    #     period_lst = [int(key) for key in segments_dict.keys()]
+    #     for period, segments in segments_dict.items():
+    #         print(f"\nPeriod {period} → segments {segments.shape[1]}")
+    #         basis, coeffs = self.learn_orthogonal_basis(segments)
+    #         if period == min(period_lst):
+    #             seasonal_type = "seasonal_hourly"
+    #         elif period == max(period_lst):
+    #             seasonal_type = "seasonal_weekly"
+    #         else:
+    #             seasonal_type = "seasonal_daily"
+    #         decomposed_basis = self.decompose_basis_components(basis, period_lst, seasonal_type)
+    #         decompositions[period] = decomposed_basis
+    #         coeffs_dict[period] = coeffs
+
+    #     return self.reconstruct_series_decomposition(df, decompositions, coeffs_dict)

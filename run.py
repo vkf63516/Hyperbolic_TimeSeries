@@ -10,6 +10,7 @@ import numpy as np
 import warnings
 import matplotlib.pyplot as plt 
 import torch
+import time
 from torch.utils.tensorboard import SummaryWriter
 writer = SummaryWriter()
 
@@ -69,12 +70,13 @@ def training_and_validation(encoder, forecaster, optimizer,
     save_path.parent.mkdir(exist_ok=True)
     save_dir = save_path.parent
     for epoch in range(1, num_epochs + 1):
+        epoch_time = time.time()
         encoder.train()
         forecaster.train()
-        optimizer.zero_grad()
-
         train_losses = []
         for feat, tensors_f in train_tensors_dict.items():
+            optimizer.zero_grad()
+
             batch_f = to_batch_feature_dict(tensors_f)  # dict of [B,T,C]
 
             # RevIN on inputs (ignore stats for inputs)
@@ -110,9 +112,9 @@ def training_and_validation(encoder, forecaster, optimizer,
             loss.backward()
 
             train_losses.append(float(loss.detach().item()))
-        torch.nn.utils.clip_grad_norm_(params, max_norm=5.0)
+            torch.nn.utils.clip_grad_norm_(params, max_norm=5.0)
 
-        optimizer.step()
+            optimizer.step()
         train_loss = float(np.mean(train_losses))
 
     # ---------------- Validation ----------------
@@ -156,7 +158,7 @@ def training_and_validation(encoder, forecaster, optimizer,
             log_msg += f" | Val (denorm): {val_denorm:.6f}"
             writer.add_scalar("Loss/val_denorm_mse", val_denorm, epoch)
         print(log_msg)
-
+        print("Epoch: {} cost time: {}".format(epoch, time.time() - epoch_time))
         early_stopper(val_loss, forecaster, str(save_dir))
         if early_stopper.early_stop:
             print(f"Early stopping at epoch {epoch}.")
@@ -173,6 +175,83 @@ def training_and_validation(encoder, forecaster, optimizer,
             print(f"Saved best model (Val MSE: {val_loss:.6f})")
     print("Training complete.")
 
+def test_evaluation(encoder, forecaster, revin_trend, revin_seasonal, revin_resid, revin_target,
+                    test_tensors_dict, pred_len=96, device="cuda", ckpt_path="checkpoints/best_model.pt"):
+    """
+    Evaluate the trained model on the held-out test set.
+    Computes reconstruction, hyperbolic, and denormalized MSE/MAE losses.
+    """
+    print("\n=== Starting Test Evaluation ===")
+    # -------------------------------------------------
+    # Load best saved model
+    # -------------------------------------------------
+    if Path(ckpt_path).exists():
+        ckpt = torch.load(ckpt_path, map_location=device)
+        encoder.load_state_dict(ckpt["encoder"])
+        forecaster.load_state_dict(ckpt["forecaster"])
+        print(f"Loaded best model checkpoint from epoch {ckpt['epoch']} (Val MSE: {ckpt['val_loss']:.6f})")
+    else:
+        print("⚠️ Warning: checkpoint not found — using current weights.")
+
+    encoder.eval()
+    forecaster.eval()
+
+    test_mse_n, test_geo, test_mse_den, test_mae_den = [], [], [], []
+
+    with torch.no_grad():
+        for feat, tensors_f in test_tensors_dict.items():
+            batch_f = {k: v.unsqueeze(0).float().to(device) for k, v in tensors_f.items()}
+
+            # Normalize input components
+            trend_n,   _ = revin_trend.normalize(batch_f["trend"])
+            seasonal_n, _ = revin_seasonal.normalize(batch_f["seasonal"])
+            resid_n,    _ = revin_resid.normalize(batch_f["residual"])
+
+            # Encode
+            enc_out = encoder(trend_n, seasonal_n, resid_n)
+            zt, zs, zr = enc_out["trend_h"], enc_out["season_h"], enc_out["resid_h"]
+
+            # Forecast
+            x_hat_n, z_pred = forecaster.forecast(pred_len, zt, zs, zr)
+
+            # True target
+            x_true = batch_f["trend"] + batch_f["seasonal"] + batch_f["residual"]
+
+            # --- Normalized-space losses ---
+            x_true_n, target_stats = revin_target.normalize(x_true)
+            x_true_n = x_true_n[:, -pred_len:, :]
+            rec_loss = F.mse_loss(x_hat_n, x_true_n).item()
+            geo_loss = hyperbolic_mse(forecaster.manifold, z_pred).item()
+            test_mse_n.append(rec_loss)
+            test_geo.append(geo_loss)
+
+            # --- Denormalized-space losses (for report) ---
+            x_val_hat_den  = revin_target.denormalize(x_hat_n, target_stats)
+            x_val_true_den = revin_target.denormalize(x_true_n, target_stats)
+            test_mse_den.append(F.mse_loss(x_val_hat_den, x_val_true_den).item())
+            test_mae_den.append(F.l1_loss(x_val_hat_den, x_val_true_den).item())
+
+    # -------------------------------------------------
+    # Final reporting
+    # -------------------------------------------------
+    mse_n, geo, mse_den, mae_den = (
+        np.mean(test_mse_n), np.mean(test_geo),
+        np.mean(test_mse_den), np.mean(test_mae_den)
+    )
+
+    print(f"=== TEST RESULTS ===")
+    print(f"Normalized-space MSE: {mse_n:.6f}")
+    print(f"Hyperbolic loss:       {geo:.6f}")
+    print(f"Denormalized MSE:      {mse_den:.6f}")
+    print(f"Denormalized MAE:      {mae_den:.6f}")
+    print("====================\n")
+
+    return {
+        "mse_norm": mse_n,
+        "geo_loss": geo,
+        "mse_denorm": mse_den,
+        "mae_denorm": mae_den
+    }
 
 
 # -------------------------------------------------------------
@@ -192,8 +271,13 @@ print(f"Using device: {device}")
 df = pd.read_csv("time-series-dataset/dataset/weather/weather.csv", parse_dates=["date"], index_col="date")
 df = df.select_dtypes(include=[np.number])
 
-train_df, val_df = train_test_split(df, test_size=0.2, shuffle=False)
+train_val_df, test_df = train_test_split(df, test_size=0.2, shuffle=False)
+train_df, val_df = train_test_split(train_val_df, test_size=0.125, shuffle=False)
+def split_ratios(train_df, val_df, test_df, total):
+    return len(train_df)/total, len(val_df)/total, len(test_df)/total
 
+tr, va, te = split_ratios(train_df, val_df, test_df, len(df))
+print(f"Ratios -> train:{tr:.3f}, val:{va:.3f}, test:{te:.3f}")
 
 # -------------------------------------------------------------
 # 4. Compute adaptive periods and window lengths
@@ -205,7 +289,7 @@ steps_per_period = timebase.timesteps_from_index(df)
 hourly, daily, weekly = steps_per_period
 
 lookback = weekly
-pred_len = int(daily)
+pred_len = 96
 
 print(f"Timesteps per hour/day/week: {hourly}, {daily}, {weekly}")
 print(f"lookback window={lookback}, pred_len={pred_len}")
@@ -248,8 +332,10 @@ def check_tensor_values(tensors_dict, name="Train"):
 
 print("Performing TimeBaseMSTL decomposition...")
 
-train_components = timebase.fit_transform(train_df)
-val_components   = timebase.fit_transform(val_df)
+timebase.fit(train_df)
+train_components = timebase.transform(train_df)
+val_components   = timebase.transform(val_df)
+test_components = timebase.transform(test_df)
 # -------------------------------------------------------------
 # 3. Normalize using training statistics only
 # -------------------------------------------------------------
@@ -316,6 +402,22 @@ training_and_validation(encoder=encoder,
                         revin_resid=revin_resid, 
                         revin_target=revin_target,
                         pred_len=pred_len_96)
+
 writer.flush()
 writer.close()
+test_tensors_dict = build_timebase_tensors(test_components)
+
+# Run test evaluation
+test_metrics = test_evaluation(
+    encoder=encoder,
+    forecaster=forecaster,
+    revin_trend=revin_trend,
+    revin_seasonal=revin_seasonal,
+    revin_resid=revin_resid,
+    revin_target=revin_target,
+    test_tensors_dict=test_tensors_dict,
+    pred_len=pred_len,
+    device=device,
+    ckpt_path="checkpoints/best_model.pt"
+)
 #torch.autograd.set_detect_anomaly(True)

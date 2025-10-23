@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import geoopt
+import numpy as np 
 # --------------------------
 # Clamping with safe Exponential map
 # --------------------------
@@ -48,7 +49,7 @@ class EarlyStopping:
         self.counter = 0
         self.best_score = None
         self.early_stop = False
-        self.val_loss_min = np.Inf
+        self.val_loss_min = np.inf
         self.delta = delta
 
     def __call__(self, val_loss, model, path):
