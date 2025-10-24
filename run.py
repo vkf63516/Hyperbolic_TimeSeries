@@ -24,7 +24,7 @@ from Decomposition.TimeBase_Series_Trend_Decomposition import TimeBaseMSTL
 from Decomposition.tensor_utils import build_decomposition_tensors
 from Decomposition.visualization_utils import plot_component_grid, plot_variance_contribution, plot_component_correlation_maps
 from Forecaster import HyperbolicSeqForecaster
-from utils import RevIN, EarlyStopping
+from utils import RevIN, EarlyStopping, Create_Segmented_Tensors
 def set_seed(seed=42):
     random.seed(seed)
     np.random.seed(seed)
@@ -81,9 +81,10 @@ def hyperbolic_mse(manifold, z_pred, eps=1e-6):
 # 8. Training loop
 # --------------------------------------------------------------------
 def training_and_validation(encoder, forecaster, optimizer,
-                            params, num_epochs, revin_trend,
-                            revin_seasonal, revin_resid, 
-                            revin_target, global_mu, global_sigma, pred_len=96):
+                            params, num_epochs, train_segments,
+                            val_segments, revin_trend,revin_seasonal,
+                            revin_resid, revin_target, global_mu, 
+                            global_sigma, pred_len=96):
 
     early_stopper = EarlyStopping(patience=10, verbose=True, delta=0.0)
     best_val_loss = np.inf
@@ -95,7 +96,7 @@ def training_and_validation(encoder, forecaster, optimizer,
         encoder.train()
         forecaster.train()
         train_losses = []
-        for feat, tensors_f in train_tensors_dict.items():
+        for feat, tensors_f in train_segments.items():
             optimizer.zero_grad()
 
             batch_f = to_batch_feature_dict(tensors_f)  # dict of [B,T,C]
@@ -145,7 +146,7 @@ def training_and_validation(encoder, forecaster, optimizer,
         val_denorm_losses = []
         val_paper_losses = []
         with torch.no_grad():
-            for feat, tensors_f in val_tensors_dict.items():
+            for feat, tensors_f in val_segments.items():
                 batch_f = to_batch_feature_dict(tensors_f)
                 trend_n,   _ = revin_trend.normalize(batch_f["trend"])
                 seasonal_n, _ = revin_seasonal.normalize(batch_f["seasonal"])
@@ -214,8 +215,8 @@ def training_and_validation(encoder, forecaster, optimizer,
             print(f"Saved best model (Val MSE: {val_loss:.6f})")
     print("Training complete.")
 
-def test_evaluation(encoder, forecaster, revin_trend, revin_seasonal, revin_resid, revin_target,
-                    test_tensors_dict, global_mu, global_sigma, pred_len=96, device="cuda", ckpt_path="checkpoints/best_model.pt"):
+def test_evaluation(encoder, forecaster, test_segments, revin_trend, revin_seasonal, revin_resid, revin_target,
+                    global_mu, global_sigma, pred_len=96, device="cuda", ckpt_path="checkpoints/best_model.pt"):
     """
     Evaluate the trained model on the held-out test set.
     Computes reconstruction, hyperbolic, and denormalized MSE/MAE losses.
@@ -239,7 +240,7 @@ def test_evaluation(encoder, forecaster, revin_trend, revin_seasonal, revin_resi
     test_mse_paper = []
 
     with torch.no_grad():
-        for feat, tensors_f in test_tensors_dict.items():
+        for feat, tensors_f in test_segments.items():
             batch_f = {k: v.unsqueeze(0).float().to(device) for k, v in tensors_f.items()}
 
             # Normalize input components
@@ -409,6 +410,9 @@ def build_timebase_tensors(decomp_dict):
 
 train_tensors_dict = build_timebase_tensors(train_components)
 val_tensors_dict   = build_timebase_tensors(val_components)
+
+train_segments = Create_Segmented_Tensors(train_tensors_dict, input_len=lookback, pred_len=pred_len_96)
+val_segments = Create_Segmented_Tensors(val_tensors_dict, input_len=lookback, pred_len=pred_len_96)
 check_tensor_values(train_tensors_dict, "Train")
 check_tensor_values(val_tensors_dict, "Validation")
 
@@ -451,7 +455,9 @@ training_and_validation(encoder=encoder,
                         forecaster=forecaster,
                         optimizer=optimizer, 
                         params=params, 
-                        num_epochs=num_epochs, 
+                        num_epochs=num_epochs,
+                        train_segments=train_segments,
+                        val_segments=val_segments, 
                         revin_trend=revin_trend, 
                         revin_seasonal=revin_seasonal,
                         revin_resid=revin_resid, 
@@ -468,11 +474,11 @@ test_tensors_dict = build_timebase_tensors(test_components)
 test_metrics = test_evaluation(
     encoder=encoder,
     forecaster=forecaster,
+    test_segments=test_segments,
     revin_trend=revin_trend,
     revin_seasonal=revin_seasonal,
     revin_resid=revin_resid,
     revin_target=revin_target,
-    test_tensors_dict=test_tensors_dict,
     global_mu=global_mu,
     global_sigma=global_sigma,
     pred_len=pred_len_96,

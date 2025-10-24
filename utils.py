@@ -73,3 +73,57 @@ class EarlyStopping:
         torch.save(model.state_dict(), path + '/' + 'checkpoint.pth')
         self.val_loss_min = val_loss
 
+def Create_Segmented_Tensors(tensors_dict, input_len=720, pred_len=96, stride=None):
+    """
+    Create fixed-length (X, Y) segments from decomposed tensors for each feature.
+    Equivalent to TSLib/TimeBase dataloader segmenting.
+
+    Parameters
+    ----------
+    tensors_dict : dict
+        {feature_name: {"trend": tensor[T,C], "seasonal": tensor[T,C], "residual": tensor[T,C]}}
+    input_len : int
+        Length of past window used as model input.
+    pred_len : int
+        Length of future window to predict.
+    stride : int
+        Step size between windows (default: pred_len).
+        Smaller stride increases overlap (TimeMixer-style).
+    """
+    segmented = {}
+    if stride is None:
+        stride = pred_len
+
+    for feat, comps in tensors_dict.items():
+        X_trend, Y_trend = [], []
+        X_seas,  Y_seas  = [], []
+        X_res,   Y_res   = [], []
+
+        trend = comps["trend"]
+        seas = comps["seasonal"]
+        resid = comps["residual"]
+        T = trend.shape[0]
+
+        for i in range(0, T - input_len - pred_len + 1, stride):
+            X_trend.append(trend[i : i + input_len])
+            Y_trend.append(trend[i + input_len : i + input_len + pred_len])
+
+            X_seas.append(seas[i : i + input_len])
+            Y_seas.append(seas[i + input_len : i + input_len + pred_len])
+
+            X_res.append(resid[i : i + input_len])
+            Y_res.append(resid[i + input_len : i + input_len + pred_len])
+
+        segmented[feat] = {
+            "X": {
+                "trend": torch.stack(X_trend),
+                "seasonal": torch.stack(X_seas),
+                "residual": torch.stack(X_res),
+            },
+            "Y": {
+                "trend": torch.stack(Y_trend),
+                "seasonal": torch.stack(Y_seas),
+                "residual": torch.stack(Y_res),
+            }
+        }
+    return segmented
