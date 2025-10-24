@@ -426,7 +426,7 @@ def to_batch_feature_dict(feature_dict):
 embed_dim = 32
 hidden_dim = 128
 output_dim = 1
-global_mu, global_sigma = compute_global_train_stats(train_tensors_dict, device)
+global_mu, global_sigma = compute_global_train_stats(train_segments, device)
 encoder = ParallelLorentzEncoder(lookback=lookback, embed_dim=embed_dim, hidden_dim=hidden_dim).to(device)
 manifold = encoder.manifold
 forecaster = HyperbolicSeqForecaster(embed_dim=embed_dim, hidden_dim=hidden_dim, output_dim=output_dim, manifold=manifold).to(device)
@@ -469,6 +469,7 @@ training_and_validation(encoder=encoder,
 writer.flush()
 writer.close()
 test_tensors_dict = build_timebase_tensors(test_components)
+test_segments = Create_Segmented_Tensors(test_tensors_dict, input_len=lookback, pred_len=pred_len_96)
 
 # Run test evaluation
 test_metrics = test_evaluation(
