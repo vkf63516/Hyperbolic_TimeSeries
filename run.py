@@ -35,6 +35,27 @@ def set_seed(seed=42):
     print(f"Random seed set to {seed}")
 
 set_seed(42)
+@torch.no_grad()
+def compute_global_train_stats(train_tensors_dict, device="cpu"):
+    sum_x = None
+    sum_x2 = None
+    n = 0
+    for _, tensors_f in train_tensors_dict.items():
+        x = (tensors_f["trend"] + tensors_f["seasonal"] + tensors_f["residual"]).float().to(device)
+        if x.dim() == 2:  # [T,C] → [1,T,C]
+            x = x.unsqueeze(0)
+        B, T, C = x.shape
+        x = x.view(B * T, C)  # flatten time
+        s  = x.sum(dim=0, keepdim=True)
+        s2 = (x * x).sum(dim=0, keepdim=True)
+        cnt = x.shape[0]
+        sum_x  = s if sum_x  is None else sum_x  + s
+        sum_x2 = s2 if sum_x2 is None else sum_x2 + s2
+        n += cnt
+    mu = sum_x / n
+    var = sum_x2 / n - mu * mu
+    sigma = torch.sqrt(torch.clamp(var, min=1e-8))
+    return mu.unsqueeze(0).unsqueeze(0), sigma.unsqueeze(0).unsqueeze(0)  # [1,1,C]
 
 # --------------------------------------------------------------------
 # 67. Hyperbolic loss helper
@@ -62,7 +83,7 @@ def hyperbolic_mse(manifold, z_pred, eps=1e-6):
 def training_and_validation(encoder, forecaster, optimizer,
                             params, num_epochs, revin_trend,
                             revin_seasonal, revin_resid, 
-                            revin_target, pred_len=96):
+                            revin_target, global_mu, global_sigma, pred_len=96):
 
     early_stopper = EarlyStopping(patience=10, verbose=True, delta=0.0)
     best_val_loss = np.inf
@@ -122,6 +143,7 @@ def training_and_validation(encoder, forecaster, optimizer,
         forecaster.eval()
         val_losses = []
         val_denorm_losses = []
+        val_paper_losses = []
         with torch.no_grad():
             for feat, tensors_f in val_tensors_dict.items():
                 batch_f = to_batch_feature_dict(tensors_f)
@@ -147,16 +169,33 @@ def training_and_validation(encoder, forecaster, optimizer,
                 writer.add_scalar("Loss/val_reconstruction", val_loss_rec.item(), epoch)
                 writer.add_scalar("Loss/val_hyperbolic", val_loss_geo.item(), epoch)
                 val_losses.append(val_loss.detach().item())
-
-                x_val_hat_den  = revin_target.denormalize(x_val_hat_n, target_stats)
-                x_val_true_den = revin_target.denormalize(x_val_true_n, target_stats)
-                val_denorm_losses.append(float(F.mse_loss(x_val_hat_den, x_val_true_den).item()))
+                # --- History-only denormalization (no leakage) --- 
+                x_val_true = batch_f["trend"] + batch_f["seasonal"] + batch_f["residual"] 
+                x_hist = x_val_true[:, :-pred_len, :]
+                x_fut = x_val_true[:, -pred_len:, :] # Get mean/std from history only — ensures no leakage
+                mu, sigma = revin_target._stats(x_hist)
+                sigma = torch.clamp(sigma, min=1e-6)
+                x_val_hat_den = x_val_hat_n * sigma + mu
+                val_denorm_mse = F.mse_loss(x_val_hat_den, x_fut).item() 
+                val_denorm_mae = F.l1_loss(x_val_hat_den, x_fut).item()
+                val_denorm_losses.append(val_denorm_mse)
+                # --- Paper-scale metrics (global StandardScaler)
+                mu_g = global_mu.to(x_val_hat_den.device)
+                sigma_g = torch.clamp(global_sigma.to(x_val_hat_den.device), min=1e-6)
+                x_hat_paper = (x_val_hat_den - mu_g) / sigma_g
+                x_fut_paper = (x_fut - mu_g) / sigma_g
+                val_mse_paper = F.mse_loss(x_hat_paper, x_fut_paper).item()
+                val_paper_losses.append(val_mse_paper)
+                # # x_val_hat_den  = revin_target.denormalize(x_val_hat_n, target_stats)
+                # x_val_true_den = revin_target.denormalize(x_val_true_n, target_stats)
+                # val_denorm_losses.append(float(F.mse_loss(x_val_hat_den, x_val_true_den).item()))
         val_loss = float(np.mean(val_losses))
+        # val_paper_mse = float(np.mean(val_paper_losses))
         log_msg = f"Epoch [{epoch}/{num_epochs}] - Train: {train_loss:.6f} | Val: {val_loss:.6f}"
-        if val_denorm_losses:
-            val_denorm = float(np.mean(val_denorm_losses))
-            log_msg += f" | Val (denorm): {val_denorm:.6f}"
-            writer.add_scalar("Loss/val_denorm_mse", val_denorm, epoch)
+        if val_paper_losses:
+            val_paper_mse = float(np.mean(val_paper_losses))
+            log_msg += f" | Val (paper): {val_paper_mse:.6f}"
+            writer.add_scalar("Loss/val_paper_mse", val_paper_mse, epoch)
         print(log_msg)
         print("Epoch: {} cost time: {}".format(epoch, time.time() - epoch_time))
         early_stopper(val_loss, forecaster, str(save_dir))
@@ -176,7 +215,7 @@ def training_and_validation(encoder, forecaster, optimizer,
     print("Training complete.")
 
 def test_evaluation(encoder, forecaster, revin_trend, revin_seasonal, revin_resid, revin_target,
-                    test_tensors_dict, pred_len=96, device="cuda", ckpt_path="checkpoints/best_model.pt"):
+                    test_tensors_dict, global_mu, global_sigma, pred_len=96, device="cuda", ckpt_path="checkpoints/best_model.pt"):
     """
     Evaluate the trained model on the held-out test set.
     Computes reconstruction, hyperbolic, and denormalized MSE/MAE losses.
@@ -191,12 +230,13 @@ def test_evaluation(encoder, forecaster, revin_trend, revin_seasonal, revin_resi
         forecaster.load_state_dict(ckpt["forecaster"])
         print(f"Loaded best model checkpoint from epoch {ckpt['epoch']} (Val MSE: {ckpt['val_loss']:.6f})")
     else:
-        print("⚠️ Warning: checkpoint not found — using current weights.")
+        print("Warning: checkpoint not found — using current weights.")
 
     encoder.eval()
     forecaster.eval()
 
     test_mse_n, test_geo, test_mse_den, test_mae_den = [], [], [], []
+    test_mse_paper = []
 
     with torch.no_grad():
         for feat, tensors_f in test_tensors_dict.items():
@@ -226,17 +266,30 @@ def test_evaluation(encoder, forecaster, revin_trend, revin_seasonal, revin_resi
             test_geo.append(geo_loss)
 
             # --- Denormalized-space losses (for report) ---
-            x_val_hat_den  = revin_target.denormalize(x_hat_n, target_stats)
-            x_val_true_den = revin_target.denormalize(x_true_n, target_stats)
-            test_mse_den.append(F.mse_loss(x_val_hat_den, x_val_true_den).item())
-            test_mae_den.append(F.l1_loss(x_val_hat_den, x_val_true_den).item())
+            # --- History-only denormalization (no leakage) ---
+            x_hist = x_true[:, :-pred_len, :]
+            mu, sigma = revin_target._stats(x_hist)
+            sigma = torch.clamp(sigma, min=1e-6)
+            x_hat_den = x_hat_n * sigma + mu
+            x_fut = x_true[:, -pred_len:, :]
+
+            test_mse_den.append(F.mse_loss(x_hat_den, x_fut).item())
+            test_mae_den.append(F.l1_loss(x_hat_den, x_fut).item())
+
+            # Paper-scale (global stats)
+            mu_g = global_mu.to(x_hat_den.device)
+            sigma_g = torch.clamp(global_sigma.to(x_hat_den.device), min=1e-6)
+            x_hat_paper = (x_hat_den - mu_g) / sigma_g
+            x_fut_paper = (x_fut - mu_g) / sigma_g
+            test_mse_paper.append(F.mse_loss(x_hat_paper, x_fut_paper).item())
 
     # -------------------------------------------------
     # Final reporting
     # -------------------------------------------------
-    mse_n, geo, mse_den, mae_den = (
+    mse_n, geo, mse_den, mae_den, mse_paper = (
         np.mean(test_mse_n), np.mean(test_geo),
-        np.mean(test_mse_den), np.mean(test_mae_den)
+        np.mean(test_mse_den), np.mean(test_mae_den),
+        np.mean(test_mse_paper)
     )
 
     print(f"=== TEST RESULTS ===")
@@ -244,13 +297,15 @@ def test_evaluation(encoder, forecaster, revin_trend, revin_seasonal, revin_resi
     print(f"Hyperbolic loss:       {geo:.6f}")
     print(f"Denormalized MSE:      {mse_den:.6f}")
     print(f"Denormalized MAE:      {mae_den:.6f}")
+    print(f"Paper-scale MSE:       {mse_paper:.6f}")
     print("====================\n")
 
     return {
         "mse_norm": mse_n,
         "geo_loss": geo,
         "mse_denorm": mse_den,
-        "mae_denorm": mae_den
+        "mae_denorm": mae_den,
+        "mse_paper": mse_paper
     }
 
 
@@ -289,10 +344,13 @@ steps_per_period = timebase.timesteps_from_index(df)
 hourly, daily, weekly = steps_per_period
 
 lookback = weekly
-pred_len = 96
+pred_len_96 = 96
+pred_len_192 = 192
+pred_len_336 = 336
+pred_len_720 = 720
 
 print(f"Timesteps per hour/day/week: {hourly}, {daily}, {weekly}")
-print(f"lookback window={lookback}, pred_len={pred_len}")
+print(f"lookback window={lookback}, pred_len={pred_len_96}")
 
 # -------------------------------------------------------------
 # 5. Decompose training and validation data
@@ -364,10 +422,7 @@ def to_batch_feature_dict(feature_dict):
 embed_dim = 32
 hidden_dim = 128
 output_dim = 1
-pred_len_96 = 96
-pred_len_96 = 192
-pred_len_96 = 336
-pred_len_96 = 720
+global_mu, global_sigma = compute_global_train_stats(train_tensors_dict, device)
 encoder = ParallelLorentzEncoder(lookback=lookback, embed_dim=embed_dim, hidden_dim=hidden_dim).to(device)
 manifold = encoder.manifold
 forecaster = HyperbolicSeqForecaster(embed_dim=embed_dim, hidden_dim=hidden_dim, output_dim=output_dim, manifold=manifold).to(device)
@@ -391,7 +446,7 @@ optimizer = geoopt.optim.RiemannianAdam(
     weight_decay=1e-4
 )
 
-num_epochs = 200
+num_epochs = 100
 training_and_validation(encoder=encoder,
                         forecaster=forecaster,
                         optimizer=optimizer, 
@@ -401,6 +456,8 @@ training_and_validation(encoder=encoder,
                         revin_seasonal=revin_seasonal,
                         revin_resid=revin_resid, 
                         revin_target=revin_target,
+                        global_mu=global_mu,
+                        global_sigma=global_sigma,
                         pred_len=pred_len_96)
 
 writer.flush()
@@ -416,7 +473,9 @@ test_metrics = test_evaluation(
     revin_resid=revin_resid,
     revin_target=revin_target,
     test_tensors_dict=test_tensors_dict,
-    pred_len=pred_len,
+    global_mu=global_mu,
+    global_sigma=global_sigma,
+    pred_len=pred_len_96,
     device=device,
     ckpt_path="checkpoints/best_model.pt"
 )
