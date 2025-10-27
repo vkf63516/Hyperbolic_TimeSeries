@@ -355,9 +355,9 @@ print(f"Ratios -> train:{tr:.3f}, val:{va:.3f}, test:{te:.3f}")
 # -------------------------------------------------------------
 timebase = TimeBaseMSTL(n_basis_components=5, orthogonal_lr=1e-3, orthogonal_iters=300)
 
-# Automatically infers hourly, daily, weekly steps
+# Automatically infers daily, weekly steps
 steps_per_period = timebase.timesteps_from_index(df)
-hourly, daily, weekly = steps_per_period
+daily, weekly = steps_per_period
 
 lookback = weekly
 pred_len_96 = 96

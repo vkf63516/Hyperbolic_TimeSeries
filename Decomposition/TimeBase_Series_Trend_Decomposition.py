@@ -201,12 +201,21 @@ class TimeBaseMSTL:
     """
     Rebuilds (Trend + Seasonal + Residual) from segment level decompositions
     """
-    def reconstruct_series_decomposition(self, df, decompositions, coeffs_dict, smooth_window_ratio=0.1):
-        """Reconstruct each series from decomposed basis."""
+    def reconstruct_series_decomposition(self, df, decompositions, coeffs_dict, 
+                                     smooth_window_ratio=0.1, use_segment_level=True):
+        """
+        Reconstruct each series from decomposed basis.
+    
+        Parameters
+        ----------
+        use_segment_level : bool
+            If True, uses segment-level coefficients (temporal)
+            If False, uses averaged coefficients (static)
+        """
         series_decompositions = {}
         n_points = len(df)
         window = max(5, int(len(df) * smooth_window_ratio))
-
+    
         for i, name in enumerate(df.columns):
             trend_global = (
                 pd.Series(df[name].values)
@@ -214,40 +223,54 @@ class TimeBaseMSTL:
                 .mean()
                 .values
             )
-
+        
             total_seasonal_daily = np.zeros(n_points)
             total_seasonal_weekly = np.zeros(n_points)
-
+        
             for period, basis_decomp in decompositions.items():
-                coeffs = coeffs_dict[period][i] # learned coefficients for this feature, telling how much each basis contributes.
-                # looping through each basis function (trend, seasonal, residual pattern).
-                for j, (bname, comp) in enumerate(basis_decomp.items()):
-                    coeff = coeffs[j] if j < len(coeffs) else 0
-                    for key in ["seasonal_daily", "seasonal_weekly"]:
-                        if key not in comp:
+                if use_segment_level:
+                # NEW: Use segment-level coefficients
+                    all_segment_coeffs = coeffs_dict[period][i]  # (n_segments, n_basis)
+                    segment_length = period * 2  # Assuming 2× multiplier
+                
+                # Reconstruct each segment and concatenate
+                    for seg_idx, seg_coeffs in enumerate(all_segment_coeffs):
+                        start_idx = seg_idx * segment_length
+                        end_idx = min(start_idx + segment_length, n_points)
+                        seg_len = end_idx - start_idx
+                    
+                        if seg_len == 0:
                             continue
-                        pattern = comp[key]
-                        if pattern is None or len(pattern) == 0:
-                            continue
-                        # Repeat pattern efficiently using modulo indexing
-                        idx = np.arange(n_points) % len(pattern)
-                        repeated = pattern[idx]
-                       
-                        if key == "seasonal_daily":
-                            total_seasonal_daily += coeff * repeated 
-                        if key == "seasonal_weekly":
-                            total_seasonal_weekly += coeff * repeated 
-
-            residual_actual = df[name].values - (trend_global + (
-                                                                total_seasonal_weekly + 
-                                                                total_seasonal_daily
-                                                                ))
+                    
+                    # Reconstruct this segment's seasonal
+                        for j, (bname, comp) in enumerate(basis_decomp.items()):
+                            coeff = seg_coeffs[j] if j < len(seg_coeffs) else 0
+                        
+                            for key in ["seasonal_daily", "seasonal_weekly"]:
+                                if key not in comp or comp[key] is None:
+                                    continue
+                            
+                                pattern = comp[key]
+                                idx = np.arange(seg_len) % len(pattern)
+                                repeated = pattern[idx]
+                            
+                                if key == "seasonal_daily":
+                                    total_seasonal_daily[start_idx:end_idx] += coeff * repeated
+                                if key == "seasonal_weekly":
+                                    total_seasonal_weekly[start_idx:end_idx] += coeff * repeated
+            
+        
+            residual_actual = df[name].values - (trend_global + 
+                                                total_seasonal_weekly + 
+                                                total_seasonal_daily)
+        
             series_decompositions[name] = {
                 "trend": trend_global,
                 "seasonal_weekly": total_seasonal_weekly,
                 "seasonal_daily": total_seasonal_daily,
                 "residual": residual_actual
             }
+    
         return series_decompositions
 
     # -------------------------------
