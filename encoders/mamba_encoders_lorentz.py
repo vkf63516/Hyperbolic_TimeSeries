@@ -5,7 +5,7 @@ from mamba_ssm import Mamba  # pip install mamba-ssm
 from pathlib import Path
 import sys 
 sys.path.append(str(Path(__file__).resolve().parents[0]))
-from utils import safe_expmap0
+from utils import safe_expmap
 
 # --------------------------
 # Mamba encoder block
@@ -35,26 +35,9 @@ class MambaEncoder(nn.Module):
         x = self.input_proj(x)
         for layer in self.layers:
             x = layer(x)
-        x = x.mean(dim=1)              # mean pooling
+        # x = x.mean(dim=1)              # mean pooling would be good for point level forecasting
         return torch.tanh(self.output_proj(x))
 
-# class HierarchicalSeasonalEncoder(nn.Module):
-#     def __init__(self, embed_dim, hidden_dim):
-#         super().__init__()
-#         self.hourly_enc = MambaEncoder(1, hidden_dim, embed_dim)
-#         self.daily_enc = MambaEncoder(1, hidden_dim, embed_dim)
-#         self.weekly_enc = MambaEncoder(1, hidden_dim, embed_dim)
-
-#         self.fusion = nn.Linear(embed_dim * 3, embed_dim)
-
-#     def forward(self, seasonal):
-#         # seasonal: [B, T, 3]
-#         z_hour = self.hourly_enc(seasonal[..., [0]])
-#         z_day = self.daily_enc(seasonal[..., [1]])
-#         z_week = self.weekly_enc(seasonal[..., [2]])
-#         z_cat = torch.cat([z_hour, z_day, z_week], dim=-1)
-#         z_season = self.fusion(z_cat)
-#         return z_season
 
 # --------------------------
 # Parallel encoders + Lorentz manifold fusion
@@ -81,7 +64,7 @@ class ParallelLorentzEncoder(nn.Module):
         """
         Inputs:
           trend:    [B, seq_len, 1]
-          seasonal: [B, seq_len, 3]  (hourly, daily, weekly)
+          seasonal: [B, seq_len, 2]  (daily, weekly)
           resid:    [B, seq_len, 1]
 
         Returns dict with:
@@ -98,9 +81,9 @@ class ParallelLorentzEncoder(nn.Module):
         # z_trend_h = self.manifold.expmap0(z_trend_t)
         # z_season_h = self.manifold.expmap0(z_season_t)
         # z_resid_h = self.manifold.expmap0(z_resid_t)
-        z_trend_h = safe_expmap0(self.manifold, z_trend_t)    # manifold point
-        z_season_h = safe_expmap0(self.manifold, z_season_t)
-        z_resid_h = safe_expmap0(self.manifold, z_resid_t)
+        z_trend_h = safe_expmap(self.manifold, z_trend_t)    # manifold point
+        z_season_h = safe_expmap(self.manifold, z_season_t)
+        z_resid_h = safe_expmap(self.manifold, z_resid_t)
 
         # # (Optional) project to manifold numerically safely
         z_trend_h = self.manifold.projx(z_trend_h)
@@ -113,7 +96,7 @@ class ParallelLorentzEncoder(nn.Module):
         u_resid = self.manifold.logmap0(z_resid_h)
 
         combined_tangent = u_trend + u_season + u_resid  # tangent-space fusion (Euclidean sum)
-        combined_h = safe_expmap0(self.manifold, combined_tangent)
+        combined_h = safe_expmap(self.manifold, combined_tangent)
         # combined_h = self.manifold.expmap0(combined_tangent)
         combined_h = self.manifold.projx(combined_h)
 

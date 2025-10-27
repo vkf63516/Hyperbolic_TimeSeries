@@ -5,7 +5,7 @@ from mamba_ssm import Mamba
 import sys 
 from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[0]))
-from utils import safe_expmap0
+from utils import safe_expmap
 
 # ---------------------------------------------------
 # 1. Mamba encoder block
@@ -65,9 +65,9 @@ class ParallelHyperbolicEncoder(nn.Module):
         z_resid_t = self.resid_encoder(resid)
         
         # --- Project to hyperbolic space ---
-        z_trend_h = safe_expmap0(self.manifold, z_trend_t)
-        z_season_h = safe_expmap0(self.manifold, z_season_t)
-        z_resid_h = safe_expmap0(self.manifold, z_resid_t)
+        z_trend_h = safe_expmap(self.manifold, z_trend_t)
+        z_season_h = safe_expmap(self.manifold, z_season_t)
+        z_resid_h = safe_expmap(self.manifold, z_resid_t)
         
         # --- Combine components in hyperbolic space ---
         z_combined = self.manifold.mobius_add(self.manifold.mobius_add(z_trend_h, z_season_h), z_resid_h)

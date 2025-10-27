@@ -11,7 +11,7 @@ import geoopt
 class HyperbolicSeqForecaster(nn.Module):
     """
     Inputs: manifold points from your existing encoders (trend_z, seasonal_z, resid_z),
-            or directly a combined z0 if you’ve already fused them.
+            or directly a combined z0 if youve already fused them.
     Combines in tangent@origin, then autoregressively predicts H steps on the manifold,
     reconstructing each step to Euclidean outputs.
     """

@@ -117,6 +117,7 @@ class BatchedMSTL:
                             endog=deseas,
                             period=period,
                             seasonal=windows[i],
+                            robust=True,
                             **self._stl_kwargs,
                         ).fit(inner_iter=stl_inner_iter, outer_iter=stl_outer_iter)
                         seasonal[i] = res.seasonal
