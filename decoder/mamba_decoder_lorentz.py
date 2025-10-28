@@ -4,11 +4,11 @@ import geoopt
 import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[0]))
-from utils import safe_expmap
+from spec import safe_expmap
 
 
 class HyperbolicMambaDecoder(nn.Module):
-    def __init__(self, embed_dim, hidden_dim, manifold):
+    def __init__(self, embed_dim, hidden_dim, manifold, lookback):
         super().__init__()
         self.manifold = manifold 
         self.state_net = nn.Sequential(

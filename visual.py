@@ -24,7 +24,7 @@ from Decomposition.TimeBase_Series_Trend_Decomposition import TimeBaseMSTL
 from Decomposition.tensor_utils import build_decomposition_tensors
 from Decomposition.visualization_utils import plot_component_grid, plot_variance_contribution, plot_component_correlation_maps
 from Forecaster import HyperbolicSeqForecaster
-from utils import RevIN, EarlyStopping
+from spec import RevIN, EarlyStopping
 def set_seed(seed=42):
     random.seed(seed)
     np.random.seed(seed)

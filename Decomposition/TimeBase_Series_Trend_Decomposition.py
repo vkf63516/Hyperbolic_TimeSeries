@@ -3,7 +3,7 @@ import pandas as pd
 import sys 
 from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[0]))
-from Decomposition.BatchedMSTL import BatchedMSTL
+from statsmodels.tsa.seasonal import MSTL
 
 class TimeBaseMSTL:
     """
@@ -141,11 +141,11 @@ class TimeBaseMSTL:
 
     def decompose_basis_components(self, basis_components, periods, seasonal_type="seasonal_daily"):
         """
-        Decompose all orthogonal basis components together using BatchedMSTL.
+        Decompose all orthogonal basis components together using MSTL.
         Each basis is treated as a separate time series in the batch.
         """
         decomposed_basis = {}
-        print(f"⏱ Decomposing {len(basis_components)} basis components using BatchedMSTL...")
+        print(f"⏱ Decomposing {len(basis_components)} basis components using MSTL...")
 
         try:
             # --- Convert all basis components into a 2D array ---
@@ -158,8 +158,8 @@ class TimeBaseMSTL:
                 valid_periods = periods
             print(f"Valid MSTL periods: {valid_periods}")
 
-            # --- Run Batched MSTL ---
-            mstl = BatchedMSTL(basis_matrix, periods=valid_periods)
+            # --- Run MSTL ---
+            mstl = MSTL(basis_matrix, periods=valid_periods)
             batch_results = mstl.fit()  # list of DecomposeResult per basis
 
             # --- Convert outputs into dictionary form ---
@@ -180,7 +180,7 @@ class TimeBaseMSTL:
                 }
 
         except Exception as e:
-            print(f" Batched MSTL failed: {e}")
+            print(f" MSTL failed: {e}")
         # --- Safe fallback for entire batch ---
             for i, component in enumerate(basis_components):
                 base = np.mean(component) * np.ones_like(component)
@@ -228,37 +228,36 @@ class TimeBaseMSTL:
             total_seasonal_weekly = np.zeros(n_points)
         
             for period, basis_decomp in decompositions.items():
-                if use_segment_level:
                 # NEW: Use segment-level coefficients
-                    all_segment_coeffs = coeffs_dict[period][i]  # (n_segments, n_basis)
-                    segment_length = period * 2  # Assuming 2× multiplier
-                
-                # Reconstruct each segment and concatenate
-                    for seg_idx, seg_coeffs in enumerate(all_segment_coeffs):
-                        start_idx = seg_idx * segment_length
-                        end_idx = min(start_idx + segment_length, n_points)
-                        seg_len = end_idx - start_idx
-                    
-                        if seg_len == 0:
-                            continue
-                    
-                    # Reconstruct this segment's seasonal
-                        for j, (bname, comp) in enumerate(basis_decomp.items()):
-                            coeff = seg_coeffs[j] if j < len(seg_coeffs) else 0
-                        
-                            for key in ["seasonal_daily", "seasonal_weekly"]:
-                                if key not in comp or comp[key] is None:
-                                    continue
-                            
-                                pattern = comp[key]
-                                idx = np.arange(seg_len) % len(pattern)
-                                repeated = pattern[idx]
-                            
-                                if key == "seasonal_daily":
-                                    total_seasonal_daily[start_idx:end_idx] += coeff * repeated
-                                if key == "seasonal_weekly":
-                                    total_seasonal_weekly[start_idx:end_idx] += coeff * repeated
+                all_segment_coeffs = coeffs_dict[period][i]  # (n_segments, n_basis)
+                segment_length = period * 2  # Assuming 2× multiplier
             
+                # Reconstruct each segment and concatenate
+                for seg_idx, seg_coeffs in enumerate(all_segment_coeffs):
+                    start_idx = seg_idx * segment_length
+                    end_idx = min(start_idx + segment_length, n_points)
+                    seg_len = end_idx - start_idx
+                
+                    if seg_len == 0:
+                        continue
+                
+                # Reconstruct this segment's seasonal
+                    for j, (bname, comp) in enumerate(basis_decomp.items()):
+                        coeff = seg_coeffs[j] if j < len(seg_coeffs) else 0
+                    
+                        for key in ["seasonal_daily", "seasonal_weekly"]:
+                            if key not in comp or comp[key] is None:
+                                continue
+                        
+                            pattern = comp[key]
+                            idx = np.arange(seg_len) % len(pattern)
+                            repeated = pattern[idx]
+                        
+                            if key == "seasonal_daily":
+                                total_seasonal_daily[start_idx:end_idx] += coeff * repeated
+                            if key == "seasonal_weekly":
+                                total_seasonal_weekly[start_idx:end_idx] += coeff * repeated
+        
         
             residual_actual = df[name].values - (trend_global + 
                                                 total_seasonal_weekly + 

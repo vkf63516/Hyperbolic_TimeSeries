@@ -39,7 +39,6 @@ class ParallelEuclideanEncoder(nn.Module):
         self.trend_encoder = MambaEncoder(input_dim=1, hidden_dim=hidden_dim, output_dim=embed_dim)
         self.daily_encoder = MambaEncoder(input_dim=1, hidden_dim=hidden_dim, output_dim=embed_dim)
         self.weekly_encoder = MambaEncoder(input_dim=1, hidden_dim=hidden_dim, output_dim=embed_dim)
-        self.monthly_encoder = MambaEncoder(input_dim=1, hidden_dim=hidden_dim, output_dim=embed_dim)
         self.resid_encoder = MambaEncoder(input_dim=1, hidden_dim=hidden_dim, output_dim=embed_dim)
 
     def forward(self, trend, daily, weekly, monthly, resid):
@@ -52,7 +51,7 @@ class ParallelEuclideanEncoder(nn.Module):
 
         # Simple Euclidean fusion: sum or concatenation
         # Option 1: sum
-        combined = z_trend + z_daily + z_weekly + z_monthly + z_resid
+        combined = z_trend + z_daily + z_weekly + z_resid
 
         # Option 2: concatenation (preserves branches separately)
         # combined = torch.cat([z_trend, z_daily, z_weekly, z_monthly, z_resid], dim=-1)

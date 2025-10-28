@@ -13,8 +13,6 @@ def plot_component_grid(feature_name, decompositions):
     axs[1].set_title("Seasonal_Weekly")
     axs[2].plot(comp["seasonal_daily"])
     axs[2].set_title("Seasonal_Daily")
-    axs[3].plot(comp["seasonal_hourly"])
-    axs[3].set_title("Seasonal_Hourly")
     axs[4].plot(comp["residual"])
     axs[4].set_title("Residual")
     plt.suptitle(f"Decomposition Components — {feature_name}")
@@ -24,7 +22,6 @@ def plot_component_grid(feature_name, decompositions):
 
 def plot_variance_contribution(decompositions):
     trend_var = {k: np.var(v["trend"]) for k, v in decompositions.items()}
-    seasonal_hourly = {k: np.var(v["seasonal_hourly"]) for k, v in decompositions.items()}
     seasonal_daily = {k: np.var(v["seasonal_daily"]) for k, v in decompositions.items()}
     seasonal_weekly = {k: np.var(v["seasonal_weekly"]) for k, v in decompositions.items()}
     resid_var = {k: np.var(v["residual"]) for k, v in decompositions.items()}
@@ -33,7 +30,6 @@ def plot_variance_contribution(decompositions):
         "Trend": trend_var,
         "Seasonal_Weekly": seasonal_weekly,
         "Seasonal_Daily": seasonal_daily,
-        "Seasonal_Hourly": seasonal_hourly,
         "Residual": resid_var
     }).T
     (df / df.sum()).T.plot.bar(stacked=True, figsize=(12, 6))
@@ -56,7 +52,6 @@ def plot_component_correlation_maps(decompositions, features=None, figsize=(16, 
                 'feature_name': {
                     'trend': np.array,
                     'seasonal_daily': np.array,
-                    'seasonal_hourly': np.array,
                     'seasonal_weekly': np.array,
                     'residual': np.array
                 },
@@ -72,30 +67,39 @@ def plot_component_correlation_maps(decompositions, features=None, figsize=(16, 
         features = list(decompositions.keys())
 
     # --- Build component DataFrames ---
-    trend_df = pd.DataFrame({f: decompositions[f]["trend"] for f in features})
-    seasonal_df = pd.DataFrame({
-        f: (decompositions[f].get("seasonal_daily", 0)
-           + decompositions[f].get("seasonal_hourly", 0)
-           + decompositions[f].get("seasonal_weekly", 0))
+    trend_df = pd.DataFrame({
+        f: decompositions[f]["trend"] 
+        for f in features})
+    seasonal_weekly_df = pd.DataFrame({
+        f: decompositions[f]["seasonal_weekly"]
         for f in features
     })
-    residual_df = pd.DataFrame({f: decompositions[f]["residual"] for f in features})
+    seasonal_daily_df = pd.DataFrame({
+        f: decompositions[f].["seasonal_daily"]
+        for f in features
+    })
+    residual_df = pd.DataFrame({
+        f: decompositions[f]["residual"] for f in features})
 
     # --- Compute correlation matrices ---
     corr_trend = trend_df.corr()
-    corr_seasonal = seasonal_df.corr()
+    corr_weekly = seasonal_weekly_df.corr()
+    corr_daily = seasonal_daily_df.corr()
     corr_residual = residual_df.corr()
 
     # --- Plot heatmaps ---
-    fig, axes = plt.subplots(1, 3, figsize=figsize)
+    fig, axes = plt.subplots(1, 4, figsize=figsize)
     sns.heatmap(corr_trend, cmap="vlag", center=0, ax=axes[0])
     axes[0].set_title("Trend Correlation")
 
-    sns.heatmap(corr_seasonal, cmap="vlag", center=0, ax=axes[1])
-    axes[1].set_title("Seasonal Correlation")
+    sns.heatmap(corr_weekly, cmap="vlag", center=0, ax=axes[1])
+    axes[1].set_title("Weekly Correlation")
 
-    sns.heatmap(corr_residual, cmap="vlag", center=0, ax=axes[2])
-    axes[2].set_title("Residual Correlation")
+    sns.heatmap(corr_daily, cmap="vlag", center=0, ax=axes[2])
+    axes[2].set_title("Daily Correlation")
+
+    sns.heatmap(corr_residual, cmap="vlag", center=0, ax=axes[3])
+    axes[3].set_title("Residual Correlation")
 
     plt.suptitle("Cross-Feature Correlation Maps by Component", fontsize=14)
     plt.tight_layout()

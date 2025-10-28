@@ -1,14 +1,16 @@
 from data_provider.data_factory import data_provider
 from exp.exp_basic import Exp_Basic
 from models import TimeBase
-from utils.tools import EarlyStopping, adjust_learning_rate, visual, test_params_flop
+from models import HyperbolicMambaForecasting
+from utils.tools import adjust_learning_rate, visual, test_params_flop
 from utils.metrics import metric
-
+from geoopt import optim as geooptim
 import numpy as np
 import torch
 import torch.nn as nn
 from torch import optim
 from torch.optim import lr_scheduler
+from spec import EarlyStopping
 
 import os
 import time
@@ -17,7 +19,7 @@ import warnings
 import matplotlib.pyplot as plt
 import numpy as np
 
-warnings.filterwarnings('ignore')
+# warnings.filterwarnings('ignore')
 
 
 class Exp_Main(Exp_Basic):
@@ -26,7 +28,7 @@ class Exp_Main(Exp_Basic):
         self.use_orthogonal = args.use_orthogonal
     def _build_model(self):
         model_dict = {
-            'LightTimeBaseTST':TimeBase,
+            "HyperbolicMambaForecasting": HyperbolicMambaForecasting
         }
         model = model_dict[self.args.model].Model(self.args).float()
         total_params = sum(p.numel() for p in model.parameters())
@@ -41,8 +43,8 @@ class Exp_Main(Exp_Basic):
         return data_set, data_loader
 
     def _select_optimizer(self):
-        model_optim = optim.Adam(self.model.parameters(), lr=self.args.learning_rate)
-        return model_optim
+        model_geooptim = geooptim.RiemannianAdam(params=self.model.parameters(), lr=self.args.learning_rate)
+        return model_geooptim
 
     def _select_criterion(self):
         if self.args.loss == "mae":
@@ -72,7 +74,7 @@ class Exp_Main(Exp_Basic):
                 # encoder - decoder
                 if self.args.use_amp:
                     with torch.cuda.amp.autocast():
-                        if any(substr in self.args.model for substr in {'Linear', 'TST', 'SparseTSF'}):
+                        if any(substr in self.args.model for substr in {"Linear", "TST", "SparseTSF", "HyperbolicMambaForecasting"}):
                             outputs = self.model(batch_x)
                         else:
                             if self.args.output_attention:
@@ -80,7 +82,7 @@ class Exp_Main(Exp_Basic):
                             else:
                                 outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
                 else:
-                    if any(substr in self.args.model for substr in {'Linear', 'TST', 'SparseTSF'}):
+                    if any(substr in self.args.model for substr in {"Linear", "TST", "SparseTSF", "HyperbolicMambaForecasting"}):
                         
                         if self.use_orthogonal:
                             outputs,orthogonal_loss = self.model(batch_x)
@@ -152,7 +154,7 @@ class Exp_Main(Exp_Basic):
                 # encoder - decoder
                 if self.args.use_amp:
                     with torch.cuda.amp.autocast():
-                        if any(substr in self.args.model for substr in {'Linear', 'TST', 'SparseTSF'}):
+                        if any(substr in self.args.model for substr in {"Linear", "TST", "SparseTSF", "HyperbolicMambaForecasting"}):
                             outputs = self.model(batch_x)
                         else:
                             if self.args.output_attention:
@@ -166,7 +168,7 @@ class Exp_Main(Exp_Basic):
                         loss = criterion(outputs, batch_y)
                         train_loss.append(loss.item())
                 else:
-                    if any(substr in self.args.model for substr in {'Linear', 'TST', 'SparseTSF'}):
+                    if any(substr in self.args.model for substr in {"Linear", "TST", "SparseTSF", "HyperbolicMambaForecasting"}):
                         if self.use_orthogonal:
                             outputs,orthogonal_loss = self.model(batch_x)
                         else:
@@ -260,7 +262,7 @@ class Exp_Main(Exp_Basic):
                 # encoder - decoder
                 if self.args.use_amp:
                     with torch.cuda.amp.autocast():
-                        if any(substr in self.args.model for substr in {'Linear', 'TST', 'SparseTSF'}):
+                        if any(substr in self.args.model for substr in {"Linear", "TST", "SparseTSF", "HyperbolicMambaForecasting"}):
                             outputs = self.model(batch_x)
                         else:
                             if self.args.output_attention:
@@ -268,7 +270,7 @@ class Exp_Main(Exp_Basic):
                             else:
                                 outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
                 else:
-                    if any(substr in self.args.model for substr in {'Linear', 'TST', 'SparseTSF'}):
+                    if any(substr in self.args.model for substr in {"Linear", "TST", "SparseTSF", "HyperbolicMambaForecasting"}):
                         if self.use_orthogonal:
                             outputs,orthogonal_loss = self.model(batch_x)
                         else:

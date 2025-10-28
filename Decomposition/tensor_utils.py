@@ -4,7 +4,7 @@ import pandas as pd
 
 def build_decomposition_tensors(df_components_or_dict):
     """
-    Convert STL or TimeBaseMSTL decomposition to torch tensors.
+    Convert TimeBaseMSTL decomposition to torch tensors.
     Accepts either a pandas DataFrame or a per-series decomposition dict.
     """
     # Case 1: standard MSTL DataFrame 
@@ -15,7 +15,6 @@ def build_decomposition_tensors(df_components_or_dict):
     elif isinstance(df_components_or_dict, dict) and "trend" in df_components_or_dict:
         df = pd.DataFrame({
             "trend": df_components_or_dict["trend"],
-            "seasonal_hourly": df_components_or_dict["seasonal_hourly"],
             "seasonal_daily": df_components_or_dict["seasonal_daily"],
             "seasonal_weekly": df_components_or_dict["seasonal_weekly"],
             "residual": df_components_or_dict["residual"]
@@ -26,22 +25,20 @@ def build_decomposition_tensors(df_components_or_dict):
     # Convert to tensors
     trend_tensor = torch.tensor(df["trend"].values, dtype=torch.float32).unsqueeze(-1)
     residual_tensor = torch.tensor(df["residual"].values, dtype=torch.float32).unsqueeze(-1)
-    seasonal_tensor = torch.tensor(
-        df[["seasonal_daily", "seasonal_weekly"]].values,
-        dtype=torch.float32
-    )
+    weekly_tensor = torch.tensor(df["seasonal_weekly"].values, dtype=torch.float32).unsqueeze(-1)
+    daily_tensor = torch.tensor(df["seasonal_daily"].values, dtype=torch.float32).unsqueeze(=1)
     # Aggregate seasonalities
-    seasonal_tensor_comb = seasonal_tensor.sum(-1, keepdims=True)
 
     return {
         "trend": trend_tensor,
-        "seasonal": seasonal_tensor_comb,
+        "seasonal_weekly": seasonal_tensor_comb,
+        "seasonal_daily": seasonal_dail
         "residual": residual_tensor
     }
 
 def build_mamba_input_tensors(results_dict):
     """
-    Convert TimeBaseSTL output into Mamba encoder-ready tensors.
+    Convert TimeBaseSTL output into Mamba ready tensors.
     Returns a tensor of shape [num_series, T, 3].
     """
     tensors = []
