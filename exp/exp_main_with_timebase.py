@@ -1,11 +1,18 @@
 """
 Example exp_main.py with TimeBaseMSTL integration for HyperbolicMambaForecasting
 
-This file shows how to integrate TimeBaseMSTL decomposition into the training pipeline.
+This file shows how to integrate TimeBaseMSTL decomposition into the training pipeline
+using the prepare_timebase_data_with_mstl function from spec.py.
+
 Key changes from the original exp_main.py:
-1. Import TimeBaseMSTL
+1. Import TimeBaseMSTL and prepare_timebase_data_with_mstl
 2. Initialize and fit TimeBaseMSTL on training data
-3. Pass decomposed components to the model instead of raw data
+3. Use prepare_timebase_data_with_mstl for proper normalization and segmentation
+4. Pass decomposed components to the model instead of raw data
+
+Note: This example demonstrates the integration pattern. For production use,
+consider implementing HyperbolicTimeSeriesDataset (currently commented in data_loader.py)
+which provides a cleaner data pipeline.
 """
 
 from data_provider.data_factory import data_provider
@@ -20,8 +27,9 @@ import torch
 import torch.nn as nn
 from torch import optim
 from torch.optim import lr_scheduler
-from spec import EarlyStopping
+from spec import EarlyStopping, prepare_timebase_data_with_mstl
 from Decomposition.TimeBase_Series_Trend_Decomposition import TimeBaseMSTL
+from Decomposition.tensor_utils import build_decomposition_tensors
 import pandas as pd
 
 import os
@@ -41,6 +49,8 @@ class Exp_Main(Exp_Basic):
         # Initialize TimeBaseMSTL if using decomposition
         if self.use_decomposition:
             self.timebase_mstl = None  # Will be initialized after loading data
+            self.decomposed_data = {}  # Cache for decomposed data
+            self.mstl_period = None
             
     def _build_model(self):
         model_dict = {
@@ -58,7 +68,123 @@ class Exp_Main(Exp_Basic):
         data_set, data_loader = data_provider(self.args, flag)
         return data_set, data_loader
     
-    def _initialize_timebase_mstl(self, train_data):
+    def _initialize_timebase_mstl_with_spec(self, train_data, val_data, test_data):
+        """
+        Initialize and fit TimeBaseMSTL on training data, then use
+        prepare_timebase_data_with_mstl from spec.py for proper preprocessing.
+        
+        This method:
+        1. Fits TimeBaseMSTL on training data
+        2. Transforms train/val/test data to get decomposed components
+        3. Uses prepare_timebase_data_with_mstl for normalization and segmentation
+        4. Caches the preprocessed data for efficient batch access
+        """
+        print("Initializing TimeBaseMSTL decomposition with spec.py integration...")
+        
+        # Get raw data as DataFrames
+        # Note: Adapt this based on your dataset structure
+        train_df = self._dataset_to_dataframe(train_data)
+        val_df = self._dataset_to_dataframe(val_data)
+        test_df = self._dataset_to_dataframe(test_data)
+        
+        # Initialize TimeBaseMSTL
+        self.timebase_mstl = TimeBaseMSTL(
+            n_basis_components=self.args.num_basis,
+            orthogonal_lr=self.args.orthogonal_lr,
+            orthogonal_iters=self.args.orthogonal_iters
+        )
+        
+        # Fit on training data
+        print("Fitting TimeBaseMSTL on training data...")
+        self.timebase_mstl.fit(train_df)
+        
+        # Auto-detect periods
+        self.mstl_period = self.timebase_mstl.steps_per_period[0]  # Daily period
+        print(f"Auto-detected MSTL period: {self.mstl_period}")
+        
+        # Transform all datasets to get decomposed components
+        print("Transforming datasets with TimeBaseMSTL...")
+        train_components = self.timebase_mstl.transform(train_df)
+        val_components = self.timebase_mstl.transform(val_df)
+        test_components = self.timebase_mstl.transform(test_df)
+        
+        # Convert decomposed components to tensor dictionaries
+        # Format: { feature_name: { component_name: tensor } }
+        train_dict = build_decomposition_tensors(train_components, device=self.device)
+        val_dict = build_decomposition_tensors(val_components, device=self.device)
+        test_dict = build_decomposition_tensors(test_components, device=self.device)
+        
+        # Use prepare_timebase_data_with_mstl from spec.py for proper preprocessing
+        # This handles normalization and segmentation with MSTL period
+        print("Preparing segmented data with prepare_timebase_data_with_mstl...")
+        train_seg, val_seg, test_seg, scaler, mstl_period = prepare_timebase_data_with_mstl(
+            train_dict=train_dict,
+            val_dict=val_dict,
+            test_dict=test_dict,
+            mstl_period=self.mstl_period,
+            input_len=self.args.seq_len,
+            pred_len=self.args.pred_len,
+            stride='overlap',  # or 'period' for non-overlapping samples
+            device=self.device
+        )
+        
+        # Cache the preprocessed data
+        self.decomposed_data = {
+            'train': train_seg,
+            'val': val_seg,
+            'test': test_seg,
+            'scaler': scaler
+        }
+        
+        print(f"✓ TimeBaseMSTL initialization complete")
+        print(f"  MSTL period: {mstl_period}")
+        print(f"  Scaler type: {type(scaler)}")
+    
+    def _dataset_to_dataframe(self, dataset):
+        """
+        Convert dataset to pandas DataFrame for TimeBaseMSTL.
+        Adapt this based on your dataset structure.
+        """
+        if hasattr(dataset, 'data_x'):
+            data_array = dataset.data_x
+            # Create DataFrame with proper column names
+            df = pd.DataFrame(data_array, columns=[f'feat_{i}' for i in range(data_array.shape[1])])
+            
+            # Add datetime index if available
+            if hasattr(dataset, 'data_stamp'):
+                # Try to create datetime index from timestamp data
+                # This is dataset-specific and may need adjustment
+                pass
+            
+            return df
+        else:
+            raise ValueError("Cannot convert dataset to DataFrame: unsupported structure")
+    
+    def _get_decomposed_batch_from_cache(self, batch_indices, flag='train'):
+        """
+        Retrieve decomposed batch from cached preprocessed data.
+        
+        Args:
+            batch_indices: Indices of samples in the batch
+            flag: 'train', 'val', or 'test'
+            
+        Returns:
+            decomposed_components: dict with 'trend', 'daily', 'weekly', 'resid'
+        """
+        if flag not in self.decomposed_data:
+            return None
+        
+        seg_data = self.decomposed_data[flag]
+        
+        # Extract components for the batch
+        # Note: This depends on the structure returned by prepare_timebase_data_with_mstl
+        # Adjust based on actual data structure
+        
+        # Placeholder - actual implementation depends on seg_data structure
+        # The seg_data from prepare_timebase_data_with_mstl has format:
+        # { feature: { "X": { comp: tensor }, "Y": { comp: tensor } } }
+        
+        return None  # Implement based on actual data structure
         """
         Initialize and fit TimeBaseMSTL on training data.
         This should be called once after loading training data.
