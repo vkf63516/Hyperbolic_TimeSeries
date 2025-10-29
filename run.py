@@ -24,12 +24,37 @@ parser.add_argument('--orthogonal_iters', type=int, default=500,
                     help='number of optimization iterations for basis')
 
 # Data processing
-parser.add_argument('--mstl_period', type=int, default=24,
-                    help='period for MSTL decomposition (detected if not set)')
+# NOTE: mstl_period is now automatically detected from the data using timesteps_from_index
 parser.add_argument('--log_interval', type=int, default=100,
                     help='logging interval during training')
 parser.add_argument('--save_freq', type=int, default=10,
                     help='checkpoint save frequency (epochs)')
+
+# HyperbolicMambaForecasting model arguments
+parser.add_argument('--embed_dim', type=int, default=32,
+                    help='dimensionality of hyperbolic embeddings')
+parser.add_argument('--hidden_dim', type=int, default=64,
+                    help='hidden dimension for Mamba blocks')
+parser.add_argument('--curvature', type=float, default=1.0,
+                    help='curvature parameter for Lorentz manifold')
+parser.add_argument('--lookback', type=int, default=None,
+                    help='lookback window for Mamba (defaults to seq_len)')
+parser.add_argument('--use_decomposition', action='store_true', default=False,
+                    help='use TimeBaseMSTL decomposition (requires custom data loader)')
+
+# TimeBase arguments
+parser.add_argument('--use_period_norm', action='store_true', default=False,
+                    help='use period normalization in TimeBase')
+parser.add_argument('--use_orthogonal', action='store_true', default=False,
+                    help='use orthogonal loss in TimeBase')
+parser.add_argument('--orthogonal_weight', type=float, default=0.01,
+                    help='weight for orthogonal loss')
+parser.add_argument('--period_len', type=int, default=24,
+                    help='period length for TimeBase (auto-detected from data if using MSTL)')
+parser.add_argument('--basis_num', type=int, default=10,
+                    help='number of basis functions for TimeBase')
+parser.add_argument('--individual', action='store_true', default=False,
+                    help='use individual basis for each feature')
 
 # data loader
 parser.add_argument('--data', type=str, required=True, default='ETTm1', help='dataset type')
@@ -46,6 +71,10 @@ parser.add_argument('--checkpoints', type=str, default='./checkpoints/', help='l
 parser.add_argument('--seq_len', type=int, default=96, help='input sequence length')
 parser.add_argument('--label_len', type=int, default=48, help='start token length')
 parser.add_argument('--pred_len', type=int, default=96, help='prediction sequence length')
+parser.add_argument('--enc_in', type=int, default=7, help='encoder input size (number of features)')
+parser.add_argument('--dec_in', type=int, default=7, help='decoder input size')
+parser.add_argument('--c_out', type=int, default=7, help='output size')
+parser.add_argument('--output_attention', action='store_true', default=False, help='whether to output attention weights')
 
 # optimization
 parser.add_argument('--num_workers', type=int, default=10, help='data loader num workers')
@@ -68,6 +97,10 @@ parser.add_argument('--devices', type=str, default='0,1', help='device ids of mu
 parser.add_argument('--test_flop', action='store_true', default=False, help='See utils/tools for usage')
 
 args = parser.parse_args()
+
+# Set default lookback to seq_len if not specified
+if args.lookback is None:
+    args.lookback = args.seq_len
 
 # random seed
 fix_seed_list = range(2023, 2033)
