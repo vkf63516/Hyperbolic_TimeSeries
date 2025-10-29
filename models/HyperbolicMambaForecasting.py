@@ -8,11 +8,6 @@ sys.path.append(str(Path(__file__).resolve().parents[1]))
 from embed.mamba_embed_lorentz import ParallelLorentzBlock
 from decoder.mamba_decoder_lorentz import HyperbolicMambaDecoder
 from Lifting.reconstructor import HyperbolicReconstructionHead
-import numpy as np
-try:
-    from statsmodels.tsa.seasonal import STL
-except ImportError:
-    STL = None
 
 class Model(nn.Module):
     def __init__(self, configs):
@@ -29,8 +24,8 @@ class Model(nn.Module):
         self.curvature = getattr(configs, 'curvature', 1.0)
         self.lookback = getattr(configs, 'lookback', self.seq_len)
         
-        # MSTL decomposition period (auto-detected or default)
-        self.period_len = getattr(configs, 'period_len', 24)
+        # Whether to use TimeBaseMSTL decomposition (handled externally)
+        self.use_decomposition = getattr(configs, 'use_decomposition', False)
         
         # Initialize manifold
         self.manifold = geoopt.manifolds.Lorentz(k=self.curvature)
@@ -58,101 +53,35 @@ class Model(nn.Module):
             manifold=self.manifold
         )
     
-    def _decompose_series(self, x):
-        """
-        Decompose time series using STL decomposition with multiple seasonal periods.
-        This properly extracts trend, daily seasonal, weekly seasonal, and residual components.
-        
-        Args:
-            x: [B, T, C] - Input time series
-            
-        Returns:
-            trend, daily, weekly, resid: Each [B, T, 1] using first channel
-        """
-        B, T, C = x.shape
-        device = x.device
-        
-        # Use the first channel for decomposition
-        series = x[:, :, 0].detach().cpu().numpy()  # [B, T]
-        
-        # Initialize components
-        trend_all = np.zeros_like(series)
-        seasonal_daily_all = np.zeros_like(series)
-        seasonal_weekly_all = np.zeros_like(series)
-        resid_all = np.zeros_like(series)
-        
-        # Decompose each sample in the batch
-        for b in range(B):
-            ts = series[b]  # [T]
-            
-            if STL is not None and T > 2 * self.period_len:
-                # Use STL decomposition for the primary (daily) period
-                try:
-                    stl = STL(ts, seasonal=self.period_len, trend=None)
-                    result = stl.fit()
-                    trend_all[b] = result.trend
-                    seasonal_daily_all[b] = result.seasonal
-                    resid_all[b] = result.resid
-                    
-                    # For weekly component, decompose the residual if we have enough data
-                    weekly_period = self.period_len * 7  # weekly period
-                    if T > 2 * weekly_period:
-                        try:
-                            stl_weekly = STL(resid_all[b], seasonal=weekly_period, trend=None)
-                            result_weekly = stl_weekly.fit()
-                            seasonal_weekly_all[b] = result_weekly.seasonal
-                            resid_all[b] = result_weekly.resid
-                        except:
-                            # If weekly decomposition fails, keep original residual
-                            seasonal_weekly_all[b] = 0
-                    else:
-                        seasonal_weekly_all[b] = 0
-                        
-                except Exception as e:
-                    # Fallback to simple moving average if STL fails
-                    kernel_size = min(self.period_len, T // 4)
-                    if kernel_size > 1:
-                        trend_all[b] = np.convolve(ts, np.ones(kernel_size)/kernel_size, mode='same')
-                    else:
-                        trend_all[b] = ts
-                    resid_all[b] = ts - trend_all[b]
-                    seasonal_daily_all[b] = 0
-                    seasonal_weekly_all[b] = 0
-            else:
-                # Fallback: simple moving average for trend
-                kernel_size = min(7, T // 4)
-                if kernel_size > 1:
-                    trend_all[b] = np.convolve(ts, np.ones(kernel_size)/kernel_size, mode='same')
-                else:
-                    trend_all[b] = ts
-                resid_all[b] = ts - trend_all[b]
-                seasonal_daily_all[b] = 0
-                seasonal_weekly_all[b] = 0
-        
-        # Convert back to torch tensors and add channel dimension
-        trend = torch.from_numpy(trend_all).float().to(device).unsqueeze(-1)  # [B, T, 1]
-        daily = torch.from_numpy(seasonal_daily_all).float().to(device).unsqueeze(-1)  # [B, T, 1]
-        weekly = torch.from_numpy(seasonal_weekly_all).float().to(device).unsqueeze(-1)  # [B, T, 1]
-        resid = torch.from_numpy(resid_all).float().to(device).unsqueeze(-1)  # [B, T, 1]
-        
-        return trend, daily, weekly, resid
-    
-    def forward(self, x):
+    def forward(self, x, decomposed_components=None):
         """
         Forward pass for HyperbolicMambaForecasting
         
         Args:
-            x: [B, seq_len, enc_in] - Input time series
+            x: [B, seq_len, enc_in] - Input time series (used if decomposed_components is None)
+            decomposed_components: Optional dict with keys 'trend', 'daily', 'weekly', 'resid'
+                                   Each should be [B, seq_len, 1]
             
         Returns:
             predictions: [B, pred_len, enc_in] - Forecasted time series
         """
-        B, T, C = x.shape
+        B = x.shape[0]
         
-        # Decompose time series using STL/MSTL to get proper seasonal components
-        # This uses the actual seasonal decomposition instead of just setting
-        # weekly and daily to residual
-        trend, daily, weekly, resid = self._decompose_series(x)
+        # Use pre-decomposed components if provided (from TimeBaseMSTL preprocessing)
+        if decomposed_components is not None:
+            trend = decomposed_components['trend']      # [B, T, 1]
+            daily = decomposed_components['daily']      # [B, T, 1]
+            weekly = decomposed_components['weekly']    # [B, T, 1]
+            resid = decomposed_components['resid']      # [B, T, 1]
+        else:
+            # Fallback: extract first channel and use as-is for all components
+            # This allows the model to work with standard data loaders
+            # In production, you should use TimeBaseMSTL preprocessing
+            x_first = x[:, :, 0:1]  # [B, T, 1]
+            trend = x_first
+            daily = torch.zeros_like(x_first)
+            weekly = torch.zeros_like(x_first)
+            resid = torch.zeros_like(x_first)
         
         # Encode to hyperbolic space
         enc_out = self.encoder(trend, weekly, daily, resid)

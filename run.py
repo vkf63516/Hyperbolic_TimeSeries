@@ -39,6 +39,8 @@ parser.add_argument('--curvature', type=float, default=1.0,
                     help='curvature parameter for Lorentz manifold')
 parser.add_argument('--lookback', type=int, default=None,
                     help='lookback window for Mamba (defaults to seq_len)')
+parser.add_argument('--use_decomposition', action='store_true', default=False,
+                    help='use TimeBaseMSTL decomposition (requires custom data loader)')
 
 # TimeBase arguments
 parser.add_argument('--use_period_norm', action='store_true', default=False,
