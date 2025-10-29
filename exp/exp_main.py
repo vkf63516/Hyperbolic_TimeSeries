@@ -35,7 +35,6 @@ import numpy as np
 class Exp_Main(Exp_Basic):
     def __init__(self, args):
         super(Exp_Main, self).__init__(args)
-        self.use_orthogonal = args.use_orthogonal
         self.use_decomposition = args.use_decomposition
         
         # Initialize TimeBaseMSTL if using decomposition

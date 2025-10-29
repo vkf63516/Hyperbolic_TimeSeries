@@ -38,7 +38,7 @@ def build_decomposition_tensors(df_components_or_dict):
 
 def build_mamba_input_tensors(results_dict):
     """
-    Convert TimeBaseSTL output into Mamba ready tensors.
+    Convert TimeBaseMSTL output into Mamba ready tensors.
     Returns a tensor of shape [num_series, T, 3].
     """
     tensors = []

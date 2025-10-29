@@ -176,7 +176,7 @@ class TimeBaseMSTL:
                 decomposed_basis[f"basis_{i}"] = {
                     "trend": trend,
                     seasonal_type: seasonal_total,
-                    "resid": resid,
+                    "residual": resid,
                 }
 
         except Exception as e:
@@ -189,7 +189,7 @@ class TimeBaseMSTL:
                     "trend": base,
                     "seasonal_daily": seas if seasonal_type == "seasonal_daily" else np.zeros_like(base),
                     "seasonal_weekly": seas if seasonal_type == "seasonal_weekly" else np.zeros_like(base),
-                    "resid": np.zeros_like(component),
+                    "residual": np.zeros_like(component),
                 }
 
         return decomposed_basis

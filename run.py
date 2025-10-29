@@ -10,7 +10,6 @@ import numpy as np
 
 
 parser = argparse.ArgumentParser(description="Hyperbolic TimeSeries with TimeBaseMSTL")
-args = parser.parse_args()
 # basic config
 parser.add_argument('--is_training', type=int, required=True, default=1, help='status')
 parser.add_argument('--model_id', type=str, required=True, default='test', help='model id')
@@ -24,22 +23,25 @@ parser.add_argument('--orthogonal_iters', type=int, default=500,
                     help='number of optimization iterations for basis')
 
 # Data processing
-# parser.add_argument('--mstl_period', type=int, default=24,
-#                     help='period for MSTL decomposition (detected if not set)')
+
 parser.add_argument('--log_interval', type=int, default=100,
                     help='logging interval during training')
 parser.add_argument('--save_freq', type=int, default=10,
                     help='checkpoint save frequency (epochs)')
 
 # data loader
+
+parser.add_argument('--embed_dim', type=int, default=32, help='hyperbolic embedding dimension')
+parser.add_argument('--hidden_dim', type=int, default=128, help='mamba hidden dimension')
+parser.add_argument('--curvature', type=float, default=1.0, help='hyperbolic curvature')
+parser.add_argument('--use_hierarchy', type=bool, default=True, help='use hierarchy scaling')
+parser.add_argument('--hierarchy_scales', type=float, nargs=4, default=[0.5,1.0,1.0,2.0], help='hierarchy scaling factors')
 parser.add_argument('--data', type=str, required=True, default='ETTm1', help='dataset type')
 parser.add_argument('--root_path', type=str, default='./data/ETT/', help='root path of the data file')
 parser.add_argument('--data_path', type=str, default='ETTh1.csv', help='data file')
-parser.add_argument('--features', type=str, default='M',
-                    help='forecasting task, options:[M, S, MS]; M:multivariate predict multivariate, S:univariate predict univariate, MS:multivariate predict univariate')
-parser.add_argument('--target', type=str, default='OT', help='target feature in S or MS task')
-parser.add_argument('--freq', type=str, default='h',
-                    help='freq for time features encoding, options:[s:secondly, t:minutely, h:hourly, d:daily, b:business days, w:weekly, m:monthly], you can also use more detailed freq like 15min or 3h')
+parser.add_argument('--features', type=str, default='M', help='forecasting task')
+parser.add_argument('--target', type=str, default='OT', help='target feature')
+parser.add_argument('--freq', type=str, default='h', help='freq for time encoding')
 parser.add_argument('--checkpoints', type=str, default='./checkpoints/', help='location of model checkpoints')
 
 # forecasting task
@@ -49,34 +51,30 @@ parser.add_argument('--pred_len', type=int, default=96, help='prediction sequenc
 
 # optimization
 parser.add_argument('--num_workers', type=int, default=10, help='data loader num workers')
-parser.add_argument('--itr', type=int, default=2, help='experiments times')
+parser.add_argument('--itr', type=int, default=2, help='experiment runs')
 parser.add_argument('--train_epochs', type=int, default=100, help='train epochs')
-parser.add_argument('--batch_size', type=int, default=128, help='batch size of train input data')
+parser.add_argument('--batch_size', type=int, default=128, help='batch size')
 parser.add_argument('--patience', type=int, default=100, help='early stopping patience')
 parser.add_argument('--learning_rate', type=float, default=0.0001, help='optimizer learning rate')
 parser.add_argument('--des', type=str, default='test', help='exp description')
 parser.add_argument('--loss', type=str, default='mse', help='loss function')
 parser.add_argument('--lradj', type=str, default='type3', help='adjust learning rate')
 parser.add_argument('--pct_start', type=float, default=0.3, help='pct_start')
-parser.add_argument('--use_amp', action='store_true', help='use automatic mixed precision training', default=False)
 
 # GPU
+parser.add_argument('--use_amp', action='store_true', help='use AMP', default=False)
 parser.add_argument('--use_gpu', type=bool, default=True, help='use gpu')
-parser.add_argument('--gpu', type=int, default=0, help='gpu')
-parser.add_argument('--use_multi_gpu', type=int, help='use multiple gpus', default=0)
-parser.add_argument('--devices', type=str, default='0,1', help='device ids of multile gpus')
-parser.add_argument('--test_flop', action='store_true', default=False, help='See utils/tools for usage')
+parser.add_argument('--gpu', type=int, default=0, help='gpu id')
+parser.add_argument('--use_multi_gpu', type=int, default=0, help='use multiple gpus')
+parser.add_argument('--devices', type=str, default='0,1', help='multi-gpu device ids')
 
 args = parser.parse_args()
 
-# random seed
 fix_seed_list = range(2023, 2033)
-
-
 args.use_gpu = True if torch.cuda.is_available() and args.use_gpu else False
 
 if args.use_gpu and args.use_multi_gpu:
-    args.dvices = args.devices.replace(' ', '')
+    args.devices = args.devices.replace(' ', '')
     device_ids = args.devices.split(',')
     args.device_ids = [int(id_) for id_ in device_ids]
     args.gpu = args.device_ids[0]
@@ -127,7 +125,6 @@ else:
         args.des,
         ii,
         fix_seed_list[ii])
-
     exp = Exp(args)  # set experiments
     print('>>>>>>>testing : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
     exp.test(setting, test=1)
