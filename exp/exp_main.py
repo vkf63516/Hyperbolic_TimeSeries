@@ -72,7 +72,7 @@ class Exp_Main(Exp_Basic):
             data_array = train_data.data_x
             
             # Create a simple DataFrame (you may need to add proper datetime index)
-            df = pd.DataFrame(data_array)
+            train_df = pd.DataFrame(data_array)
             
             # Initialize TimeBaseMSTL
             self.timebase_mstl = TimeBaseMSTL(
@@ -82,7 +82,7 @@ class Exp_Main(Exp_Basic):
             )
             
             # Fit on training data
-            self.timebase_mstl.fit(df)
+            self.timebase_mstl.fit(train_df)
             
             # Auto-detect periods
             self.mstl_periods = self.timebase_mstl.steps_per_period[0]
@@ -100,7 +100,7 @@ class Exp_Main(Exp_Basic):
             batch_x: [B, T, C] raw time series batch
             
         Returns:
-            decomposed_components: dict with 'trend', 'daily', 'weekly', 'resid'
+            decomposed_components: dict with 'trend', 'seasonal_daily', 'seasonal_weekly', 'residual'
                                    each of shape [B, T, 1]
         """
         B, T, C = batch_x.shape
@@ -108,9 +108,9 @@ class Exp_Main(Exp_Basic):
         
         # Initialize component tensors
         trend_batch = torch.zeros(B, T, 1, device=device)
-        daily_batch = torch.zeros(B, T, 1, device=device)
-        weekly_batch = torch.zeros(B, T, 1, device=device)
-        resid_batch = torch.zeros(B, T, 1, device=device)
+        seasonal_daily_batch = torch.zeros(B, T, 1, device=device)
+        seasonal_weekly_batch = torch.zeros(B, T, 1, device=device)
+        residual_batch = torch.zeros(B, T, 1, device=device)
         
         # Decompose each sample in the batch
         # Note: This is a simplified version. In production, you'd want to:
@@ -130,15 +130,15 @@ class Exp_Main(Exp_Basic):
             if 'value' in decomposition:
                 comp = decomposition['value']
                 trend_batch[b, :, 0] = torch.from_numpy(comp['trend']).float()
-                daily_batch[b, :, 0] = torch.from_numpy(comp['seasonal_daily']).float()
-                weekly_batch[b, :, 0] = torch.from_numpy(comp['seasonal_weekly']).float()
-                resid_batch[b, :, 0] = torch.from_numpy(comp['residual']).float()
+                seasonal_daily_batch[b, :, 0] = torch.from_numpy(comp['seasonal_daily']).float()
+                seasonal_weekly_batch[b, :, 0] = torch.from_numpy(comp['seasonal_weekly']).float()
+                residual_batch[b, :, 0] = torch.from_numpy(comp['residual']).float()
         
         return {
             'trend': trend_batch.to(device),
-            'seasonal_daily': daily_batch.to(device),
-            'seasonal_weekly': weekly_batch.to(device),
-            'residual': resid_batch.to(device)
+            'seasonal_weekly': seasonal_weekly_batch.to(device),
+            'seasonal_daily': seasonal_daily_batch.to(device),
+            'residual': residual_batch.to(device)
         }
 
     def _select_optimizer(self):
@@ -228,6 +228,7 @@ class Exp_Main(Exp_Basic):
         # Initialize TimeBaseMSTL if decomposition is enabled
         if self.use_decomposition:
             self._initialize_timebase_mstl(train_data)
+            self._transform_data_segments(train_data, vali_data, test_data)
 
         path = os.path.join(self.args.checkpoints, setting)
         if not os.path.exists(path):

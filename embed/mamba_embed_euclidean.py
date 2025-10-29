@@ -58,9 +58,8 @@ class ParallelEuclideanEncoder(nn.Module):
 
         return {
             "trend_h": z_trend,
-            "daily_h": z_daily,
-            "weekly_h": z_weekly,
-            "monthly_h": z_monthly,
-            "resid_h": z_resid,
+            "seasonal_daily_h": z_daily,
+            "seasonal_weekly_h": z_weekly,
+            "residual_h": z_resid,
             "combined": combined
         }

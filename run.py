@@ -31,23 +31,25 @@ parser.add_argument('--log_interval', type=int, default=100,
 parser.add_argument('--save_freq', type=int, default=10,
                     help='checkpoint save frequency (epochs)')
 
-# data loader
+# Hyperbolic Space
 
 parser.add_argument('--embed_dim', type=int, default=32, help='hyperbolic embedding dimension')
 parser.add_argument('--hidden_dim', type=int, default=128, help='mamba hidden dimension')
-parser.add_argument('--curvature', type=float, default=1.0, help='hyperbolic curvature')
-parser.add_argument('--use_hierarchy', type=bool, default=True, help='use hierarchy scaling')
+parser.add_argument('--curvature', type=float, default=-1.0, help='negative number for hyperbolic curvature')
+parser.add_argument('--use_hierarchy', type=bool, default=False, help='use hierarchy scaling')
 parser.add_argument('--hierarchy_scales', type=float, nargs=4, default=[0.5,1.0,1.0,2.0], help='hierarchy scaling factors')
+
+# Data loader
 parser.add_argument('--data', type=str, required=True, default='ETTm1', help='dataset type')
 parser.add_argument('--root_path', type=str, default='./data/ETT/', help='root path of the data file')
 parser.add_argument('--data_path', type=str, default='ETTh1.csv', help='data file')
-parser.add_argument('--features', type=str, default='M', help='forecasting task')
+parser.add_argument('--features', type=str, default='M', help="forecasting task, options:[M, S, MS]; M:multivariate predict multivariate, S:univariate predict univariate, MS:multivariate predict univariate")
 parser.add_argument('--target', type=str, default='OT', help='target feature')
 parser.add_argument('--freq', type=str, default='h', help='freq for time encoding')
 parser.add_argument('--checkpoints', type=str, default='./checkpoints/', help='location of model checkpoints')
 
 # forecasting task
-parser.add_argument('--seq_len', type=int, default=96, help='input sequence length')
+parser.add_argument('--seq_len', type=int, default=720, help='input sequence length')
 parser.add_argument('--label_len', type=int, default=48, help='start token length')
 parser.add_argument('--pred_len', type=int, default=96, help='prediction sequence length')
 
@@ -56,7 +58,7 @@ parser.add_argument('--num_workers', type=int, default=10, help='data loader num
 parser.add_argument('--itr', type=int, default=2, help='experiment runs')
 parser.add_argument('--train_epochs', type=int, default=100, help='train epochs')
 parser.add_argument('--batch_size', type=int, default=128, help='batch size')
-parser.add_argument('--patience', type=int, default=100, help='early stopping patience')
+parser.add_argument('--patience', type=int, default=10, help='early stopping patience')
 parser.add_argument('--learning_rate', type=float, default=0.0001, help='optimizer learning rate')
 parser.add_argument('--des', type=str, default='test', help='exp description')
 parser.add_argument('--loss', type=str, default='mse', help='loss function')

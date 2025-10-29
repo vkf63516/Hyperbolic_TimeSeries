@@ -20,9 +20,9 @@ class HyperbolicMambaDecoder(nn.Module):
 
     def forward(self, z_t):
         """
-        z_t : [B, D+1] current manifold point (Lorentz coordinates)
+        z_t : [B, D] current manifold point (Lorentz coordinates)
         returns:
-            z_next [B, D+1] : next manifold point
+            z_next [B, D+1] : next manifold point/segment
             v_proj [B, D+1] : projected tangent update
         """
         # 1) Map to tangent space at origin

@@ -10,7 +10,7 @@ import geoopt
 
 class HyperbolicSeqForecaster(nn.Module):
     """
-    Inputs: manifold points from your existing encoders (trend_z, seasonal_z, resid_z),
+    Inputs: manifold points from your existing encoders (trend_z, seasonal_weekly_z, seasonal_daily_z, residual_z),
             or directly a combined z0 if youve already fused them.
     Combines in tangent@origin, then autoregressively predicts H steps on the manifold,
     reconstructing each step to Euclidean outputs.
@@ -36,20 +36,20 @@ class HyperbolicSeqForecaster(nn.Module):
     def combine_only(self, *z_list):
         return self.combine_branches(*z_list)
 
-    def forecast(self, pred_len, trend_z=None, seasonal_z=None, resid_z=None, z0=None,
-                 teacher_forcing=False, z_true_seq=None, K=6):
+    def forecast(self, pred_len, trend_z=None, seasonal_weekly_z=None, 
+                seasonal_daily_z, residual_z=None, z0=None,
+                teacher_forcing=False, z_true_seq=None, K=6):
         """
         Returns:
           x_hat:  [B, H, output_dim]  reconstructed Euclidean predictions
           z_pred: [B, H, D+1]         manifold predictions
         """
-        assert (z0 is not None) or (trend_z is not None
-         and seasonal_z is not None
-          and resid_z is not None), \
-            "Pass z0 or all of trend_z/seasonal_z/resid_z"
+        # assert (z0 is not None) or (trend_z is not None
+        #  and seasonal_z is not None
+        #   and residual_z is not None), \
 
         if z0 is None:
-            z_cur = self.combine_branches(trend_z, seasonal_z, resid_z)
+            z_cur = self.combine_branches(trend_z, seasonal_weekly_z, seasonal_daily_z, residual_z)
         else:
             z_cur = z0
 

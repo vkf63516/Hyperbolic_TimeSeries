@@ -24,13 +24,13 @@ def plot_variance_contribution(decompositions):
     trend_var = {k: np.var(v["trend"]) for k, v in decompositions.items()}
     seasonal_daily = {k: np.var(v["seasonal_daily"]) for k, v in decompositions.items()}
     seasonal_weekly = {k: np.var(v["seasonal_weekly"]) for k, v in decompositions.items()}
-    resid_var = {k: np.var(v["residual"]) for k, v in decompositions.items()}
+    residual_var = {k: np.var(v["residual"]) for k, v in decompositions.items()}
 
     df = pd.DataFrame({
         "Trend": trend_var,
         "Seasonal_Weekly": seasonal_weekly,
         "Seasonal_Daily": seasonal_daily,
-        "Residual": resid_var
+        "Residual": residual_var
     }).T
     (df / df.sum()).T.plot.bar(stacked=True, figsize=(12, 6))
     plt.title("Variance Contribution by Component")

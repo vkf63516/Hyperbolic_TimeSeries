@@ -215,7 +215,7 @@ def Create_Period_Aligned_Segments(tensors_dict, input_len, pred_len,
 
 def prepare_timebase_data_with_mstl(train_dict, val_dict, test_dict, 
                                      mstl_period, input_len, pred_len, 
-                                     stride='overlap', device="cuda"):
+                                     stride='period', device="cuda"):
     """
     Complete pipeline: normalize → segment with MSTL period.
     

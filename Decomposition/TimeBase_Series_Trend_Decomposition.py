@@ -165,7 +165,7 @@ class TimeBaseMSTL:
             # --- Convert outputs into dictionary form ---
             for i, res in enumerate(batch_results):
                 trend = res.trend.values if isinstance(res.trend, pd.Series) else res.trend
-                resid = res.resid.values if isinstance(res.resid, pd.Series) else res.resid
+                residual = res.resid.values if isinstance(res.resid, pd.Series) else res.resid
 
                 # Handle multiple seasonal columns
                 if isinstance(res.seasonal, pd.DataFrame):
@@ -176,7 +176,7 @@ class TimeBaseMSTL:
                 decomposed_basis[f"basis_{i}"] = {
                     "trend": trend,
                     seasonal_type: seasonal_total,
-                    "residual": resid,
+                    "residual": residual,
                 }
 
         except Exception as e:
