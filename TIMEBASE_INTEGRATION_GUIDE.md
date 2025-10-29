@@ -31,129 +31,229 @@ This guide explains how to properly integrate TimeBaseMSTL decomposition with Hy
 
 ### Option 1: Using HyperbolicTimeSeriesDataset (Best Practice)
 
-1. **Uncomment and update HyperbolicTimeSeriesDataset** in `data_provider/data_loader.py`:
+The key challenge is that `data_provider()` is called separately for each split (train/val/test), but TimeBaseMSTL needs to:
+- Be fit once on training data
+- Transform all three splits consistently
+- Share the fitted instance across datasets
+
+**Solution: Use module-level caching in data_factory.py**
+
+1. **Update `data_provider/data_factory.py`**:
+
+```python
+from data_provider.data_loader import Dataset_ETT_hour, Dataset_ETT_minute, Dataset_Custom, Dataset_Pred
+from torch.utils.data import DataLoader
+from Decomposition.TimeBase_Series_Trend_Decomposition import TimeBaseMSTL
+from Decomposition.tensor_utils import build_decomposition_tensors
+from spec import prepare_timebase_data_with_mstl
+import pandas as pd
+
+data_dict = {
+    'ETTh1': Dataset_ETT_hour,
+    'ETTh2': Dataset_ETT_hour,
+    'ETTm1': Dataset_ETT_minute,
+    'ETTm2': Dataset_ETT_minute,
+    'custom': Dataset_Custom,
+}
+
+# Module-level cache for TimeBaseMSTL preprocessing
+_timebase_cache = {}
+
+def _initialize_timebase_preprocessing(args):
+    """
+    Initialize TimeBaseMSTL and preprocess all splits.
+    Called once on first data_provider call.
+    """
+    print("Initializing TimeBaseMSTL preprocessing...")
+    
+    # Load all splits as DataFrames
+    # Note: Implement based on your data structure
+    train_df = _load_dataframe(args, 'train')
+    val_df = _load_dataframe(args, 'val')
+    test_df = _load_dataframe(args, 'test')
+    
+    # Initialize and fit TimeBaseMSTL on training data
+    timebase_mstl = TimeBaseMSTL(
+        n_basis_components=args.num_basis,
+        orthogonal_lr=args.orthogonal_lr,
+        orthogonal_iters=args.orthogonal_iters
+    )
+    timebase_mstl.fit(train_df)
+    
+    # Auto-detect period
+    mstl_period = timebase_mstl.steps_per_period[0]
+    print(f"Auto-detected MSTL period: {mstl_period}")
+    
+    # Transform all datasets
+    train_components = timebase_mstl.transform(train_df)
+    val_components = timebase_mstl.transform(val_df)
+    test_components = timebase_mstl.transform(test_df)
+    
+    # Convert to tensor dictionaries
+    train_dict = build_decomposition_tensors(train_components)
+    val_dict = build_decomposition_tensors(val_components)
+    test_dict = build_decomposition_tensors(test_components)
+    
+    # Use prepare_timebase_data_with_mstl for normalization and segmentation
+    train_seg, val_seg, test_seg, scaler, _ = prepare_timebase_data_with_mstl(
+        train_dict=train_dict,
+        val_dict=val_dict,
+        test_dict=test_dict,
+        mstl_period=mstl_period,
+        input_len=args.seq_len,
+        pred_len=args.pred_len,
+        stride='overlap',
+        device='cuda' if torch.cuda.is_available() else 'cpu'
+    )
+    
+    # Cache for reuse across train/val/test calls
+    _timebase_cache[args.data] = {
+        'train': train_seg,
+        'val': val_seg,
+        'test': test_seg,
+        'scaler': scaler,
+        'mstl_period': mstl_period
+    }
+    print("TimeBaseMSTL preprocessing complete")
+
+def data_provider(args, flag):
+    # Check if we should use TimeBaseMSTL preprocessing
+    use_timebase = (
+        args.model == 'HyperbolicMambaForecasting' and 
+        getattr(args, 'use_decomposition', False)
+    )
+    
+    if use_timebase:
+        # Initialize preprocessing on first call
+        if args.data not in _timebase_cache:
+            _initialize_timebase_preprocessing(args)
+        
+        # Create HyperbolicTimeSeriesDataset with preprocessed data
+        from data_provider.data_loader import HyperbolicTimeSeriesDataset
+        data_set = HyperbolicTimeSeriesDataset(
+            preprocessed_data=_timebase_cache[args.data][flag],
+            scaler=_timebase_cache[args.data]['scaler'],
+            args=args,
+            flag=flag
+        )
+    else:
+        # Standard data loading
+        Data = data_dict[args.data]
+        timeenc = 0 if args.embed != 'timeF' else 1
+        
+        data_set = Data(
+            root_path=args.root_path,
+            data_path=args.data_path,
+            flag=flag,
+            size=[args.seq_len, args.label_len, args.pred_len],
+            features=args.features,
+            target=args.target,
+            timeenc=timeenc,
+            freq=args.freq
+        )
+    
+    # Create DataLoader
+    if flag == 'test':
+        shuffle_flag = False
+        drop_last = False
+        batch_size = args.batch_size
+    else:
+        shuffle_flag = True if flag == 'train' else False
+        drop_last = False
+        batch_size = args.batch_size
+    
+    print(flag, len(data_set))
+    data_loader = DataLoader(
+        data_set,
+        batch_size=batch_size,
+        shuffle=shuffle_flag,
+        num_workers=args.num_workers,
+        drop_last=drop_last
+    )
+    return data_set, data_loader
+
+def _load_dataframe(args, flag):
+    """Load dataset as DataFrame for TimeBaseMSTL preprocessing."""
+    # Implement based on your data structure
+    # This is a placeholder - adapt to your needs
+    pass
+```
+
+2. **Uncomment and update HyperbolicTimeSeriesDataset** in `data_provider/data_loader.py`:
 
 ```python
 class HyperbolicTimeSeriesDataset(Dataset):
     """
     Dataset for hyperbolic forecasting with TimeBaseMSTL decomposition.
-    Integrates with prepare_timebase_data_with_mstl from spec.py.
+    Receives pre-processed data from data_factory to avoid redundant preprocessing.
     """
     
-    def __init__(self, train_df, val_df, test_df, args, flag='train'):
+    def __init__(self, preprocessed_data, scaler, args, flag='train'):
+        """
+        Args:
+            preprocessed_data: Output from prepare_timebase_data_with_mstl for this split
+            scaler: Fitted scaler from preprocessing
+            args: Configuration arguments
+            flag: 'train', 'val', or 'test'
+        """
+        self.data = preprocessed_data
+        self.scaler = scaler
         self.args = args
         self.flag = flag
-        
-        # Initialize TimeBaseMSTL
-        self.timebase_mstl = TimeBaseMSTL(
-            n_basis_components=args.num_basis,
-            orthogonal_lr=args.orthogonal_lr,
-            orthogonal_iters=args.orthogonal_iters
-        )
-        
-        # Fit on training data
-        print("Fitting TimeBaseMSTL...")
-        self.timebase_mstl.fit(train_df)
-        
-        # Get auto-detected period
-        self.mstl_period = self.timebase_mstl.steps_per_period[0]
-        print(f"Auto-detected MSTL period: {self.mstl_period}")
-        
-        # Transform all datasets
-        train_components = self.timebase_mstl.transform(train_df)
-        val_components = self.timebase_mstl.transform(val_df)
-        test_components = self.timebase_mstl.transform(test_df)
-        
-        # Convert to tensor dictionaries
-        from Decomposition.tensor_utils import build_decomposition_tensors
-        train_dict = build_decomposition_tensors(train_components)
-        val_dict = build_decomposition_tensors(val_components)
-        test_dict = build_decomposition_tensors(test_components)
-        
-        # Use prepare_timebase_data_with_mstl for proper preprocessing
-        from spec import prepare_timebase_data_with_mstl
-        train_seg, val_seg, test_seg, self.scaler, _ = prepare_timebase_data_with_mstl(
-            train_dict=train_dict,
-            val_dict=val_dict,
-            test_dict=test_dict,
-            mstl_period=self.mstl_period,
-            input_len=args.seq_len,
-            pred_len=args.pred_len,
-            stride='overlap',
-            device='cuda' if torch.cuda.is_available() else 'cpu'
-        )
-        
-        # Store appropriate split
-        if flag == 'train':
-            self.data = train_seg
-        elif flag == 'val':
-            self.data = val_seg
-        else:
-            self.data = test_seg
     
     def __len__(self):
-        # Return number of samples based on segmented data structure
+        # Return number of samples based on preprocessed data structure
         # Adjust based on actual structure from prepare_timebase_data_with_mstl
-        return len(self.data)
+        # The structure is: {feature: {"X": {comp: tensor}, "Y": {comp: tensor}}}
+        
+        # Get first feature to determine sample count
+        first_feature = next(iter(self.data.keys()))
+        first_comp = next(iter(self.data[first_feature]["X"].keys()))
+        return self.data[first_feature]["X"][first_comp].shape[0]
     
     def __getitem__(self, idx):
-        # Return decomposed components for the sample
-        # Format: trend, daily, weekly, resid each of shape [T, 1]
-        # Adjust based on actual structure from prepare_timebase_data_with_mstl
-        sample = self.data[idx]
+        """
+        Return decomposed components for a single sample.
         
-        # Extract and format components
-        # This depends on the output structure of prepare_timebase_data_with_mstl
+        Returns:
+            Dictionary with input and target decomposed components:
+            {
+                'input': {'trend': [T, 1], 'daily': [T, 1], 'weekly': [T, 1], 'resid': [T, 1]},
+                'target': {'trend': [T', 1], 'daily': [T', 1], 'weekly': [T', 1], 'resid': [T', 1]}
+            }
+        """
+        # Extract components for this sample
+        # Adjust based on actual data structure from prepare_timebase_data_with_mstl
+        
+        sample = {}
+        for feature_name, feature_data in self.data.items():
+            sample['input'] = {}
+            sample['target'] = {}
+            
+            for comp_name in ['trend', 'seasonal_daily', 'seasonal_weekly', 'residual']:
+                # Get input and target components
+                if comp_name in feature_data["X"]:
+                    sample['input'][comp_name] = feature_data["X"][comp_name][idx]
+                if comp_name in feature_data["Y"]:
+                    sample['target'][comp_name] = feature_data["Y"][comp_name][idx]
+        
         return sample
 ```
 
-2. **Update data_factory.py** to use HyperbolicTimeSeriesDataset:
+3. **Key Differences from Dataset_Custom**:
 
-```python
-from data_provider.data_loader import HyperbolicTimeSeriesDataset
+| Aspect | Dataset_Custom | HyperbolicTimeSeriesDataset |
+|--------|----------------|----------------------------|
+| Data Loading | Reads from files internally | Receives preprocessed data |
+| Parameters | `root_path`, `data_path`, `flag` | `preprocessed_data`, `scaler`, `args`, `flag` |
+| Initialization | Independent per split | Shares preprocessing via cache |
+| TimeBaseMSTL | Not used | Preprocessed in data_factory |
 
-def data_provider(args, flag):
-    if args.model == 'HyperbolicMambaForecasting' and args.use_decomposition:
-        # Load raw DataFrames
-        train_df = load_dataframe(args, 'train')
-        val_df = load_dataframe(args, 'val')
-        test_df = load_dataframe(args, 'test')
-        
-        # Create dataset with TimeBaseMSTL integration
-        data_set = HyperbolicTimeSeriesDataset(
-            train_df=train_df,
-            val_df=val_df,
-            test_df=test_df,
-            args=args,
-            flag=flag
-        )
-    else:
-        # Use standard datasets
-        data_set = Dataset_Custom(...)
-    
-    data_loader = DataLoader(data_set, ...)
-    return data_set, data_loader
-```
-
-3. **Update exp_main.py** to use decomposed components:
-
-```python
-# In training loop
-for batch in train_loader:
-    if isinstance(batch, dict):  # Decomposed batch from HyperbolicTimeSeriesDataset
-        batch_x = batch['input']
-        batch_y = batch['target']
-        decomposed_components = {
-            'trend': batch['trend'],
-            'daily': batch['daily'],
-            'weekly': batch['weekly'],
-            'resid': batch['resid']
-        }
-        outputs = self.model(batch_x, decomposed_components=decomposed_components)
-    else:
-        # Standard batch
-        outputs = self.model(batch_x)
-```
+This approach:
+- ✅ Maintains the existing data_factory pattern
+- ✅ Fits TimeBaseMSTL once and shares across splits
+- ✅ Uses module-level cache to avoid redundant preprocessing
+- ✅ Compatible with existing training loops
 
 ### Option 2: Using exp_main_with_timebase.py (Reference Implementation)
 
