@@ -1,3 +1,13 @@
+"""
+Example exp_main.py with TimeBaseMSTL integration for HyperbolicMambaForecasting
+
+This file shows how to integrate TimeBaseMSTL decomposition into the training pipeline.
+Key changes from the original exp_main.py:
+1. Import TimeBaseMSTL
+2. Initialize and fit TimeBaseMSTL on training data
+3. Pass decomposed components to the model instead of non-decomposed data
+"""
+
 from data_provider.data_factory import data_provider
 from exp.exp_basic import Exp_Basic
 from models import TimeBase
@@ -11,6 +21,8 @@ import torch.nn as nn
 from torch import optim
 from torch.optim import lr_scheduler
 from spec import EarlyStopping
+from Decomposition.TimeBase_Series_Trend_Decomposition import TimeBaseMSTL
+import pandas as pd
 
 import os
 import time
@@ -19,13 +31,17 @@ import warnings
 import matplotlib.pyplot as plt
 import numpy as np
 
-# warnings.filterwarnings('ignore')
-
 
 class Exp_Main(Exp_Basic):
     def __init__(self, args):
         super(Exp_Main, self).__init__(args)
         self.use_orthogonal = args.use_orthogonal
+        self.use_decomposition = args.use_decomposition
+        
+        # Initialize TimeBaseMSTL if using decomposition
+        if self.use_decomposition:
+            self.timebase_mstl = None  # Will be initialized after loading data
+            
     def _build_model(self):
         model_dict = {
             "HyperbolicMambaForecasting": HyperbolicMambaForecasting
@@ -41,6 +57,90 @@ class Exp_Main(Exp_Basic):
     def _get_data(self, flag):
         data_set, data_loader = data_provider(self.args, flag)
         return data_set, data_loader
+    
+    def _initialize_timebase_mstl(self, train_data):
+        """
+        Initialize and fit TimeBaseMSTL on training data.
+        This should be called once after loading training data.
+        """
+        print("Initializing TimeBaseMSTL decomposition...")
+        
+        # Get raw data as DataFrame
+        # Note: You'll need to adapt this based on your dataset structure
+        # This assumes train_data has a method to get the raw dataframe
+        if hasattr(train_data, 'data_x'):
+            # Convert to DataFrame with datetime index if available
+            data_array = train_data.data_x
+            
+            # Create a simple DataFrame (you may need to add proper datetime index)
+            df = pd.DataFrame(data_array)
+            
+            # Initialize TimeBaseMSTL
+            self.timebase_mstl = TimeBaseMSTL(
+                n_basis_components=self.args.num_basis,
+                orthogonal_lr=self.args.orthogonal_lr,
+                orthogonal_iters=self.args.orthogonal_iters
+            )
+            
+            # Fit on training data
+            self.timebase_mstl.fit(df)
+            
+            # Auto-detect periods
+            self.mstl_periods = self.timebase_mstl.steps_per_period[0]
+            
+            print(f"Auto-detected MSTL periods: {self.mstl_periods}")
+            
+        else:
+            raise ValueError("Cannot initialize TimeBaseMSTL: dataset structure not recognized")
+    
+    def _decompose_batch(self, batch_x):
+        """
+        Decompose a batch of time series using fitted TimeBaseMSTL.
+        
+        Args:
+            batch_x: [B, T, C] raw time series batch
+            
+        Returns:
+            decomposed_components: dict with 'trend', 'daily', 'weekly', 'resid'
+                                   each of shape [B, T, 1]
+        """
+        B, T, C = batch_x.shape
+        device = batch_x.device
+        
+        # Initialize component tensors
+        trend_batch = torch.zeros(B, T, 1, device=device)
+        daily_batch = torch.zeros(B, T, 1, device=device)
+        weekly_batch = torch.zeros(B, T, 1, device=device)
+        resid_batch = torch.zeros(B, T, 1, device=device)
+        
+        # Decompose each sample in the batch
+        # Note: This is a simplified version. In production, you'd want to:
+        # 1. Use cached decomposition for efficiency
+        # 2. Or implement batch decomposition in TimeBaseMSTL
+        for b in range(B):
+            # Get first channel
+            series = batch_x[b, :, 0].detach().cpu().numpy()
+            
+            # Create DataFrame for this sample
+            df_sample = pd.DataFrame({'value': series})
+            
+            # Transform using fitted TimeBaseMSTL
+            decomposition = self.timebase_mstl.transform(df_sample)
+            
+            # Extract components (assuming single column 'value')
+            if 'value' in decomposition:
+                comp = decomposition['value']
+                trend_batch[b, :, 0] = torch.from_numpy(comp['trend']).float()
+                daily_batch[b, :, 0] = torch.from_numpy(comp['seasonal_daily']).float()
+                weekly_batch[b, :, 0] = torch.from_numpy(comp['seasonal_weekly']).float()
+                resid_batch[b, :, 0] = torch.from_numpy(comp['residual']).float()
+        
+        return {
+            'trend': trend_batch.to(device),
+            'seasonal_daily': daily_batch.to(device),
+            'seasonal_weekly': weekly_batch.to(device),
+            'residual': resid_batch.to(device)
+        }
 
     def _select_optimizer(self):
         model_geooptim = geooptim.RiemannianAdam(params=self.model.parameters(), lr=self.args.learning_rate)
@@ -71,11 +171,17 @@ class Exp_Main(Exp_Basic):
                 # decoder input
                 dec_inp = torch.zeros_like(batch_y[:, -self.args.pred_len:, :]).float()
                 dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
+                
                 # encoder - decoder
                 if self.args.use_amp:
                     with torch.cuda.amp.autocast():
                         if any(substr in self.args.model for substr in {"Linear", "TST", "SparseTSF", "HyperbolicMambaForecasting"}):
-                            outputs = self.model(batch_x)
+                            # Use decomposition if enabled
+                            if self.use_decomposition and self.timebase_mstl is not None:
+                                decomposed_components = self._decompose_batch(batch_x)
+                                outputs = self.model(batch_x, decomposed_components=decomposed_components)
+                            else:
+                                outputs = self.model(batch_x)
                         else:
                             if self.args.output_attention:
                                 outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]
@@ -83,16 +189,24 @@ class Exp_Main(Exp_Basic):
                                 outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
                 else:
                     if any(substr in self.args.model for substr in {"Linear", "TST", "SparseTSF", "HyperbolicMambaForecasting"}):
-                        
-                        if self.use_orthogonal:
-                            outputs,orthogonal_loss = self.model(batch_x)
+                        # Use decomposition if enabled
+                        if self.use_decomposition and self.timebase_mstl is not None:
+                            decomposed_components = self._decompose_batch(batch_x)
+                            if self.use_orthogonal:
+                                outputs, orthogonal_loss = self.model(batch_x, decomposed_components=decomposed_components)
+                            else:
+                                outputs = self.model(batch_x, decomposed_components=decomposed_components)
                         else:
-                            outputs = self.model(batch_x)
+                            if self.use_orthogonal:
+                                outputs, orthogonal_loss = self.model(batch_x)
+                            else:
+                                outputs = self.model(batch_x)
                     else:
                         if self.args.output_attention:
                             outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]
                         else:
                             outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
+                            
                 f_dim = -1 if self.args.features == 'MS' else 0
                 outputs = outputs[:, -self.args.pred_len:, f_dim:]
                 batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
@@ -111,6 +225,10 @@ class Exp_Main(Exp_Basic):
         train_data, train_loader = self._get_data(flag='train')
         vali_data, vali_loader = self._get_data(flag='val')
         test_data, test_loader = self._get_data(flag='test')
+        
+        # Initialize TimeBaseMSTL if decomposition is enabled
+        if self.use_decomposition:
+            self._initialize_timebase_mstl(train_data)
 
         path = os.path.join(self.args.checkpoints, setting)
         if not os.path.exists(path):
@@ -155,7 +273,12 @@ class Exp_Main(Exp_Basic):
                 if self.args.use_amp:
                     with torch.cuda.amp.autocast():
                         if any(substr in self.args.model for substr in {"Linear", "TST", "SparseTSF", "HyperbolicMambaForecasting"}):
-                            outputs = self.model(batch_x)
+                            # Use decomposition if enabled
+                            if self.use_decomposition and self.timebase_mstl is not None:
+                                decomposed_components = self._decompose_batch(batch_x)
+                                outputs = self.model(batch_x, decomposed_components=decomposed_components)
+                            else:
+                                outputs = self.model(batch_x)
                         else:
                             if self.args.output_attention:
                                 outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]
@@ -169,11 +292,20 @@ class Exp_Main(Exp_Basic):
                         train_loss.append(loss.item())
                 else:
                     if any(substr in self.args.model for substr in {"Linear", "TST", "SparseTSF", "HyperbolicMambaForecasting"}):
-                        if self.use_orthogonal:
-                            outputs,orthogonal_loss = self.model(batch_x)
+                        # Use decomposition if enabled
+                        if self.use_decomposition and self.timebase_mstl is not None:
+                            decomposed_components = self._decompose_batch(batch_x)
+                            if self.use_orthogonal:
+                                outputs, orthogonal_loss = self.model(batch_x, decomposed_components=decomposed_components)
+                            else:
+                                outputs = self.model(batch_x, decomposed_components=decomposed_components)
+                                orthogonal_loss = 0
                         else:
-                            outputs = self.model(batch_x)
-                            orthogonal_loss = 0
+                            if self.use_orthogonal:
+                                outputs, orthogonal_loss = self.model(batch_x)
+                            else:
+                                outputs = self.model(batch_x)
+                                orthogonal_loss = 0
                     else:
                         if self.args.output_attention:
                             outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]
@@ -228,7 +360,7 @@ class Exp_Main(Exp_Basic):
                 print('Updating learning rate to {}'.format(scheduler.get_last_lr()[0]))
 
         best_model_path = path + '/' + 'checkpoint.pth'
-        self.model.load_state_dict(torch.load(best_model_path))# ,map_location="cuda:0"))
+        self.model.load_state_dict(torch.load(best_model_path))
 
         print(f"Final Max Memory (MB): {max_memory}")
         return self.model
@@ -263,7 +395,12 @@ class Exp_Main(Exp_Basic):
                 if self.args.use_amp:
                     with torch.cuda.amp.autocast():
                         if any(substr in self.args.model for substr in {"Linear", "TST", "SparseTSF", "HyperbolicMambaForecasting"}):
-                            outputs = self.model(batch_x)
+                            # Use decomposition if enabled
+                            if self.use_decomposition and self.timebase_mstl is not None:
+                                decomposed_components = self._decompose_batch(batch_x)
+                                outputs = self.model(batch_x, decomposed_components=decomposed_components)
+                            else:
+                                outputs = self.model(batch_x)
                         else:
                             if self.args.output_attention:
                                 outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]
@@ -271,10 +408,18 @@ class Exp_Main(Exp_Basic):
                                 outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
                 else:
                     if any(substr in self.args.model for substr in {"Linear", "TST", "SparseTSF", "HyperbolicMambaForecasting"}):
-                        if self.use_orthogonal:
-                            outputs,orthogonal_loss = self.model(batch_x)
+                        # Use decomposition if enabled
+                        if self.use_decomposition and self.timebase_mstl is not None:
+                            decomposed_components = self._decompose_batch(batch_x)
+                            if self.use_orthogonal:
+                                outputs, orthogonal_loss = self.model(batch_x, decomposed_components=decomposed_components)
+                            else:
+                                outputs = self.model(batch_x, decomposed_components=decomposed_components)
                         else:
-                            outputs = self.model(batch_x)
+                            if self.use_orthogonal:
+                                outputs, orthogonal_loss = self.model(batch_x)
+                            else:
+                                outputs = self.model(batch_x)
                     else:
                         if self.args.output_attention:
                             outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]
@@ -289,8 +434,8 @@ class Exp_Main(Exp_Basic):
                 outputs = outputs.detach().cpu().numpy()
                 batch_y = batch_y.detach().cpu().numpy()
 
-                pred = outputs  # outputs.detach().cpu().numpy()  # .squeeze()
-                true = batch_y  # batch_y.detach().cpu().numpy()  # .squeeze()
+                pred = outputs
+                true = batch_y
 
                 preds.append(pred)
                 trues.append(true)
@@ -303,10 +448,8 @@ class Exp_Main(Exp_Basic):
 
         if self.args.test_flop:
             test_params_flop(self.model, (batch_x.shape[1],batch_x.shape[2]))
-            # test_params_flop((batch_x.shape[1], batch_x.shape[2]))
             exit()
 
-        # fix bug
         preds = np.concatenate(preds, axis=0)
         trues = np.concatenate(trues, axis=0)
         inputx = np.concatenate(inputx, axis=0)
@@ -322,17 +465,7 @@ class Exp_Main(Exp_Basic):
 
         mae, mse, rmse, mape, mspe, rse, corr = metric(preds, trues)
         print('mse:{}, mae:{}, rse:{}'.format(mse, mae, rse))
-        # f = open("result.txt", 'a')
-        # f.write(setting + "  \n")
-        # f.write('mse:{}, mae:{}, rse:{}'.format(mse, mae, rse))
-        # f.write('\n')
-        # f.write('\n')
-        # f.close()
 
-        # np.save(folder_path + 'metrics.npy', np.array([mae, mse, rmse, mape, mspe,rse, corr]))
-        # np.save(folder_path + 'pred.npy', preds)
-        # np.save(folder_path + 'true.npy', trues)
-        # np.save(folder_path + 'x.npy', inputx)
         return
 
     def predict(self, setting, load=False):
@@ -387,5 +520,4 @@ class Exp_Main(Exp_Basic):
         #     os.makedirs(folder_path)
 
         # np.save(folder_path + 'real_prediction.npy', preds)
-
         return

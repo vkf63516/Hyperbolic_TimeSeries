@@ -14,7 +14,7 @@ args = parser.parse_args()
 # basic config
 parser.add_argument('--is_training', type=int, required=True, default=1, help='status')
 parser.add_argument('--model_id', type=str, required=True, default='test', help='model id')
-parser.add_argument('--model', type=str, required=True, default='HyperbolicMamba', help='model name')
+parser.add_argument('--model', type=str, required=True, default='HyperbolicMambaForecasting', help='model name')
 # TimeBaseMSTL arguments
 parser.add_argument('--num_basis', type=int, default=10,
                     help='number of basis components for TimeBaseMSTL')
@@ -24,8 +24,8 @@ parser.add_argument('--orthogonal_iters', type=int, default=500,
                     help='number of optimization iterations for basis')
 
 # Data processing
-parser.add_argument('--mstl_period', type=int, default=24,
-                    help='period for MSTL decomposition (detected if not set)')
+# parser.add_argument('--mstl_period', type=int, default=24,
+#                     help='period for MSTL decomposition (detected if not set)')
 parser.add_argument('--log_interval', type=int, default=100,
                     help='logging interval during training')
 parser.add_argument('--save_freq', type=int, default=10,
