@@ -66,11 +66,19 @@ def _initialize_timebase_preprocessing(args):
     """
     print("Initializing TimeBaseMSTL preprocessing...")
     
-    # Load all splits as DataFrames
-    # Note: Implement based on your data structure
-    train_df = _load_dataframe(args, 'train')
-    val_df = _load_dataframe(args, 'val')
-    test_df = _load_dataframe(args, 'test')
+    # Load data using the same pattern as Dataset_Custom
+    # Read entire CSV file once
+    df_raw = pd.read_csv(os.path.join(args.root_path, args.data_path))
+    
+    # Split data using same border logic as Dataset_Custom (70/20/10 split)
+    num_train = int(len(df_raw) * 0.7)
+    num_test = int(len(df_raw) * 0.2)
+    num_vali = len(df_raw) - num_train - num_test
+    
+    # Extract splits as DataFrames
+    train_df = df_raw.iloc[0:num_train]
+    val_df = df_raw.iloc[num_train:num_train + num_vali]
+    test_df = df_raw.iloc[num_train + num_vali:]
     
     # Initialize and fit TimeBaseMSTL on training data
     timebase_mstl = TimeBaseMSTL(
@@ -171,12 +179,6 @@ def data_provider(args, flag):
         drop_last=drop_last
     )
     return data_set, data_loader
-
-def _load_dataframe(args, flag):
-    """Load dataset as DataFrame for TimeBaseMSTL preprocessing."""
-    # Implement based on your data structure
-    # This is a placeholder - adapt to your needs
-    pass
 ```
 
 2. **Uncomment and update HyperbolicTimeSeriesDataset** in `data_provider/data_loader.py`:
@@ -202,9 +204,9 @@ class HyperbolicTimeSeriesDataset(Dataset):
         self.flag = flag
     
     def __len__(self):
-        # Return number of samples based on preprocessed data structure
-        # Adjust based on actual structure from prepare_timebase_data_with_mstl
-        # The structure is: {feature: {"X": {comp: tensor}, "Y": {comp: tensor}}}
+        # The structure from prepare_timebase_data_with_mstl is:
+        # {feature: {"X": {comp: tensor}, "Y": {comp: tensor}}}
+        # where tensor shape is [N_samples, N_segments, P, C]
         
         # Get first feature to determine sample count
         first_feature = next(iter(self.data.keys()))
@@ -222,9 +224,7 @@ class HyperbolicTimeSeriesDataset(Dataset):
                 'target': {'trend': [T', 1], 'daily': [T', 1], 'weekly': [T', 1], 'resid': [T', 1]}
             }
         """
-        # Extract components for this sample
-        # Adjust based on actual data structure from prepare_timebase_data_with_mstl
-        
+        # Extract components for this sample from prepare_timebase_data_with_mstl structure
         sample = {}
         for feature_name, feature_data in self.data.items():
             sample['input'] = {}
