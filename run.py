@@ -15,6 +15,8 @@ parser.add_argument('--is_training', type=int, required=True, default=1, help='s
 parser.add_argument('--model_id', type=str, required=True, default='test', help='model id')
 parser.add_argument('--model', type=str, required=True, default='HyperbolicMambaForecasting', help='model name')
 # TimeBaseMSTL arguments
+parser.add_argument('--use_decomposition', action='store_true', default=False,
+                    help='Use TimeBaseMSTL decomposition')
 parser.add_argument('--num_basis', type=int, default=10,
                     help='number of basis components for TimeBaseMSTL')
 parser.add_argument('--orthogonal_lr', type=float, default=1e-3,
