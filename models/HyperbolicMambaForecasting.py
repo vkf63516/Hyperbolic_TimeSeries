@@ -62,23 +62,33 @@ class Model(nn.Module):
         """
         B, T, C = x.shape
         
-        # For this model, we assume the input has already been decomposed
-        # or we can treat different channels as different components
-        # For simplicity, we'll split channels into trend, weekly, daily, resid components
-        # This is a simplified version - in practice, you'd use TimeBaseMSTL decomposition
+        # Simple decomposition approach: use moving average for trend,
+        # and residuals for the other components
+        # This is a lightweight alternative to full MSTL decomposition
         
-        # Simple channel splitting (adjust based on your decomposition strategy)
-        if C >= 4:
-            trend = x[:, :, 0:1]
-            weekly = x[:, :, 1:2]
-            daily = x[:, :, 2:3]
-            resid = x[:, :, 3:4]
+        # Trend: simple moving average over a window
+        kernel_size = min(7, T // 4)  # adaptive kernel size
+        if kernel_size > 1:
+            # Apply 1D average pooling for trend extraction
+            x_padded = F.pad(x.transpose(1, 2), (kernel_size//2, kernel_size//2), mode='replicate')
+            trend = F.avg_pool1d(x_padded, kernel_size=kernel_size, stride=1).transpose(1, 2)
         else:
-            # If fewer channels, duplicate or use the available channels
-            trend = x[:, :, 0:1]
-            weekly = x[:, :, 0:1] if C < 2 else x[:, :, 1:2]
-            daily = x[:, :, 0:1] if C < 3 else x[:, :, 2:3]
-            resid = x[:, :, 0:1] if C < 4 else x[:, :, 3:4]
+            trend = x
+        
+        # Residual after trend removal
+        residual = x - trend
+        
+        # For weekly and daily components, we use subsets of the residual
+        # In a more sophisticated version, you'd use FFT or MSTL
+        # Here we split the residual to provide diverse inputs to the encoder
+        weekly = residual
+        daily = residual
+        
+        # Take only the first channel for each component to match encoder expectations
+        trend = trend[:, :, 0:1]      # [B, T, 1]
+        weekly = weekly[:, :, 0:1]    # [B, T, 1]
+        daily = daily[:, :, 0:1]      # [B, T, 1]
+        resid = residual[:, :, 0:1]   # [B, T, 1]
         
         # Encode to hyperbolic space
         enc_out = self.encoder(trend, weekly, daily, resid)
@@ -86,8 +96,9 @@ class Model(nn.Module):
         # Get the combined hyperbolic representation
         z_current = enc_out["combined_h"]  # [B, embed_dim+1]
         
-        # Autoregressive forecasting on the manifold
+        # Autoregressive forecasting on the manifold with periodic detachment
         predictions = []
+        K = 6  # Detachment period (from Forecaster.py)
         for t in range(self.pred_len):
             # Predict next step on manifold
             z_next, _ = self.decoder(z_current)
@@ -98,6 +109,10 @@ class Model(nn.Module):
             
             # Update current state for next prediction
             z_current = z_next
+            
+            # Periodic detachment to prevent gradient explosion
+            if (t + 1) % K == 0:
+                z_current = z_current.detach()
         
         # Concatenate predictions
         output = torch.cat(predictions, dim=1)  # [B, pred_len, enc_in]

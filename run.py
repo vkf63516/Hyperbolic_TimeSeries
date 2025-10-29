@@ -96,6 +96,10 @@ parser.add_argument('--test_flop', action='store_true', default=False, help='See
 
 args = parser.parse_args()
 
+# Set default lookback to seq_len if not specified
+if args.lookback is None:
+    args.lookback = args.seq_len
+
 # random seed
 fix_seed_list = range(2023, 2033)
 
