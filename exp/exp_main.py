@@ -164,7 +164,7 @@ class Exp_Main(Exp_Basic):
             criterion = nn.MSELoss()
         return criterion
 
-    def vali(self, vali_data, vali_loader, criterion):
+    def vali(self, vali_data, vali_loader, criterion, flag='val'):
         """Validation function supporting decomposed data."""
         total_loss = []
         self.model.eval()
@@ -172,7 +172,7 @@ class Exp_Main(Exp_Basic):
         with torch.no_grad():
             if self.use_decomposition and self.decomposition_cache:
                 # Use cached decomposed data
-                cache = self.decomposition_cache["val"]
+                cache = self.decomposition_cache[flag]
                 feature_key = list(cache.keys())[0]
                 
                 X_dict = cache[feature_key]['X']
@@ -416,8 +416,8 @@ class Exp_Main(Exp_Basic):
             print("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_time))
             
             train_loss = np.average(train_loss)
-            vali_loss = self.vali(vali_data, vali_loader, criterion)
-            test_loss = self.vali(test_data, test_loader, criterion)
+            vali_loss = self.vali(vali_data, vali_loader, criterion, flag='val')
+            test_loss = self.vali(test_data, test_loader, criterion, flag='test')
 
             print("Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f} Test Loss: {4:.7f}".format(
                 epoch + 1, train_steps, train_loss, vali_loss, test_loss))
