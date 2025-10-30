@@ -7,8 +7,8 @@ sys.path.append(str(Path(__file__).resolve().parents[0]))
 from spec import safe_expmap
 
 
-class HyperbolicMambaDecoder(nn.Module):
-    def __init__(self, embed_dim, hidden_dim, manifold, lookback):
+class HyperbolicMambaLorentz(nn.Module):
+    def __init__(self, embed_dim, hidden_dim, manifold):
         super().__init__()
         self.manifold = manifold 
         self.state_net = nn.Sequential(

@@ -10,8 +10,8 @@ from spec import safe_expmap, safe_expmap0
 # --------------------------
 # Mamba block
 # --------------------------
-class MambaEmbed(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim, n_layer=3, lookback=None):
+class SegmentMambaEmbed(nn.Module):
+    def __init__(self, input_dim, hidden_dim, output_dim, n_layer=3, lookback_segment=None):
         super().__init__()
         self.input_proj = nn.Linear(input_dim, hidden_dim)
         self.layers = nn.ModuleList([ 
@@ -23,40 +23,56 @@ class MambaEmbed(nn.Module):
             ) for _ in range(n_layer)
         ])
         self.output_proj = nn.Linear(hidden_dim, output_dim)
-        self.lookback = lookback #  number of timesteps to look back
+        self.lookback_segment = lookback_segment #  number of segments to look back
 
     def forward(self, x):
         """
-        x: [B, T, input_dim]
+        x: [B, num_seg, seg_len, C]
         returns: [B, output_dim]  (Euclidean latent, tangent vectors)
         """
-        if self.lookback is not None and x.size(1) > self.lookback:
-            print(self.lookback)
-            x = x[:, -self.lookback:, :]
+        B, num_seg, seg_len, C = x.shape
+        
+        if self.lookback_segment is not None and x.size(1) > self.lookback_segment:
+            print(self.lookback_segment)
+            x = x[:, -self.lookback_segment:, :]
+        # Reshape to process all segments in batch
+        x = x.reshape(B * num_seg, seg_len, C)  # [B*num_seg, seg_len, C]
         x = self.input_proj(x)
         for layer in self.layers:
             x = layer(x)
-        x = x.mean(dim=1)              # mean pooling would be good for point level forecasting
+        # Pool to single vector per segment
+        x = x.mean(dim=1)  # [B*num_seg, hidden_dim]
+        x = x.reshape(B, num_seg, -1)  # [B, num_seg, output_dim]
         return torch.tanh(self.output_proj(x))
 
 
 # --------------------------
 # Parallel encoders + Lorentz manifold fusion
 # --------------------------
-class ParallelLorentzBlock(nn.Module):
-    def __init__(self, lookback, embed_dim=32, hidden_dim=64, curvature=-1.0):
+class SegmentParallelLorentzBlock(nn.Module):
+    def __init__(self, lookback_steps, seg_len, embed_dim=32, hidden_dim=64,
+                curvature=-1.0, use_hierarchy=True, hierarchy_scales=[0.5,1.0,1.0,1.5]):
         """
         embed_dim: dimensionality of tangent-space vectors (intrinsic manifold dimension)
         For Lorentz model geoopt expects expmap/logmap shapes [B, embed_dim].
         Internally manifold points live in R^{embed_dim + 1}, but geoopt APIs hide that.
         """
         super().__init__()
+        self.use_hierarchy = use_hierarchy
+        
+        if use_hierarchy:
+            self.hierarchy_scales = hierarchy_scales
+            self.trend_scale = nn.Parameter(torch.tensor(hierarchy_scales[0]))
+            self.seasonal_weekly_scale = nn.Parameter(torch.tensor(hierarchy_scales[1]))
+            self.seasonal_daily_scale = nn.Parameter(torch.tensor(hierarchy_scales[2]))
+            self.residual_scale = nn.Parameter(torch.tensor(hierarchy_scales[-1]))
 
         # Branch encoders
-        self.trend_embed = MambaEmbed(input_dim=1, hidden_dim=hidden_dim, output_dim=embed_dim, lookback=lookback)
-        self.seasonal_weekly_embed = MambaEmbed(input_dim=1, hidden_dim=hidden_dim, output_dim=embed_dim, lookback=lookback)  
-        self.seasonal_daily_embed = MambaEmbed(input_dim=1, hidden_dim=hidden_dim, output_dim=embed_dim, lookback=lookback)
-        self.residual_embed = MambaEmbed(input_dim=1, hidden_dim=hidden_dim, output_dim=embed_dim, lookback=lookback)
+        lookback_segments = lookback_timesteps // seg_len if lookback_timesteps else None
+        self.trend_embed = SegmentMambaEmbed(input_dim=1, hidden_dim=hidden_dim, output_dim=embed_dim, lookback_segment=lookback_segments)
+        self.seasonal_weekly_embed = SegmentMambaEmbed(input_dim=1, hidden_dim=hidden_dim, output_dim=embed_dim, lookback_segment=lookback_segments)  
+        self.seasonal_daily_embed = SegmentMambaEmbed(input_dim=1, hidden_dim=hidden_dim, output_dim=embed_dim, lookback_segment=lookback_segments)
+        self.residual_embed = SegmentMambaEmbed(input_dim=1, hidden_dim=hidden_dim, output_dim=embed_dim, lookback_segment=lookback_segments)
 
         # Lorentz manifold (k controls scale; curvature = -1/k)
         # Passing k = curvature (1.0 gives standard curvature -1)
@@ -80,6 +96,11 @@ class ParallelLorentzBlock(nn.Module):
         z_seasonal_weekly_t = self.seasonal_weekly_embed(seasonal_weekly) # [B, D]
         z_seasonal_daily_t = self.seasonal_daily_embed(seasonal_daily) # [B, D]
         z_residual_t = self.residual_embed(residual)       # [B, D]
+        if self.use_hierarchy_scaling:
+            z_trend_t = z_trend_t * self.trend_scale.abs()  # abs() ensures positive
+            z_seasonal_weekly_t = z_seasonal_weekly_t * self.seasonal_weekly_scale.abs()
+            z_seasonal_daily_t = z_seasonal_daily_t * self.seasonal_daily_scale.abs()
+            z_residual_t = z_residual_t * self.residual_scale.abs()
 
         z_trend_h = safe_expmap0(self.manifold, z_trend_t)    # manifold point
         z_seasonal_weekly_h = safe_expmap0(self.manifold, z_seasonal_weekly_t)
@@ -115,5 +136,4 @@ class ParallelLorentzBlock(nn.Module):
             "combined_tangent": combined_tangent,
             "combined_h": combined_h
         }
-
 

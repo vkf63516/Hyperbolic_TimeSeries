@@ -224,10 +224,6 @@ def prepare_timebase_data_with_mstl(train_dict, val_dict, test_dict,
                 'period' for stride=mstl_period (period-aligned samples)
                 int for custom stride
     """
-    # Normalize
-    train_scaled, val_scaled, test_scaled, scaler = normalize_decomposed_tensors(
-        train_dict, val_dict, test_dict
-    )
     
     # Choose segmentation strategy
     if stride == 'overlap':
@@ -235,19 +231,14 @@ def prepare_timebase_data_with_mstl(train_dict, val_dict, test_dict,
         segment_fn = lambda d: Create_Segments_With_MSTL_Period(
             d, input_len, pred_len, mstl_period, device
         )
-    elif stride == 'period':
+    if stride == 'period':
         # Period-aligned non-overlapping samples
         segment_fn = lambda d: Create_Period_Aligned_Segments(
             d, input_len, pred_len, mstl_period, stride=mstl_period, device
         )
-    else:
-        # Custom stride
-        segment_fn = lambda d: Create_Period_Aligned_Segments(
-            d, input_len, pred_len, mstl_period, stride=stride, device
-        )
     
-    train_seg = segment_fn(train_scaled)
-    val_seg = segment_fn(val_scaled)
-    test_seg = segment_fn(test_scaled)
+    train_seg = segment_fn(train_dict)
+    val_seg = segment_fn(val_dict)
+    test_seg = segment_fn(test_dict)
     
-    return train_seg, val_seg, test_seg, scaler, mstl_period
+    return train_seg, val_seg, test_seg

@@ -19,7 +19,6 @@ writer = SummaryWriter()
 # --------------------------------------------------------------------
 sys.path.append(str(Path(__file__).resolve().parents[0]))
 
-from encoder.mamba_encoders_lorentz import ParallelLorentzEncoder
 from Decomposition.TimeBase_Series_Trend_Decomposition import TimeBaseMSTL
 from Decomposition.tensor_utils import build_decomposition_tensors
 from Decomposition.visualization_utils import plot_component_grid, plot_variance_contribution, plot_component_correlation_maps

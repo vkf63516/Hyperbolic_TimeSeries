@@ -1,7 +1,7 @@
 import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[1]))  # add project root
-from decoder.mamba_decoder_lorentz import HyperbolicMambaDecoder
+from hyperbolic_mvar.mamba_mvar_lorentz import HyperbolicMambaLorentz
 from Lifting.reconstructor import HyperbolicReconstructionHead
 import pandas as pd
 import torch
@@ -18,7 +18,7 @@ class HyperbolicSeqForecaster(nn.Module):
     def __init__(self, embed_dim, hidden_dim, output_dim, manifold=None):
         super().__init__()
         self.manifold = manifold
-        self.decoder = HyperbolicMambaDecoder(embed_dim, hidden_dim, self.manifold)
+        self.mvar = HyperbolicMambaLorentz(embed_dim, hidden_dim, self.manifold)
         self.recon   = HyperbolicReconstructionHead(embed_dim, output_dim, self.manifold)
 
     def combine_branches(self, *z_list):
@@ -42,7 +42,7 @@ class HyperbolicSeqForecaster(nn.Module):
         """
         Returns:
           x_hat:  [B, H, output_dim]  reconstructed Euclidean predictions
-          z_pred: [B, H, D+1]         manifold predictions
+          z_pred: [B, H, D+seg]         manifold predictions
         """
         # assert (z0 is not None) or (trend_z is not None
         #  and seasonal_z is not None
@@ -55,18 +55,19 @@ class HyperbolicSeqForecaster(nn.Module):
 
         preds_x = []
         preds_z = []
-        for k in range(pred_len):
+        k = 0
+        for seg in range(pred_len):
             z_next, _ = self.decoder(z_cur)
-            x_hat_k = self.recon(z_next)
-            preds_x.append(x_hat_k.unsqueeze(1))
+            x_hat_seg = self.recon(z_next)
+            preds_x.append(x_hat_seg.unsqueeze(1))
             preds_z.append(z_next.unsqueeze(1))
             if teacher_forcing and z_true_seq is not None:
-                z_cur = z_true_seq[:, k, :]
+                z_cur = z_true_seq[:, seg, :]
             else:
                 z_cur = z_next
             if (k + 1) % K == 0:
                 z_cur = z_cur.detach()
-
+            k+= 1
         x_hat = torch.cat(preds_x, dim=1)
         z_pred = torch.cat(preds_z, dim=1)
         return x_hat, z_pred
