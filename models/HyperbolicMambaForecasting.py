@@ -49,8 +49,8 @@ class Model(nn.Module):
         self.forecaster = HyperbolicSeqForecaster(
             embed_dim=self.embed_dim,
             hidden_dim=self.hidden_dim,
-            output_dim=self.mstl_period,
-            manifold=self.encoder.manifold
+            seg_len=self.mstl_period,
+            manifold=self.embedding.manifold
         )
    
         
@@ -125,7 +125,7 @@ class Model(nn.Module):
         x_hat, z_pred = self.forecaster.forecast(
             pred_len=self.pred_len,
             trend_z=trend_h,
-            seasonal_weekly_z=seasonal_weekly_h,  # Combine seasonal components
+            seasonal_weekly_z=seasonal_weekly_h,  
             seasonal_daily_z=seasonal_daily_h,
             residual_z=residual_h,
             teacher_forcing=False

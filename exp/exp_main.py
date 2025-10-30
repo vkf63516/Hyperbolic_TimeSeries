@@ -40,11 +40,13 @@ class Exp_Main(Exp_Basic):
         self.n_basis_components = args.num_basis
         self.orthogonal_lr = args.orthogonal_lr
         self.orthogonal_iters = args.orthogonal_iters
+
         
-        # Initialize TimeBaseMSTL if using decomposition
+        # Initialize decomposition cache
         if self.use_decomposition:
             self.timebase_mstl = None  # Will be initialized after loading data
-            self.decomposition_cache = {}  # Cache decompositions
+            self.decomposition_cache = {}
+            self.mstl_period = None
             
     def _build_model(self):
         model_dict = {
@@ -69,10 +71,11 @@ class Exp_Main(Exp_Basic):
         """
         print("=" * 70)
         print("Initializing TimeBaseMSTL decomposition...")
-        print("=" * 70)        
-        # Create a simple DataFrame (you may need to add proper datetime index)
+        print("=" * 70)
+        
+        # Convert datasets to DataFrames
         train_df = self._dataset_to_dataframe(train_data)
-        val_df = self._dataset_to_dataframe(val_data)
+        val_df = self._dataset_to_dataframe(vali_data)
         test_df = self._dataset_to_dataframe(test_data)
 
         print("\nDataset Shapes:")
@@ -105,15 +108,17 @@ class Exp_Main(Exp_Basic):
         test_tensors_dict = build_decomposition_tensors(test_components)
 
         print(f"\n[4/4] Creating segments with MSTL period alignment...")
-        train_seg, val_seg, test_seg = prepare_timebase_data_with_mstl(train_dict=train_tensors_dict,
-                                                                       val_dict=val_tensors_dict, 
-                                                                       test_dict=test_tensors_dict,
-                                                                       mstl_period=self.mstl_period,
-                                                                       input_len=self.args.seq_len,
-                                                                       pred_len=self.args.pred_len,
-                                                                       stride="period",
-                                                                       device=self.device
-                                        )
+        train_seg, val_seg, test_seg = prepare_timebase_data_with_mstl(
+            train_dict=train_tensors_dict,
+            val_dict=val_tensors_dict, 
+            test_dict=test_tensors_dict,
+            mstl_period=self.mstl_period,
+            input_len=self.args.seq_len,
+            pred_len=self.args.pred_len,
+            stride="period",
+            device=self.device
+        )
+        
         self.decomposition_cache = {
             'train': train_seg,
             'val': val_seg,
@@ -126,22 +131,26 @@ class Exp_Main(Exp_Basic):
 
     def _dataset_to_dataframe(self, dataset):
         """Convert dataset to pandas DataFrame."""
-        
+
         # Assuming data_x is [T, C] numpy array
         data_array = dataset.data_x
-        df = {}
+        df = data_array
         if isinstance(data_array, np.ndarray):
             df = pd.DataFrame(data_array)
-        else:
+        elif isinstance(data_array, torch.Tensor):
             df = pd.DataFrame(data_array.numpy())
         elif isinstance(dataset, pd.DataFrame):
             df = dataset
         else:
             raise ValueError("Dataset must have 'data_x' attribute or be a DataFrame")
         
+        return df
 
     def _select_optimizer(self):
-        model_geooptim = geooptim.RiemannianAdam(params=self.model.parameters(), lr=self.args.learning_rate)
+        model_geooptim = geooptim.RiemannianAdam(
+            params=self.model.parameters(), 
+            lr=self.args.learning_rate
+        )
         return model_geooptim
 
     def _select_criterion(self):
@@ -156,48 +165,79 @@ class Exp_Main(Exp_Basic):
         return criterion
 
     def vali(self, vali_data, vali_loader, criterion):
+        """Validation function supporting decomposed data."""
         total_loss = []
         self.model.eval()
+
         with torch.no_grad():
-            for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(vali_loader):
-                batch_x = batch_x.float().to(self.device)
-                batch_y = batch_y.float()
-
-                batch_x_mark = batch_x_mark.float().to(self.device)
-                batch_y_mark = batch_y_mark.float().to(self.device)
-
-                # decoder input
-                dec_inp = torch.zeros_like(batch_y[:, -self.args.pred_len:, :]).float()
-                dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
+            if self.use_decomposition and self.decomposition_cache:
+                # Use cached decomposed data
+                cache = self.decomposition_cache["val"]
+                feature_key = list(cache.keys())[0]
                 
-                # encoder - decoder
-                if self.args.use_amp:
-                    with torch.cuda.amp.autocast():
-                        # Use decomposition if enabled
-                        if self.use_decomposition and self.timebase_mstl is not None:
-                            decomposed_components = self._decompose_batch(batch_x)
-                            outputs = self.model(batch_x, decomposed_components=decomposed_components)
-                        else:
-                            outputs = self.model(batch_x)
-                else:
-                    # Use decomposition if enabled
-                    if self.use_decomposition and self.timebase_mstl is not None:
-                        decomposed_components = self._decompose_batch(batch_x)
-                        outputs = self.model(batch_x, decomposed_components=decomposed_components)
-                        
-                    else:
-                        outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
-                            
-                f_dim = -1 if self.args.features == 'MS' else 0
-                outputs = outputs[:, -self.args.pred_len:, f_dim:]
-                batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
-
-                pred = outputs.detach().cpu()
-                true = batch_y.detach().cpu()
-
-                loss = criterion(pred, true)
-
-                total_loss.append(loss)
+                X_dict = cache[feature_key]['X']
+                Y_dict = cache[feature_key]['Y']
+                
+                num_samples = X_dict["trend"].shape[0]
+                batch_size = self.args.batch_size
+                
+                for i in range(0, num_samples, batch_size):
+                    end_idx = min(i + batch_size, num_samples)
+                    
+                    # Get batch
+                    trend_x = X_dict["trend"][i:end_idx].float().to(self.device)
+                    weekly_x = X_dict["seasonal_weekly"][i:end_idx].float().to(self.device)
+                    daily_x = X_dict["seasonal_daily"][i:end_idx].float().to(self.device)
+                    resid_x = X_dict['residual'][i:end_idx].float().to(self.device)
+                    
+                    trend_y = Y_dict["trend"][i:end_idx].float().to(self.device)
+                    weekly_y = Y_dict["seasonal_weekly"][i:end_idx].float().to(self.device)
+                    daily_y = Y_dict["seasonal_daily"][i:end_idx].float().to(self.device)
+                    resid_y = Y_dict["residual"][i:end_idx].float().to(self.device)
+                    
+                    # Embed inputs
+                    embed_input = self.model.embedding(trend_x, weekly_x, daily_x, resid_x)
+                    z0 = e_input["combined_h"]
+                    
+                    # Forecast
+                    outputs, _ = self.model.forecaster.forecast(
+                        pred_len=self.args.pred_len,
+                        z0=z0,
+                        teacher_forcing=False,
+                        K=getattr(self.args, 'gradient_truncation_K', 6)
+                    )
+                    
+                    # Target
+                    target = (trend_y + weekly_y + daily_y + resid_y)
+                    B, num_seg, seg_len, C = target.shape
+                    target = target.reshape(B, num_seg * seg_len)
+                    if C == 1:
+                        target = target.squeeze(-1)
+                    
+                    pred = outputs.detach().cpu()
+                    true = target.detach().cpu()
+                    
+                    loss = criterion(pred, true)
+                    total_loss.append(loss.item())
+            
+            else:
+                # Standard non-decomposed validation
+                for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(vali_loader):
+                    batch_x = batch_x.float().to(self.device)
+                    batch_y = batch_y.float()
+                    
+                    outputs = self.model(batch_x)
+                    
+                    f_dim = -1 if self.args.features == 'MS' else 0
+                    outputs = outputs[:, -self.args.pred_len:, f_dim:]
+                    batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
+                    
+                    pred = outputs.detach().cpu()
+                    true = batch_y.detach().cpu()
+                    
+                    loss = criterion(pred, true)
+                    total_loss.append(loss.item())
+        
         total_loss = np.average(total_loss)
         self.model.train()
         return total_loss
@@ -217,112 +257,173 @@ class Exp_Main(Exp_Basic):
 
         time_now = time.time()
 
-        train_steps = len(train_loader)
         early_stopping = EarlyStopping(patience=self.args.patience, verbose=True)
-
-        model_optim = self._select_optimizer()
+        model_geooptim = self._select_optimizer()
         criterion = self._select_criterion()
 
         if self.args.use_amp:
             scaler = torch.cuda.amp.GradScaler()
 
-        scheduler = lr_scheduler.OneCycleLR(optimizer=model_optim,
-                                            steps_per_epoch=train_steps,
-                                            pct_start=self.args.pct_start,
-                                            epochs=self.args.train_epochs,
-                                            max_lr=self.args.learning_rate)
+        # Calculate train steps based on decomposition
+        if self.use_decomposition and self.decomposition_cache:
+            cache = self.decomposition_cache['train']
+            feature_key = list(cache.keys())[0]
+            num_samples = cache[feature_key]['X']['trend'].shape[0]
+            train_steps = (num_samples + self.args.batch_size - 1) // self.args.batch_size
+        else:
+            train_steps = len(train_loader)
+
+        scheduler = lr_scheduler.OneCycleLR(
+            optimizer=model_geooptim,
+            steps_per_epoch=train_steps,
+            pct_start=self.args.pct_start,
+            epochs=self.args.train_epochs,
+            max_lr=self.args.learning_rate
+        )
+        
         max_memory = -1
+        
         for epoch in range(self.args.train_epochs):
             iter_count = 0
             train_loss = []
             self.model.train()
             epoch_time = time.time()
-            for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(train_loader):
-                iter_count += 1
-                model_optim.zero_grad()
-                batch_x = batch_x.float().to(self.device)
-
-                batch_y = batch_y.float().to(self.device)
-                batch_x_mark = batch_x_mark.float().to(self.device)
-                batch_y_mark = batch_y_mark.float().to(self.device)
-
-                # decoder input
-                dec_inp = torch.zeros_like(batch_y[:, -self.args.pred_len:, :]).float()
-                dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
-
-                # encoder - decoder
-                if self.args.use_amp:
-                    with torch.cuda.amp.autocast():
-                        if any(substr in self.args.model for substr in {"Linear", "TST", "SparseTSF", "HyperbolicMambaForecasting"}):
-                            # Use decomposition if enabled
-                            if self.use_decomposition and self.timebase_mstl is not None:
-                                decomposed_components = self._decompose_batch(batch_x)
-                                outputs = self.model(batch_x, decomposed_components=decomposed_components)
-                            else:
-                                outputs = self.model(batch_x)
-                        else:
-                            outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
-
-                        f_dim = -1 if self.args.features == 'MS' else 0
-                        outputs = outputs[:, -self.args.pred_len:, f_dim:]
-                        batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
-                        loss = criterion(outputs, batch_y)
+            
+            if self.use_decomposition and self.decomposition_cache:
+                # Train with decomposed data
+                cache = self.decomposition_cache['train']
+                feature_key = list(cache.keys())[0]
+                
+                X_dict = cache[feature_key]['X']
+                Y_dict = cache[feature_key]['Y']
+                
+                num_samples = X_dict['trend'].shape[0]
+                batch_size = self.args.batch_size
+                
+                # Shuffle indices
+                indices = torch.randperm(num_samples)
+                
+                for i in range(0, num_samples, batch_size):
+                    iter_count += 1
+                    model_geooptim.zero_grad()
+                    
+                    # Get batch indices
+                    batch_indices = indices[i:min(i + batch_size, num_samples)]
+                    
+                    # Input components: [B, num_input_seg, seg_len, 1]
+                    trend_x = X_dict['trend'][batch_indices].float().to(self.device)
+                    weekly_x = X_dict['seasonal_weekly'][batch_indices].float().to(self.device)
+                    daily_x = X_dict['seasonal_daily'][batch_indices].float().to(self.device)
+                    resid_x = X_dict['residual'][batch_indices].float().to(self.device)
+                    
+                    # Target components: [B, num_pred_seg, seg_len, 1]
+                    trend_y = Y_dict['trend'][batch_indices].float().to(self.device)
+                    weekly_y = Y_dict['seasonal_weekly'][batch_indices].float().to(self.device)
+                    daily_y = Y_dict['seasonal_daily'][batch_indices].float().to(self.device)
+                    resid_y = Y_dict['residual'][batch_indices].float().to(self.device)
+                    
+                    # Encode inputs
+                    encoded_input = self.model.embedding(trend_x, weekly_x, daily_x, resid_x)
+                    z0 = encoded_input["combined_h"]
+                    
+                    # Encode targets for teacher forcing
+                    encoded_target = self.model.embedding(trend_y, weekly_y, daily_y, resid_y)
+                    z_true_seq = encoded_target["combined_h"]
+                    
+                    # Ground truth
+                    target = (trend_y + weekly_y + daily_y + resid_y)
+                    B, num_seg, seg_len, C = target.shape
+                    target = target.reshape(B, num_seg * seg_len)
+                    if C == 1:
+                        target = target.squeeze(-1)
+                    
+                    # Forward
+                    if self.args.use_amp:
+                        with torch.cuda.amp.autocast():
+                            outputs, z_pred = self.model.forecaster.forecast(
+                                pred_len=self.args.pred_len,
+                                z0=z0,
+                                teacher_forcing=True,
+                                z_true_seq=z_true_seq,
+                                K=getattr(self.args, 'gradient_truncation_K', 6)
+                            )
+                            loss = criterion(outputs, target)
+                            train_loss.append(loss.item())
+                    else:
+                        outputs, z_pred = self.model.forecaster.forecast(
+                            pred_len=self.args.pred_len,
+                            z0=z0,
+                            teacher_forcing=True,
+                            z_true_seq=z_true_seq,
+                            K=getattr(self.args, 'gradient_truncation_K', 6)
+                        )
+                        loss = criterion(outputs, target)
                         train_loss.append(loss.item())
-                else:
-                        # Use decomposition if enabled
-                        if self.use_decomposition and self.timebase_mstl is not None:
-                            decomposed_components = self._decompose_batch(batch_x)
-                            
-                            outputs = self.model(batch_x, decomposed_components=decomposed_components)
-                        else:
-                            outputs = self.model(batch_x)                    
-
-                        else:
-                            outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark, batch_y)
-                    # print(outputs.shape,batch_y.shape)
+                    
+                    # Backward
+                    if (iter_count) % 100 == 0:
+                        print("\titers: {0}, epoch: {1} | loss: {2:.7f}".format(
+                            iter_count, epoch + 1, loss.item()))
+                        speed = (time.time() - time_now) / iter_count
+                        left_time = speed * ((self.args.train_epochs - epoch) * train_steps - iter_count)
+                        print('\tspeed: {:.4f}s/iter; left time: {:.4f}s'.format(speed, left_time))
+                    
+                    if self.args.use_amp:
+                        scaler.scale(loss).backward()
+                        scaler.step(model_geooptim)
+                        scaler.update()
+                    else:
+                        loss.backward()
+                        model_geooptim.step()
+                    
+                    current_memory = torch.cuda.max_memory_allocated(device=self.device) / 1024 ** 2
+                    max_memory = max(max_memory, current_memory)
+                    
+                    if self.args.lradj == 'TST':
+                        scheduler.step()
+            
+            else:
+                # Standard training loop
+                for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(train_loader):
+                    iter_count += 1
+                    model_geooptim.zero_grad()
+                    
+                    batch_x = batch_x.float().to(self.device)
+                    batch_y = batch_y.float().to(self.device)
+                    
+                    outputs = self.model(batch_x)
+                    
                     f_dim = -1 if self.args.features == 'MS' else 0
                     outputs = outputs[:, -self.args.pred_len:, f_dim:]
                     batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
+                    
                     loss = criterion(outputs, batch_y)
                     train_loss.append(loss.item())
-
-                if (i + 1) % 100 == 0:
-                    print("\titers: {0}, epoch: {1} | loss: {2:.7f}".format(i + 1, epoch + 1, loss.item()))
-                    speed = (time.time() - time_now) / iter_count
-                    left_time = speed * ((self.args.train_epochs - epoch) * train_steps - i)
-                    print('\tspeed: {:.4f}s/iter; left time: {:.4f}s'.format(speed, left_time))
-                    iter_count = 0
-                    time_now = time.time()
-
-                if self.args.use_amp:
-                    scaler.scale(loss).backward()
-                    scaler.step(model_optim)
-                    scaler.update()
-                else:
-                    back_loss = loss + self.orthogonal_weight*orthogonal_loss 
-                    back_loss.backward()
-                    model_optim.step()
-                current_memory = torch.cuda.max_memory_allocated(device=self.device) / 1024 ** 2
-                max_memory = max(max_memory, current_memory)
-                
-                if self.args.lradj == 'TST':
-                    adjust_learning_rate(model_optim, scheduler, epoch + 1, self.args, printout=False)
-                    scheduler.step()
+                    
+                    if (i + 1) % 100 == 0:
+                        print("\titers: {0}, epoch: {1} | loss: {2:.7f}".format(
+                            i + 1, epoch + 1, loss.item()))
+                    
+                    loss.backward()
+                    model_geooptim.step()
+            
             print(f"Max Memory (MB): {max_memory}")
             print("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_time))
+            
             train_loss = np.average(train_loss)
-            vali_loss = self.vali(vali_data, vali_loader, criterion)
-            test_loss = self.vali(test_data, test_loader, criterion)
+            vali_loss = self.vali(vali_data, vali_loader, criterion, flag='val')
+            test_loss = self.test(test_data, test_loader, criterion, flag='test')
 
             print("Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f} Test Loss: {4:.7f}".format(
                 epoch + 1, train_steps, train_loss, vali_loss, test_loss))
+
             early_stopping(vali_loss, self.model, path)
             if early_stopping.early_stop:
                 print("Early stopping")
                 break
 
             if self.args.lradj != 'TST':
-                adjust_learning_rate(model_optim, scheduler, epoch + 1, self.args)
+                adjust_learning_rate(model_geooptim, scheduler, epoch + 1, self.args)
             else:
                 print('Updating learning rate to {}'.format(scheduler.get_last_lr()[0]))
 
@@ -337,78 +438,86 @@ class Exp_Main(Exp_Basic):
 
         if test:
             print('loading model')
-            self.model.load_state_dict(torch.load(os.path.join('./checkpoints/' + setting, 'checkpoint.pth'), map_location="cuda:0"))
+            self.model.load_state_dict(torch.load(
+                os.path.join('./checkpoints/' + setting, 'checkpoint.pth'), 
+                map_location=self.device
+            ))
 
         preds = []
         trues = []
-        inputx = []
         folder_path = './test_results/' + setting + '/'
         if not os.path.exists(folder_path):
             os.makedirs(folder_path)
 
         self.model.eval()
         with torch.no_grad():
-            for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(test_loader):
-                batch_x = batch_x.float().to(self.device)
-                batch_y = batch_y.float().to(self.device)
-
-                batch_x_mark = batch_x_mark.float().to(self.device)
-                batch_y_mark = batch_y_mark.float().to(self.device)
-
-                # mvar input
-                dec_inp = torch.zeros_like(batch_y[:, -self.args.pred_len:, :]).float()
-                dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
-                # encoder - decoder
-                if self.args.use_amp:
-                    with torch.cuda.amp.autocast():
-                        if any(substr in self.args.model for substr in {"Linear", "TST", "SparseTSF", "HyperbolicMambaForecasting"}):
-                            # Use decomposition if enabled
-                            if self.use_decomposition and self.timebase_mstl is not None:
-                                decomposed_components = self._decompose_batch(batch_x)
-                                outputs = self.model(batch_x, decomposed_components=decomposed_components)
-                            else:
-                                outputs = self.model(batch_x)
-                        else:     
-                            outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
-                else:
-                    if any(substr in self.args.model for substr in {"Linear", "TST", "SparseTSF", "HyperbolicMambaForecasting"}):
-                        # Use decomposition if enabled
-                        if self.use_decomposition and self.timebase_mstl is not None:
-                            decomposed_components = self._decompose_batch(batch_x)
-                            outputs = self.model(batch_x, decomposed_components=decomposed_components)
-                        else:                
-                            outputs = self.model(batch_x)
+            if self.use_decomposition and self.decomposition_cache:
+                cache = self.decomposition_cache['test']
+                feature_key = list(cache.keys())[0]
+                
+                X_dict = cache[feature_key]['X']
+                Y_dict = cache[feature_key]['Y']
+                
+                num_samples = X_dict['trend'].shape[0]
+                batch_size = self.args.batch_size
+                
+                for i in range(0, num_samples, batch_size):
+                    end_idx = min(i + batch_size, num_samples)
+                    
+                    trend_x = X_dict['trend'][i:end_idx].float().to(self.device)
+                    weekly_x = X_dict['seasonal_weekly'][i:end_idx].float().to(self.device)
+                    daily_x = X_dict['seasonal_daily'][i:end_idx].float().to(self.device)
+                    resid_x = X_dict['residual'][i:end_idx].float().to(self.device)
+                    
+                    encoded_input = self.model.embedding(trend_x, weekly_x, daily_x, resid_x)
+                    z0 = encoded_input["combined_h"]
+                    
+                    outputs, _ = self.model.forecaster.forecast(
+                        pred_len=self.args.pred_len,
+                        z0=z0,
+                        teacher_forcing=False,
+                        K=getattr(self.args, 'gradient_truncation_K', 6)
+                    )
+                    
+                    trend_y = Y_dict['trend'][i:end_idx].float().to(self.device)
+                    weekly_y = Y_dict['seasonal_weekly'][i:end_idx].float().to(self.device)
+                    daily_y = Y_dict['seasonal_daily'][i:end_idx].float().to(self.device)
+                    resid_y = Y_dict['residual'][i:end_idx].float().to(self.device)
+                    
+                    target = (trend_y + weekly_y + daily_y + resid_y)
+                    B, num_seg, seg_len, C = target.shape
+                    target = target.reshape(B, num_seg * seg_len)
+                    if C == 1:
+                        target = target.squeeze(-1)
+                    
+                    outputs = outputs.detach().cpu().numpy()
+                    target = target.detach().cpu().numpy()
+                    
+                    preds.append(outputs)
+                    trues.append(target)
             
-                f_dim = -1 if self.args.features == 'MS' else 0
-                # print(outputs.shape,batch_y.shape)
-                outputs = outputs[:, -self.args.pred_len:, f_dim:]
-                batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
-                outputs = outputs.detach().cpu().numpy()
-                batch_y = batch_y.detach().cpu().numpy()
-
-                pred = outputs
-                true = batch_y
-
-                preds.append(pred)
-                trues.append(true)
-                inputx.append(batch_x.detach().cpu().numpy())
-                if i % 20 == 0:
-                    input = batch_x.detach().cpu().numpy()
-                    gt = np.concatenate((input[0, :, -1], true[0, :, -1]), axis=0)
-                    pd = np.concatenate((input[0, :, -1], pred[0, :, -1]), axis=0)
-                    visual(gt, pd, os.path.join(folder_path, str(i) + '.pdf'))
-
-        if self.args.test_flop:
-            test_params_flop(self.model, (batch_x.shape[1],batch_x.shape[2]))
-            exit()
+            else:
+                # Standard testing
+                for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(test_loader):
+                    batch_x = batch_x.float().to(self.device)
+                    batch_y = batch_y.float().to(self.device)
+                    
+                    outputs = self.model(batch_x)
+                    
+                    f_dim = -1 if self.args.features == 'MS' else 0
+                    outputs = outputs[:, -self.args.pred_len:, f_dim:]
+                    batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
+                    
+                    outputs = outputs.detach().cpu().numpy()
+                    batch_y = batch_y.detach().cpu().numpy()
+                    
+                    preds.append(outputs)
+                    trues.append(batch_y)
 
         preds = np.concatenate(preds, axis=0)
         trues = np.concatenate(trues, axis=0)
-        inputx = np.concatenate(inputx, axis=0)
-
-        preds = preds.reshape(-1, preds.shape[-2], preds.shape[-1])
-        trues = trues.reshape(-1, trues.shape[-2], trues.shape[-1])
-        inputx = inputx.reshape(-1, inputx.shape[-2], inputx.shape[-1])
+        
+        print('test shape:', preds.shape, trues.shape)
 
         # result save
         folder_path = './results/' + setting + '/'
@@ -417,8 +526,19 @@ class Exp_Main(Exp_Basic):
 
         mae, mse, rmse, mape, mspe, rse, corr = metric(preds, trues)
         print('mse:{}, mae:{}, rse:{}'.format(mse, mae, rse))
+        
+        f = open("result.txt", 'a')
+        f.write(setting + "  \n")
+        f.write('mse:{}, mae:{}, rse:{}'.format(mse, mae, rse))
+        f.write('\n\n')
+        f.close()
+        
+        np.save(folder_path + 'metrics.npy', np.array([mae, mse, rmse, mape, mspe, rse, corr]))
+        np.save(folder_path + 'pred.npy', preds)
+        np.save(folder_path + 'true.npy', trues)
 
         return
+
 
     def predict(self, setting, load=False):
         # pred_data, pred_loader = self._get_data(flag='pred')

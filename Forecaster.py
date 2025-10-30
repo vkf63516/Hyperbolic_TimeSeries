@@ -37,7 +37,7 @@ class HyperbolicSeqForecaster(nn.Module):
         return self.combine_branches(*z_list)
 
     def forecast(self, pred_len, trend_z=None, seasonal_weekly_z=None, 
-                seasonal_daily_z, residual_z=None, z0=None,
+                seasonal_daily_z=None, residual_z=None, z0=None,
                 teacher_forcing=False, z_true_seq=None, K=6):
         """
         Returns:
@@ -60,6 +60,7 @@ class HyperbolicSeqForecaster(nn.Module):
             z_next, _ = self.decoder(z_cur)
             x_hat_seg = self.recon(z_next)
             preds_x.append(x_hat_seg.unsqueeze(1))
+            
             preds_z.append(z_next.unsqueeze(1))
             if teacher_forcing and z_true_seq is not None:
                 z_cur = z_true_seq[:, seg, :]
