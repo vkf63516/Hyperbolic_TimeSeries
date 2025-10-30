@@ -116,7 +116,8 @@ if args.is_training:
         #     print('>>>>>>>predicting : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
         #     exp.predict(setting, True)
 
-        #torch.cuda.empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 else:
     ii = 0
     setting = '{}_{}_{}_ft{}_sl{}_pl{}_{}_{}_seed{}'.format(
