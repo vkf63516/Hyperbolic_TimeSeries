@@ -79,7 +79,7 @@ self.forecaster = HyperbolicSegmentForecaster(
 ## Data Leakage Issues Fixed
 
 ### 6. Data Leakage in Prediction Dataset (data_loader.py:342-344)
-**Issue**: Scaler fitted on all data including future predictions
+**Issue**: Scaler fit on all data including future predictions
 ```python
 # Before
 if self.scale:
@@ -111,7 +111,7 @@ true = target.detach()
 loss = criterion(pred, true)
 ```
 **Impact**: Reduced unnecessary data transfers between GPU and CPU
-**Benefit**: Faster validation, reduced memory bandwidth usage
+**Benefit**: Faster validation, reduced memory bandwidth usage (exact savings depend on tensor sizes and hardware)
 
 ### 8. Missing CUDA Cache Clearing (run.py, exp_main.py)
 **Issue**: CUDA cache never cleared, leading to memory accumulation
@@ -192,10 +192,14 @@ Created comprehensive .gitignore to prevent committing:
 
 ## Estimated Performance Gains
 
-- **Validation speed**: ~10-15% faster (removed CPU transfers)
-- **Memory efficiency**: ~20% better (CUDA cache management)
-- **Training stability**: Significant improvement (gradient clipping)
-- **Data transfer**: ~5-10% faster (pin_memory)
+These are estimated improvements based on the nature of the optimizations. Actual gains will vary depending on hardware, dataset size, and model configuration:
+
+- **Validation speed**: Estimated ~10-15% faster (removed CPU/GPU transfers)
+- **Memory efficiency**: Estimated ~20% better (CUDA cache management)
+- **Training stability**: Significant improvement (gradient clipping prevents divergence)
+- **Data transfer**: Estimated ~5-10% faster (pin_memory optimization)
+
+Note: To measure actual performance gains, run benchmarks before and after applying these changes on your specific hardware and dataset.
 
 ## Remaining Optimization Opportunities
 
