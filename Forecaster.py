@@ -57,7 +57,7 @@ class HyperbolicSeqForecaster(nn.Module):
         preds_z = []
         k = 0
         for seg in range(pred_len):
-            z_next, _ = self.decoder(z_cur)
+            z_next, _ = self.mvar(z_cur)
             x_hat_seg = self.recon(z_next)
             preds_x.append(x_hat_seg.unsqueeze(1))
             

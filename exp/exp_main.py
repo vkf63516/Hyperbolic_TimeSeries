@@ -370,10 +370,15 @@ class Exp_Main(Exp_Basic):
                     
                     if self.args.use_amp:
                         scaler.scale(loss).backward()
+                        # Gradient clipping for stability
+                        scaler.unscale_(model_geooptim)
+                        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                         scaler.step(model_geooptim)
                         scaler.update()
                     else:
                         loss.backward()
+                        # Gradient clipping for stability
+                        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                         model_geooptim.step()
                     
                     current_memory = torch.cuda.max_memory_allocated(device=self.device) / 1024 ** 2

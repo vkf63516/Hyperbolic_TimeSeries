@@ -3,6 +3,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[1]))  # add project root
 from hyperbolic_mvar.mamba_mvar_lorentz import HyperbolicMambaLorentz
 from Lifting.reconstructor import HyperbolicReconstructionHead
+from spec import safe_expmap0
 import pandas as pd
 import torch
 import torch.nn as nn
