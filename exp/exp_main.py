@@ -197,7 +197,7 @@ class Exp_Main(Exp_Basic):
                     
                     # Embed inputs
                     embed_input = self.model.embedding(trend_x, weekly_x, daily_x, resid_x)
-                    z0 = e_input["combined_h"]
+                    z0 = embed_input["combined_h"]
                     
                     # Forecast
                     outputs, _ = self.model.forecaster.forecast(
@@ -214,8 +214,8 @@ class Exp_Main(Exp_Basic):
                     if C == 1:
                         target = target.squeeze(-1)
                     
-                    pred = outputs.detach().cpu()
-                    true = target.detach().cpu()
+                    pred = outputs.detach()
+                    true = target.detach()
                     
                     loss = criterion(pred, true)
                     total_loss.append(loss.item())
@@ -232,8 +232,8 @@ class Exp_Main(Exp_Basic):
                     outputs = outputs[:, -self.args.pred_len:, f_dim:]
                     batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
                     
-                    pred = outputs.detach().cpu()
-                    true = batch_y.detach().cpu()
+                    pred = outputs.detach()
+                    true = batch_y.detach()
                     
                     loss = criterion(pred, true)
                     total_loss.append(loss.item())
@@ -370,10 +370,15 @@ class Exp_Main(Exp_Basic):
                     
                     if self.args.use_amp:
                         scaler.scale(loss).backward()
+                        # Gradient clipping for stability
+                        scaler.unscale_(model_geooptim)
+                        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                         scaler.step(model_geooptim)
                         scaler.update()
                     else:
                         loss.backward()
+                        # Gradient clipping for stability
+                        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                         model_geooptim.step()
                     
                     current_memory = torch.cuda.max_memory_allocated(device=self.device) / 1024 ** 2
@@ -411,8 +416,8 @@ class Exp_Main(Exp_Basic):
             print("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_time))
             
             train_loss = np.average(train_loss)
-            vali_loss = self.vali(vali_data, vali_loader, criterion, flag='val')
-            test_loss = self.test(test_data, test_loader, criterion, flag='test')
+            vali_loss = self.vali(vali_data, vali_loader, criterion)
+            test_loss = self.vali(test_data, test_loader, criterion)
 
             print("Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f} Test Loss: {4:.7f}".format(
                 epoch + 1, train_steps, train_loss, vali_loss, test_loss))
@@ -426,6 +431,10 @@ class Exp_Main(Exp_Basic):
                 adjust_learning_rate(model_geooptim, scheduler, epoch + 1, self.args)
             else:
                 print('Updating learning rate to {}'.format(scheduler.get_last_lr()[0]))
+            
+            # Clear CUDA cache to prevent memory buildup
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
         best_model_path = path + '/' + 'checkpoint.pth'
         self.model.load_state_dict(torch.load(best_model_path))

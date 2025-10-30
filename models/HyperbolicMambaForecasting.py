@@ -35,7 +35,10 @@ class Model(nn.Module):
         self.hierarchy_scales = configs.hierarchy_scales
         # Model dimensions
         # Number of input features
-        self.enc_in = configs.enc_in
+        self.enc_in = getattr(configs, 'enc_in', 1)
+        
+        # Get segment length from configs or use default (24 for hourly data with daily period)
+        self.seg_len = getattr(configs, 'seg_len', 24)
         
         # Embedding: Maps decomposed components to hyperbolic space
         self.embedding = SegmentParallelLorentzBlock(
@@ -46,10 +49,10 @@ class Model(nn.Module):
         )
         
         # Forecaster: Autoregressively predicts in hyperbolic space
-        self.forecaster = HyperbolicSeqForecaster(
+        self.forecaster = HyperbolicSegmentForecaster(
             embed_dim=self.embed_dim,
             hidden_dim=self.hidden_dim,
-            seg_len=self.mstl_period,
+            seg_len=self.seg_len,
             manifold=self.embedding.manifold
         )
    

@@ -52,6 +52,8 @@ parser.add_argument('--checkpoints', type=str, default='./checkpoints/', help='l
 parser.add_argument('--seq_len', type=int, default=720, help='input sequence length')
 parser.add_argument('--label_len', type=int, default=48, help='start token length')
 parser.add_argument('--pred_len', type=int, default=96, help='prediction sequence length')
+parser.add_argument('--enc_in', type=int, default=7, help='encoder input size (number of features)')
+parser.add_argument('--seg_len', type=int, default=24, help='segment length for periodic data')
 
 # optimization
 parser.add_argument('--num_workers', type=int, default=10, help='data loader num workers')
@@ -116,7 +118,8 @@ if args.is_training:
         #     print('>>>>>>>predicting : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
         #     exp.predict(setting, True)
 
-        #torch.cuda.empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 else:
     ii = 0
     setting = '{}_{}_{}_ft{}_sl{}_pl{}_{}_{}_seed{}'.format(

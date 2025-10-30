@@ -340,7 +340,8 @@ class Dataset_Pred(Dataset):
             df_data = df_raw[[self.target]]
 
         if self.scale:
-            self.scaler.fit(df_data.values)
+            # Only fit scaler on historical data (not prediction period)
+            self.scaler.fit(df_data.values[:border2])
             data = self.scaler.transform(df_data.values)
         else:
             data = df_data.values
