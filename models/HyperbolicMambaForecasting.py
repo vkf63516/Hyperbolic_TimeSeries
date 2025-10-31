@@ -39,6 +39,8 @@ class Model(nn.Module):
         
         # Get segment length from configs or use default (24 for hourly data with daily period)
         self.seg_len = getattr(configs, 'seg_len', 24)
+        # Keep mstl_period as alias for backward compatibility
+        self.mstl_period = self.seg_len
         
         # Embedding: Maps decomposed components to hyperbolic space
         self.embedding = SegmentParallelLorentzBlock(
