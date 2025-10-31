@@ -7,7 +7,8 @@ class Exp_Basic(object):
         self.args = args
         self.device = self._acquire_device()
         self.model = self._build_model().to(self.device)
-        input = torch.randn(1,args.seq_len ,args.enc_in ).to(self.device)
+        enc_in = getattr(args, 'enc_in', 7)  # Default to 7 if not specified
+        input = torch.randn(1, args.seq_len, enc_in).to(self.device)
 
         # macs, params = profile(self.model, inputs=(input, ))
         # print(f"MACs: {macs}")
