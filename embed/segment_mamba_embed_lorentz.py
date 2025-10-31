@@ -68,7 +68,7 @@ class SegmentParallelLorentzBlock(nn.Module):
             self.residual_scale = nn.Parameter(torch.tensor(hierarchy_scales[-1]))
 
         # Branch encoders
-        lookback_segments = lookback_timesteps // seg_len if lookback_timesteps else None
+        lookback_segments = lookback_steps // seg_len if lookback_steps else None
         self.trend_embed = SegmentMambaEmbed(input_dim=1, hidden_dim=hidden_dim, output_dim=embed_dim, lookback_segment=lookback_segments)
         self.seasonal_weekly_embed = SegmentMambaEmbed(input_dim=1, hidden_dim=hidden_dim, output_dim=embed_dim, lookback_segment=lookback_segments)  
         self.seasonal_daily_embed = SegmentMambaEmbed(input_dim=1, hidden_dim=hidden_dim, output_dim=embed_dim, lookback_segment=lookback_segments)
@@ -96,7 +96,7 @@ class SegmentParallelLorentzBlock(nn.Module):
         z_seasonal_weekly_t = self.seasonal_weekly_embed(seasonal_weekly) # [B, D]
         z_seasonal_daily_t = self.seasonal_daily_embed(seasonal_daily) # [B, D]
         z_residual_t = self.residual_embed(residual)       # [B, D]
-        if self.use_hierarchy_scaling:
+        if self.use_hierarchy:
             z_trend_t = z_trend_t * self.trend_scale.abs()  # abs() ensures positive
             z_seasonal_weekly_t = z_seasonal_weekly_t * self.seasonal_weekly_scale.abs()
             z_seasonal_daily_t = z_seasonal_daily_t * self.seasonal_daily_scale.abs()
@@ -120,7 +120,7 @@ class SegmentParallelLorentzBlock(nn.Module):
         u_residual = self.manifold.logmap0(z_residual_h)
 
         combined_tangent = u_trend + u_seasonal_weekly + u_seasonal_daily + u_residual  # tangent-space fusion (Euclidean sum)
-        combined_h = safe_expmap(self.manifold, combined_tangent)
+        combined_h = safe_expmap0(self.manifold,combined_tangent)
         # combined_h = self.manifold.expmap0(combined_tangent)
         combined_h = self.manifold.projx(combined_h)
 

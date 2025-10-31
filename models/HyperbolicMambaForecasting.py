@@ -35,21 +35,22 @@ class Model(nn.Module):
         self.hierarchy_scales = configs.hierarchy_scales
         # Model dimensions
         # Number of input features
-        self.enc_in = configs.enc_in
+        #self.enc_in = configs.enc_in
         
         # Embedding: Maps decomposed components to hyperbolic space
         self.embedding = SegmentParallelLorentzBlock(
-            lookback=self.seq_len,
+            lookback_steps=self.seq_len,
+            seg_len=self.seg_len,
             embed_dim=self.embed_dim,
             hidden_dim=self.hidden_dim,
             curvature=self.curvature
         )
         
         # Forecaster: Autoregressively predicts in hyperbolic space
-        self.forecaster = HyperbolicSeqForecaster(
+        self.forecaster = HyperbolicSegmentForecaster(
             embed_dim=self.embed_dim,
             hidden_dim=self.hidden_dim,
-            seg_len=self.mstl_period,
+            seg_len=self.seg_len,
             manifold=self.embedding.manifold
         )
    
@@ -113,7 +114,7 @@ class Model(nn.Module):
             predictions: [B, pred_len, output_dim]
         """
         # Encode components to hyperbolic space
-        encoded = self.encoder(trend, seasonal_weekly, seasonal_daily, residual)
+        encoded = self.embedding(trend, seasonal_weekly, seasonal_daily, residual)
         
         # Get individual and combined hyperbolic representations
         trend_h = encoded['trend_h']

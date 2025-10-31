@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[0]))
 from statsmodels.tsa.seasonal import MSTL
+from Decomposition.BatchedMSTL import BatchedMSTL
 
 class TimeBaseMSTL:
     """
@@ -159,7 +160,7 @@ class TimeBaseMSTL:
             print(f"Valid MSTL periods: {valid_periods}")
 
             # --- Run MSTL ---
-            mstl = MSTL(basis_matrix, periods=valid_periods)
+            mstl = BatchedMSTL(basis_matrix, periods=valid_periods)
             batch_results = mstl.fit()  # list of DecomposeResult per basis
 
             # --- Convert outputs into dictionary form ---

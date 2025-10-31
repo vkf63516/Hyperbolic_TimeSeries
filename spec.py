@@ -3,7 +3,7 @@ import torch.nn as nn
 import geoopt
 import numpy as np 
 from sklearn.preprocessing import StandardScaler
-
+import math
 # --------------------------
 # Clamping with safe Exponential map
 # --------------------------
@@ -11,7 +11,7 @@ def safe_expmap(manifold, u, max_norm=10.0, eps=1e-8):
     norm = u.norm(dim=-1, keepdim=True).clamp_min(eps)
     scale = torch.clamp(norm, max=max_norm) / norm
     u = u * scale
-    x = manifold.expmap(u)
+    x = manifold.expmap0(u)
     return manifold.projx(x)
 
 def safe_expmap0(manifold, u, max_norm=10.0, eps=1e-8):
@@ -151,71 +151,70 @@ def Create_Segments_With_MSTL_Period(tensors_dict, input_len, pred_len,
     
     return segments
 
-def Create_Period_Aligned_Segments(tensors_dict, input_len, pred_len, 
-                                     mstl_period, stride=None, device="cuda"):
-    """
-    Create samples with stride aligned to MSTL period for efficiency.
+# def Create_Period_Aligned_Segments(tensors_dict, input_len, pred_len, 
+#                                      mstl_period, stride=None, device="cuda"):
+#     """
+#     Create samples with stride aligned to MSTL period for efficiency.
     
-    Args:
-        stride: How many time steps to skip between samples (default: mstl_period)
-                Setting stride=mstl_period gives non-overlapping periodic windows
-    """
-    if stride is None:
-        stride = mstl_period  # Move one full period at a time
+#     Args:
+#         stride: How many time steps to skip between samples (default: mstl_period)
+#                 Setting stride=mstl_period gives non-overlapping periodic windows
+#     """
+#     if stride is None:
+#         stride = mstl_period  # Move one full period at a time
     
-    segment_length = mstl_period
-    segments = {}
+#     segment_length = mstl_period
+#     segments = {}
     
-    for feat, comps in tensors_dict.items():
-        X, Y = {}, {}
+#     for feat, comps in tensors_dict.items():
+#         X, Y = {}, {}
         
-        for comp_name, comp_tensor in comps.items():
-            data = comp_tensor.squeeze(0).to(device)  # [T, C]
-            T, C = data.shape
+#         for comp_name, comp_tensor in comps.items():
+#             data = comp_tensor.squeeze(0).to(device)  # [T, C]
+#             T, C = data.shape
             
-            num_input_segments = input_len // segment_length
-            num_pred_segments = (pred_len + segment_length - 1) // segment_length
+#             num_input_segments = input_len // segment_length
+#             num_pred_segments = math.ceil(pred_len / segment_length)  # Always 2 for 192/144
+#             effective_pred_len = pred_len * num_pred_segments 
+#             effective_input_len = num_input_segments * segment_length
             
-            effective_input_len = num_input_segments * segment_length
-            effective_pred_len = num_pred_segments * segment_length
+#             # Calculate number of samples with given stride
+#             max_start = T - effective_input_len - pred_len
+#             num_samples = (max_start // stride) + 1
             
-            # Calculate number of samples with given stride
-            max_start = T - effective_input_len - effective_pred_len
-            num_samples = (max_start // stride) + 1
+#             x_segments = []
+#             y_segments = []
             
-            x_segments = []
-            y_segments = []
-            
-            for i in range(num_samples):
-                start_idx = i * stride
+#             for i in range(num_samples):
+#                 start_idx = i * stride
                 
-                # Input segments
-                x_window = data[start_idx:start_idx+effective_input_len]
-                x_seg = x_window.reshape(num_input_segments, segment_length, C)
-                x_segments.append(x_seg)
+#                 # Input segments
+#                 x_window = data[start_idx:start_idx+effective_input_len]
+#                 x_seg = x_window.reshape(num_input_segments, segment_length, C)
+#                 x_segments.append(x_seg)
                 
-                # Output segments
-                y_start = start_idx + input_len
-                y_window = data[y_start:y_start+effective_pred_len]
+#                 # Output segments
+#                 y_start = start_idx + input_len
+#                 y_window = data[y_start:y_start+pred_len]
                 
-                if y_window.shape[0] < effective_pred_len:
-                    pad_len = effective_pred_len - y_window.shape[0]
-                    padding = torch.zeros(pad_len, C, device=device)
-                    y_window = torch.cat([y_window, padding], dim=0)
+#                 if y_window.shape[0] < effective_pred_len:
+#                     pad_len = effective_pred_len - y_window.shape[0]
+#                     padding = torch.zeros(pad_len, C, device=device)
+#                     y_window = torch.cat([y_window, padding], dim=0)
                 
-                y_seg = y_window.reshape(num_pred_segments, segment_length, C)
-                y_segments.append(y_seg)
+#                 y_seg = y_window.reshape(num_pred_segments, segment_length, C)
+#                 y_segments.append(y_seg)
             
-            X[comp_name] = torch.stack(x_segments, dim=0)
-            Y[comp_name] = torch.stack(y_segments, dim=0)
+#             X[comp_name] = torch.stack(x_segments, dim=0)
+#             Y[comp_name] = torch.stack(y_segments, dim=0)
         
-        segments[feat] = {"X": X, "Y": Y}
+#         segments[feat] = {"X": X, "Y": Y}
     
-    return segments
+#     return segments
 
 def prepare_timebase_data_with_mstl(train_dict, val_dict, test_dict, 
                                      mstl_period, input_len, pred_len, 
-                                     stride='period', device="cuda"):
+                                     stride='overlap', device="cuda"):
     """
     Complete pipeline: normalize → segment with MSTL period.
     
@@ -232,9 +231,10 @@ def prepare_timebase_data_with_mstl(train_dict, val_dict, test_dict,
             d, input_len, pred_len, mstl_period, device
         )
     if stride == 'period':
+        stride_int = mstl_period
         # Period-aligned non-overlapping samples
         segment_fn = lambda d: Create_Period_Aligned_Segments(
-            d, input_len, pred_len, mstl_period, stride=mstl_period, device
+            d, input_len, pred_len, mstl_period, stride_int, device
         )
     
     train_seg = segment_fn(train_dict)

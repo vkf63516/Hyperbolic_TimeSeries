@@ -12,7 +12,7 @@ from data_provider.data_factory import data_provider
 from exp.exp_basic import Exp_Basic
 from models import TimeBase
 from models import HyperbolicMambaForecasting
-from utils.tools import adjust_learning_rate, visual, test_params_flop
+from utils.tools import adjust_learning_rate, visual
 from utils.metrics import metric
 from geoopt import optim as geooptim
 import numpy as np
@@ -72,7 +72,9 @@ class Exp_Main(Exp_Basic):
         print("=" * 70)
         print("Initializing TimeBaseMSTL decomposition...")
         print("=" * 70)
-        
+        # train_data["date"] = pd.to_datetime(train_data["date"])
+        # vali_data["date"] = pd.to_datetime(vali_data["date"])
+        # test_data["date"] = pd.to_datetime(test_data["date"])
         # Convert datasets to DataFrames
         train_df = self._dataset_to_dataframe(train_data)
         val_df = self._dataset_to_dataframe(vali_data)
@@ -95,18 +97,24 @@ class Exp_Main(Exp_Basic):
         self.timebase_mstl.fit(train_df)
         # Auto-detect periods
         self.mstl_period = self.timebase_mstl.steps_per_period[0]
+        self.model.seg_len = self.mstl_period
         print(f"Auto-detected MSTL periods: {self.mstl_period}")
         print(f"\n[2/4] Transforming datasets...")
 
         train_components = self.timebase_mstl.transform(train_df)
+        print(train_components)
+        print(type(train_components))
         val_components = self.timebase_mstl.transform(val_df)
         test_components = self.timebase_mstl.transform(test_df)
 
         print(f"\n[3/4] Building decomposition tensors...")
-        train_tensors_dict = build_decomposition_tensors(train_components)
-        val_tensors_dict = build_decomposition_tensors(val_components)
-        test_tensors_dict = build_decomposition_tensors(test_components)
-
+        train_tensors_dict = {}
+        val_tensors_dict = {}
+        test_tensors_dict = {}
+        for feature_idx in train_components.keys():
+            train_tensors_dict[feature_idx] = build_decomposition_tensors(train_components[feature_idx])
+            val_tensors_dict[feature_idx] = build_decomposition_tensors(val_components[feature_idx])
+            test_tensors_dict[feature_idx] = build_decomposition_tensors(test_components[feature_idx])
         print(f"\n[4/4] Creating segments with MSTL period alignment...")
         train_seg, val_seg, test_seg = prepare_timebase_data_with_mstl(
             train_dict=train_tensors_dict,
@@ -115,7 +123,7 @@ class Exp_Main(Exp_Basic):
             mstl_period=self.mstl_period,
             input_len=self.args.seq_len,
             pred_len=self.args.pred_len,
-            stride="period",
+            stride="overlap",
             device=self.device
         )
         
@@ -130,19 +138,17 @@ class Exp_Main(Exp_Basic):
         print("=" * 70)
 
     def _dataset_to_dataframe(self, dataset):
-        """Convert dataset to pandas DataFrame."""
-
-        # Assuming data_x is [T, C] numpy array
+        """Convert dataset to pandas DataFrame with proper datetime index."""
+    
+        if hasattr(dataset, 'df') and isinstance(dataset.df, pd.DataFrame):
+            return dataset.df
         data_array = dataset.data_x
-        df = data_array
-        if isinstance(data_array, np.ndarray):
-            df = pd.DataFrame(data_array)
-        elif isinstance(data_array, torch.Tensor):
-            df = pd.DataFrame(data_array.numpy())
-        elif isinstance(dataset, pd.DataFrame):
-            df = dataset
-        else:
-            raise ValueError("Dataset must have 'data_x' attribute or be a DataFrame")
+        df = pd.DataFrame(data_array)
+        df.index = pd.to_datetime(dataset.dates)        
+        print(df.index)
+        #csv_path = os.path.join(self.args.root_path, self.args.data_path)
+        #df = pd.read_csv(csv_path, parse_dates=["date"], index_col="date")
+        df = df.select_dtypes(include=[np.number])
         
         return df
 
@@ -359,7 +365,8 @@ class Exp_Main(Exp_Basic):
                         )
                         loss = criterion(outputs, target)
                         train_loss.append(loss.item())
-                    
+                    print(outputs)
+                    print(target)
                     # Backward
                     if (iter_count) % 100 == 0:
                         print("\titers: {0}, epoch: {1} | loss: {2:.7f}".format(
@@ -403,6 +410,8 @@ class Exp_Main(Exp_Basic):
                     batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
                     
                     loss = criterion(outputs, batch_y)
+                    print(f"Predicted values {outputs}")
+                    print(f"True Values: {batch_y}")
                     train_loss.append(loss.item())
                     
                     if (i + 1) % 100 == 0:

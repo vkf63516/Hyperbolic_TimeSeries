@@ -45,14 +45,13 @@ parser.add_argument('--root_path', type=str, default='./data/ETT/', help='root p
 parser.add_argument('--data_path', type=str, default='ETTh1.csv', help='data file')
 parser.add_argument('--features', type=str, default='M', help="forecasting task, options:[M, S, MS]; M:multivariate predict multivariate, S:univariate predict univariate, MS:multivariate predict univariate")
 parser.add_argument('--target', type=str, default='OT', help='target feature')
-parser.add_argument('--freq', type=str, default='h', help='freq for time encoding')
 parser.add_argument('--checkpoints', type=str, default='./checkpoints/', help='location of model checkpoints')
 
 # forecasting task
 parser.add_argument('--seq_len', type=int, default=720, help='input sequence length')
 parser.add_argument('--label_len', type=int, default=48, help='start token length')
 parser.add_argument('--pred_len', type=int, default=96, help='prediction sequence length')
-
+parser.add_argument('--embed', type=str, default='fixed',help='time features encoding, options:[timeF, fixed, learned]')
 # optimization
 parser.add_argument('--num_workers', type=int, default=10, help='data loader num workers')
 parser.add_argument('--itr', type=int, default=2, help='experiment runs')
@@ -94,7 +93,7 @@ if args.is_training:
         torch.manual_seed(fix_seed_list[ii])
         np.random.seed(fix_seed_list[ii])
         # setting record of experiments
-        setting = '{}_{}_{}_ft{}_sl{}_pl{}_{}_{}_seed{}'.format(
+        setting = '{}_{}_{}_ft{}_sl{}_pl{}_{}_eb{}_{}_seed{}'.format(
             args.model_id,
             args.model,
             args.data,
@@ -102,6 +101,7 @@ if args.is_training:
             args.seq_len,
             args.pred_len,
             args.des,
+            args.embed,
             ii,
             fix_seed_list[ii])
 
@@ -119,7 +119,7 @@ if args.is_training:
         #torch.cuda.empty_cache()
 else:
     ii = 0
-    setting = '{}_{}_{}_ft{}_sl{}_pl{}_{}_{}_seed{}'.format(
+    setting = '{}_{}_{}_ft{}_sl{}_pl{}_{}_eb{}_{}_seed{}'.format(
         args.model_id,
         args.model,
         args.data,
@@ -127,6 +127,7 @@ else:
         args.seq_len,
         args.pred_len,
         args.des,
+        args.embed,
         ii,
         fix_seed_list[ii])
     exp = Exp(args)  # set experiments
