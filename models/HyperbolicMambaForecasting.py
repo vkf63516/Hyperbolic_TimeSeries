@@ -37,9 +37,9 @@ class Model(nn.Module):
         # Number of input features
         self.enc_in = getattr(configs, 'enc_in', 1)
         
-        # Get segment length from configs or use default (24 for hourly data with daily period)
-        self.seg_len = getattr(configs, 'seg_len', 24)
-        # Keep mstl_period as alias for backward compatibility
+        # Segment length will be set after MSTL decomposition
+        # Default to 24 (hourly data with daily period) if not using decomposition
+        self.seg_len = 24
         self.mstl_period = self.seg_len
         
         # Embedding: Maps decomposed components to hyperbolic space

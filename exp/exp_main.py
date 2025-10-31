@@ -125,6 +125,19 @@ class Exp_Main(Exp_Basic):
             'test': test_seg
         }
         print(f"✓ Created segments")
+        
+        # Update model's mstl_period and seg_len with the auto-detected period
+        if hasattr(self.model, 'module'):
+            # DataParallel wrapper
+            self.model.module.mstl_period = self.mstl_period
+            self.model.module.seg_len = self.mstl_period
+            self.model.module.forecaster.seg_len = self.mstl_period
+        else:
+            self.model.mstl_period = self.mstl_period
+            self.model.seg_len = self.mstl_period
+            self.model.forecaster.seg_len = self.mstl_period
+        
+        print(f"✓ Updated model with MSTL period: {self.mstl_period}")
         print("=" * 70)
         print("TIMEBASEMSTL INITIALIZATION COMPLETE")
         print("=" * 70)
