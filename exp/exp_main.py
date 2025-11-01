@@ -1,11 +1,9 @@
 """
-Example exp_main.py with TimeBaseMSTL integration for HyperbolicMambaForecasting
+Unified exp_main.py supporting both segment-level and point-level hyperbolic embeddings
 
-This file shows how to integrate TimeBaseMSTL decomposition into the training pipeline.
-Key changes from the original exp_main.py:
-1. Import TimeBaseMSTL
-2. Initialize and fit TimeBaseMSTL on training data
-3. Pass decomposed components to the model instead of non-decomposed data
+Controlled by args.use_segments flag:
+- use_segments=True: Segment-level hyperbolic space (SegmentParallelLorentzBlock)
+- use_segments=False: Point-level hyperbolic space (ParallelLorentzBlock)
 """
 
 from data_provider.data_factory import data_provider
@@ -40,11 +38,13 @@ class Exp_Main(Exp_Basic):
         self.n_basis_components = args.num_basis
         self.orthogonal_lr = args.orthogonal_lr
         self.orthogonal_iters = args.orthogonal_iters
-
+        
+        # Support for both segment-level and point-level
+        self.use_segments = args.use_segments  # Default to point-level
         
         # Initialize decomposition cache
         if self.use_decomposition:
-            self.timebase_mstl = None  # Will be initialized after loading data
+            self.timebase_mstl = None
             self.decomposition_cache = {}
             self.mstl_period = None
             
@@ -55,6 +55,7 @@ class Exp_Main(Exp_Basic):
         model = model_dict[self.args.model].Model(self.args).float()
         total_params = sum(p.numel() for p in model.parameters())
         print(f"Total parameters: {total_params:,}")
+        print(f"Mode: {'Segment-level' if self.use_segments else 'Point-level'} hyperbolic embeddings")
 
         if self.args.use_multi_gpu and self.args.use_gpu:
             model = nn.DataParallel(model, device_ids=self.args.device_ids)
@@ -64,17 +65,56 @@ class Exp_Main(Exp_Basic):
         data_set, data_loader = data_provider(self.args, flag)
         return data_set, data_loader
     
+    def _create_sliding_windows(self, tensors_dict, seq_len, pred_len):
+        """
+        Create sliding windows from decomposition tensors (for point-level).
+        
+        Args:
+            tensors_dict: {component_name: tensor [1, T, C]}
+            seq_len: lookback window length
+            pred_len: forecast horizon
+            
+        Returns:
+            X_dict: {component_name: [N, seq_len, C]}
+            Y_dict: {component_name: [N, pred_len, C]}
+        """
+        X_dict = {}
+        Y_dict = {}
+        
+        for component_name, tensor in tensors_dict.items():
+            data = tensor.squeeze(0)  # [T, C]
+            T, C = data.shape
+            
+            # Number of sliding windows
+            num_samples = T - seq_len - pred_len + 1
+            
+            X_windows = []
+            Y_windows = []
+            
+            for i in range(num_samples):
+                # Input window: [i : i+seq_len]
+                x_window = data[i:i+seq_len]  # [seq_len, C]
+                X_windows.append(x_window)
+                
+                # Output window: [i+seq_len : i+seq_len+pred_len]
+                y_window = data[i+seq_len:i+seq_len+pred_len]  # [pred_len, C]
+                Y_windows.append(y_window)
+            
+            X_dict[component_name] = torch.stack(X_windows, dim=0)  # [N, seq_len, C]
+            Y_dict[component_name] = torch.stack(Y_windows, dim=0)  # [N, pred_len, C]
+        
+        return X_dict, Y_dict
+    
     def _initialize_timebase_mstl(self, train_data, vali_data, test_data):
         """
         Initialize and fit TimeBaseMSTL on training data.
-        This should be called once after loading training data.
+        Creates either segments (for segment-level) or sliding windows (for point-level).
         """
         print("=" * 70)
-        print("Initializing TimeBaseMSTL decomposition...")
+        mode_str = "Segment-level" if self.use_segments else "Point-level"
+        print(f"Initializing TimeBaseMSTL decomposition ({mode_str})...")
         print("=" * 70)
-        # train_data["date"] = pd.to_datetime(train_data["date"])
-        # vali_data["date"] = pd.to_datetime(vali_data["date"])
-        # test_data["date"] = pd.to_datetime(test_data["date"])
+        
         # Convert datasets to DataFrames
         train_df = self._dataset_to_dataframe(train_data)
         val_df = self._dataset_to_dataframe(vali_data)
@@ -84,7 +124,9 @@ class Exp_Main(Exp_Basic):
         print(f"  Train: {train_df.shape}")
         print(f"  Val:   {val_df.shape}")
         print(f"  Test:  {test_df.shape}")
-        print(f"\n[1/4] Fitting TimeBaseMSTL...")
+        
+        total_steps = 4
+        print(f"\n[1/{total_steps}] Fitting TimeBaseMSTL...")
         
         # Initialize TimeBaseMSTL
         self.timebase_mstl = TimeBaseMSTL(
@@ -95,61 +137,102 @@ class Exp_Main(Exp_Basic):
         
         # Fit on training data
         self.timebase_mstl.fit(train_df)
-        # Auto-detect periods
-        self.mstl_period = self.timebase_mstl.steps_per_period[0]
-        self.model.seg_len = self.mstl_period
-        print(f"Auto-detected MSTL periods: {self.mstl_period}")
-        print(f"\n[2/4] Transforming datasets...")
-
+        
+        # Auto-detect periods (needed for segment-level)
+        if self.use_segments:
+            self.mstl_period = self.timebase_mstl.steps_per_period[0]
+            print(f"Auto-detected MSTL period: {self.mstl_period}")
+        
+        print(f"\n[2/{total_steps}] Transforming datasets...")
         train_components = self.timebase_mstl.transform(train_df)
-        print(train_components)
-        print(type(train_components))
         val_components = self.timebase_mstl.transform(val_df)
         test_components = self.timebase_mstl.transform(test_df)
 
-        print(f"\n[3/4] Building decomposition tensors...")
+        print(f"\n[3/{total_steps}] Building decomposition tensors...")
         train_tensors_dict = {}
         val_tensors_dict = {}
         test_tensors_dict = {}
+        
         for feature_idx in train_components.keys():
             train_tensors_dict[feature_idx] = build_decomposition_tensors(train_components[feature_idx])
             val_tensors_dict[feature_idx] = build_decomposition_tensors(val_components[feature_idx])
             test_tensors_dict[feature_idx] = build_decomposition_tensors(test_components[feature_idx])
-        print(f"\n[4/4] Creating segments with MSTL period alignment...")
-        train_seg, val_seg, test_seg = prepare_timebase_data_with_mstl(
-            train_dict=train_tensors_dict,
-            val_dict=val_tensors_dict, 
-            test_dict=test_tensors_dict,
-            mstl_period=self.mstl_period,
-            input_len=self.args.seq_len,
-            pred_len=self.args.pred_len,
-            stride="overlap",
-            device=self.device
-        )
+        
+        print(f"\n[4/{total_steps}] Creating data windows...")
+        
+        if self.use_segments:
+            # Segment-level: use prepare_timebase_data_with_mstl
+            train_data_dict, val_data_dict, test_data_dict = prepare_timebase_data_with_mstl(
+                train_dict=train_tensors_dict,
+                val_dict=val_tensors_dict, 
+                test_dict=test_tensors_dict,
+                mstl_period=self.mstl_period,
+                input_len=self.args.seq_len,
+                pred_len=self.args.pred_len,
+                stride="overlap",
+                device=self.device
+            )
+        else:
+            # Point-level: use sliding windows
+            train_data_dict = {}
+            val_data_dict = {}
+            test_data_dict = {}
+            
+            for feature_idx in train_tensors_dict.keys():
+                train_X, train_Y = self._create_sliding_windows(
+                    train_tensors_dict[feature_idx],
+                    seq_len=self.args.seq_len,
+                    pred_len=self.args.pred_len
+                )
+                val_X, val_Y = self._create_sliding_windows(
+                    val_tensors_dict[feature_idx],
+                    seq_len=self.args.seq_len,
+                    pred_len=self.args.pred_len
+                )
+                test_X, test_Y = self._create_sliding_windows(
+                    test_tensors_dict[feature_idx],
+                    seq_len=self.args.seq_len,
+                    pred_len=self.args.pred_len
+                )
+                
+                train_data_dict[feature_idx] = {'X': train_X, 'Y': train_Y}
+                val_data_dict[feature_idx] = {'X': val_X, 'Y': val_Y}
+                test_data_dict[feature_idx] = {'X': test_X, 'Y': test_Y}
         
         self.decomposition_cache = {
-            'train': train_seg,
-            'val': val_seg,
-            'test': test_seg
+            'train': train_data_dict,
+            'val': val_data_dict,
+            'test': test_data_dict
         }
-        print(f"✓ Created segments")
+        
+        # Print statistics
+        feature_key = list(train_data_dict.keys())[0]
+        num_train = train_data_dict[feature_key]['X']['trend'].shape[0]
+        num_val = val_data_dict[feature_key]['X']['trend'].shape[0]
+        num_test = test_data_dict[feature_key]['X']['trend'].shape[0]
+        input_shape = train_data_dict[feature_key]['X']['trend'].shape
+        target_shape = train_data_dict[feature_key]['Y']['trend'].shape
+        
+        print(f"\n✓ Created data windows:")
+        print(f"  Train samples: {num_train}")
+        print(f"  Val samples: {num_val}")
+        print(f"  Test samples: {num_test}")
+        print(f"  Input shape: {input_shape}")
+        print(f"  Target shape: {target_shape}")
+        
         print("=" * 70)
         print("TIMEBASEMSTL INITIALIZATION COMPLETE")
         print("=" * 70)
 
     def _dataset_to_dataframe(self, dataset):
         """Convert dataset to pandas DataFrame with proper datetime index."""
-    
         if hasattr(dataset, 'df') and isinstance(dataset.df, pd.DataFrame):
             return dataset.df
         data_array = dataset.data_x
         df = pd.DataFrame(data_array)
         df.index = pd.to_datetime(dataset.dates)        
-        print(df.index)
-        #csv_path = os.path.join(self.args.root_path, self.args.data_path)
-        #df = pd.read_csv(csv_path, parse_dates=["date"], index_col="date")
         df = df.select_dtypes(include=[np.number])
-        
+
         return df
 
     def _select_optimizer(self):
@@ -171,7 +254,7 @@ class Exp_Main(Exp_Basic):
         return criterion
 
     def vali(self, vali_data, vali_loader, criterion):
-        """Validation function supporting decomposed data."""
+        """Validation function supporting both modes."""
         total_loss = []
         self.model.eval()
 
@@ -191,6 +274,8 @@ class Exp_Main(Exp_Basic):
                     end_idx = min(i + batch_size, num_samples)
                     
                     # Get batch
+                    # Segment-level: [B, num_seg, seg_len, 1]
+                    # Point-level: [B, seq_len, 1]
                     trend_x = X_dict["trend"][i:end_idx].float().to(self.device)
                     weekly_x = X_dict["seasonal_weekly"][i:end_idx].float().to(self.device)
                     daily_x = X_dict["seasonal_daily"][i:end_idx].float().to(self.device)
@@ -213,12 +298,22 @@ class Exp_Main(Exp_Basic):
                         K=getattr(self.args, 'gradient_truncation_K', 6)
                     )
                     
-                    # Target
+                    # Target reconstruction
                     target = (trend_y + weekly_y + daily_y + resid_y)
-                    B, num_seg, seg_len, C = target.shape
-                    target = target.reshape(B, num_seg * seg_len)
-                    if C == 1:
-                        target = target.squeeze(-1)
+                    
+                    # Reshape target based on mode
+                    if self.use_segments:
+                        # Segment mode: [B, num_seg, seg_len, C] → [B, num_seg * seg_len]
+                        B, num_seg, seg_len, C = target.shape
+                        target = target.reshape(B, num_seg * seg_len)
+                        target = target[:, :self.args.pred_len]
+
+                        if C == 1:
+                            target = target.squeeze(-1)
+                    else:
+                        # Point mode: [B, T, C] → [B, T]
+                        if target.dim() == 3 and target.shape[-1] == 1:
+                            target = target.squeeze(-1)
                     
                     pred = outputs.detach()
                     true = target.detach()
@@ -270,7 +365,7 @@ class Exp_Main(Exp_Basic):
         if self.args.use_amp:
             scaler = torch.cuda.amp.GradScaler()
 
-        # Calculate train steps based on decomposition
+        # Calculate train steps
         if self.use_decomposition and self.decomposition_cache:
             cache = self.decomposition_cache['train']
             feature_key = list(cache.keys())[0]
@@ -316,13 +411,17 @@ class Exp_Main(Exp_Basic):
                     # Get batch indices
                     batch_indices = indices[i:min(i + batch_size, num_samples)]
                     
-                    # Input components: [B, num_input_seg, seg_len, 1]
+                    # Input components
+                    # Segment-level: [B, num_input_seg, seg_len, 1]
+                    # Point-level: [B, seq_len, 1]
                     trend_x = X_dict['trend'][batch_indices].float().to(self.device)
                     weekly_x = X_dict['seasonal_weekly'][batch_indices].float().to(self.device)
                     daily_x = X_dict['seasonal_daily'][batch_indices].float().to(self.device)
                     resid_x = X_dict['residual'][batch_indices].float().to(self.device)
                     
-                    # Target components: [B, num_pred_seg, seg_len, 1]
+                    # Target components
+                    # Segment-level: [B, num_pred_seg, seg_len, 1]
+                    # Point-level: [B, pred_len, 1]
                     trend_y = Y_dict['trend'][batch_indices].float().to(self.device)
                     weekly_y = Y_dict['seasonal_weekly'][batch_indices].float().to(self.device)
                     daily_y = Y_dict['seasonal_daily'][batch_indices].float().to(self.device)
@@ -338,10 +437,18 @@ class Exp_Main(Exp_Basic):
                     
                     # Ground truth
                     target = (trend_y + weekly_y + daily_y + resid_y)
-                    B, num_seg, seg_len, C = target.shape
-                    target = target.reshape(B, num_seg * seg_len)
-                    if C == 1:
-                        target = target.squeeze(-1)
+                    
+                    # Reshape target based on mode
+                    if self.use_segments:
+                        B, num_seg, seg_len, C = target.shape
+                        target = target.reshape(B, num_seg * seg_len)
+                        target = target[:, :self.args.pred_len]
+
+                        if C == 1:
+                            target = target.squeeze(-1)
+                    else:
+                        if target.dim() == 3 and target.shape[-1] == 1:
+                            target = target.squeeze(-1)
                     
                     # Forward
                     if self.args.use_amp:
@@ -365,8 +472,7 @@ class Exp_Main(Exp_Basic):
                         )
                         loss = criterion(outputs, target)
                         train_loss.append(loss.item())
-                    print(outputs)
-                    print(target)
+                    
                     # Backward
                     if (iter_count) % 100 == 0:
                         print("\titers: {0}, epoch: {1} | loss: {2:.7f}".format(
@@ -377,14 +483,12 @@ class Exp_Main(Exp_Basic):
                     
                     if self.args.use_amp:
                         scaler.scale(loss).backward()
-                        # Gradient clipping for stability
                         scaler.unscale_(model_geooptim)
                         nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=5.0)
                         scaler.step(model_geooptim)
                         scaler.update()
                     else:
                         loss.backward()
-                        # Gradient clipping for stability
                         nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=5.0)
                         model_geooptim.step()
                     
@@ -410,8 +514,6 @@ class Exp_Main(Exp_Basic):
                     batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
                     
                     loss = criterion(outputs, batch_y)
-                    print(f"Predicted values {outputs}")
-                    print(f"True Values: {batch_y}")
                     train_loss.append(loss.item())
                     
                     if (i + 1) % 100 == 0:
@@ -440,7 +542,6 @@ class Exp_Main(Exp_Basic):
             else:
                 print('Updating learning rate to {}'.format(scheduler.get_last_lr()[0]))
             
-            # Clear CUDA cache to prevent memory buildup
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
@@ -502,10 +603,17 @@ class Exp_Main(Exp_Basic):
                     resid_y = Y_dict['residual'][i:end_idx].float().to(self.device)
                     
                     target = (trend_y + weekly_y + daily_y + resid_y)
-                    B, num_seg, seg_len, C = target.shape
-                    target = target.reshape(B, num_seg * seg_len)
-                    if C == 1:
-                        target = target.squeeze(-1)
+                    
+                    # Reshape based on mode
+                    if self.use_segments:
+                        B, num_seg, seg_len, C = target.shape
+                        target = target.reshape(B, num_seg * seg_len)
+                        target = target[:, :self.args.pred_len]
+                        if C == 1:
+                            target = target.squeeze(-1)
+                    else:
+                        if target.dim() == 3 and target.shape[-1] == 1:
+                            target = target.squeeze(-1)
                     
                     outputs = outputs.detach().cpu().numpy()
                     target = target.detach().cpu().numpy()
@@ -556,51 +664,5 @@ class Exp_Main(Exp_Basic):
 
         return
 
-
     def predict(self, setting, load=False):
-        # pred_data, pred_loader = self._get_data(flag='pred')
-
-        # if load:
-        #     path = os.path.join(self.args.checkpoints, setting)
-        #     best_model_path = path + '/' + 'checkpoint.pth'
-        #     self.model.load_state_dict(torch.load(best_model_path))
-
-        # preds = []
-
-        # self.model.eval()
-        # with torch.no_grad():
-        #     for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(pred_loader):
-        #         batch_x = batch_x.float().to(self.device)
-        #         batch_y = batch_y.float()
-        #         batch_x_mark = batch_x_mark.float().to(self.device)
-        #         batch_y_mark = batch_y_mark.float().to(self.device)
-
-        #         # decoder input
-        #         dec_inp = torch.zeros([batch_y.shape[0], self.args.pred_len, batch_y.shape[2]]).float().to(
-        #             batch_y.device)
-        #         dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
-        #         # encoder - decoder
-        #         if self.args.use_amp:
-        #             with torch.cuda.amp.autocast():
-        #                 if any(substr in self.args.model for substr in {'Linear', 'TST', 'SparseTSF'}):
-        #                     outputs = self.model(batch_x)
-        #                 else:
-    #                         outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
-        #         else:
-        #             if any(substr in self.args.model for substr in {'Linear', 'TST', 'SparseTSF'}):
-        #                 outputs = self.model(batch_x)
-        #             else:
-    #                     outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
-        #         pred = outputs.detach().cpu().numpy()  # .squeeze()
-        #         preds.append(pred)
-
-        # preds = np.array(preds)
-        # preds = preds.reshape(-1, preds.shape[-2], preds.shape[-1])
-
-        # # result save
-        # folder_path = './results/' + setting + '/'
-        # if not os.path.exists(folder_path):
-        #     os.makedirs(folder_path)
-
-        # np.save(folder_path + 'real_prediction.npy', preds)
         return

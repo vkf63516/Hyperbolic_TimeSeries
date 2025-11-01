@@ -56,14 +56,14 @@ class HyperbolicSeqForecaster(nn.Module):
         preds_x = []
         preds_z = []
         k = 0
-        for seg in range(pred_len):
+        for k in range(pred_len):
             z_next, _ = self.mvar(z_cur)
             x_hat_seg = self.recon(z_next)
             preds_x.append(x_hat_seg.unsqueeze(1))
             
             preds_z.append(z_next.unsqueeze(1))
             if teacher_forcing and z_true_seq is not None:
-                z_cur = z_true_seq[:, seg, :]
+                z_cur = z_true_seq[:, k, :]
             else:
                 z_cur = z_next
             if (k + 1) % K == 0:

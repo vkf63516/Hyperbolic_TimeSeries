@@ -33,26 +33,42 @@ class Model(nn.Module):
         self.curvature = configs.curvature
         self.use_hierarchy = configs.use_hierarchy
         self.hierarchy_scales = configs.hierarchy_scales
+        self.use_segments = configs.use_segments
+        self.mstl_period = configs.mstl_period
         # Model dimensions
         # Number of input features
         #self.enc_in = configs.enc_in
         
         # Embedding: Maps decomposed components to hyperbolic space
-        self.embedding = SegmentParallelLorentzBlock(
-            lookback_steps=self.seq_len,
-            seg_len=self.seg_len,
-            embed_dim=self.embed_dim,
-            hidden_dim=self.hidden_dim,
-            curvature=self.curvature
-        )
-        
-        # Forecaster: Autoregressively predicts in hyperbolic space
-        self.forecaster = HyperbolicSegmentForecaster(
-            embed_dim=self.embed_dim,
-            hidden_dim=self.hidden_dim,
-            seg_len=self.seg_len,
-            manifold=self.embedding.manifold
-        )
+        if self.use_segments:
+            self.embedding = SegmentParallelLorentzBlock(
+                lookback_steps=self.seq_len,
+                seg_len=self.mstl_period,
+                embed_dim=self.embed_dim,
+                hidden_dim=self.hidden_dim,
+                curvature=self.curvature
+            )
+            self.forecaster = HyperbolicSegmentForecaster(
+                embed_dim=self.embed_dim,
+                hidden_dim=self.hidden_dim,
+                seg_len=self.mstl_period,
+                manifold=self.embedding.manifold
+            )
+   
+        else:
+            self.embedding = ParallelLorentzBlock(
+                lookback=self.seq_len,
+                embed_dim=self.embed_dim,
+                hidden_dim=self.hidden_dim,
+                curvature=self.curvature
+            )
+            # Forecaster: Autoregressively predicts in hyperbolic space
+            self.forecaster = HyperbolicSeqForecaster(
+                embed_dim=self.embed_dim,
+                hidden_dim=self.hidden_dim,
+                output_dim=1,
+                manifold=self.embedding.manifold
+            )
    
         
     # def forward(self, x_enc, x_mark_enc=None, x_dec=None, x_mark_dec=None):
@@ -121,7 +137,7 @@ class Model(nn.Module):
         seasonal_weekly_h = encoded['seasonal_weekly_h']
         seasonal_daily_h = encoded['seasonal_daily_h']
         residual_h = encoded['residual_h']
-        
+        z0 = encoded["combined_h"] 
         # Forecast using combined representation
         x_hat, z_pred = self.forecaster.forecast(
             pred_len=self.pred_len,
@@ -129,9 +145,10 @@ class Model(nn.Module):
             seasonal_weekly_z=seasonal_weekly_h,  
             seasonal_daily_z=seasonal_daily_h,
             residual_z=residual_h,
-            teacher_forcing=False
+            z0=z0,
+            teacher_forcing=False,
+            z_true_seq=None
         )
         
         return x_hat
-        
         

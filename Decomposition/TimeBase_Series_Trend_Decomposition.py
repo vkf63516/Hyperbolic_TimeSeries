@@ -4,7 +4,6 @@ import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[0]))
 from statsmodels.tsa.seasonal import MSTL
-from Decomposition.BatchedMSTL import BatchedMSTL
 
 class TimeBaseMSTL:
     """
@@ -142,56 +141,74 @@ class TimeBaseMSTL:
 
     def decompose_basis_components(self, basis_components, periods, seasonal_type="seasonal_daily"):
         """
-        Decompose all orthogonal basis components together using MSTL.
-        Each basis is treated as a separate time series in the batch.
+        Decompose each orthogonal basis component individually using statsmodels MSTL.
+        Each basis is treated as a 1D time series.
+    
+        Parameters
+        ----------
+        basis_components : np.ndarray
+            Shape (n_basis, n_timesteps) - e.g., (10, 288)
+        periods : list of int
+            Seasonal periods for MSTL - e.g., [72]
+        seasonal_type : str
+            Either "seasonal_daily" or "seasonal_weekly"
+    
+        Returns
+        -------
+        dict
+            Decomposition for each basis: {f"basis_{i}": {"trend": ..., seasonal_type: ..., "residual": ...}}
         """
         decomposed_basis = {}
-        print(f"⏱ Decomposing {len(basis_components)} basis components using MSTL...")
+        n_basis = len(basis_components)
+        print(f"⏱ Decomposing {n_basis} basis components using statsmodels MSTL...")
 
-        try:
-            # --- Convert all basis components into a 2D array ---
-            basis_matrix = np.stack(basis_components, axis=0)  # [n_basis, n_timesteps]
-            n_basis, n_points = basis_matrix.shape
-
-            # --- Filter valid periods for this basis length ---
-            valid_periods = [p for p in periods if p < n_points / 2]
-            if not valid_periods:
-                valid_periods = periods
-            print(f"Valid MSTL periods: {valid_periods}")
-
-            # --- Run MSTL ---
-            mstl = BatchedMSTL(basis_matrix, periods=valid_periods)
-            batch_results = mstl.fit()  # list of DecomposeResult per basis
-
-            # --- Convert outputs into dictionary form ---
-            for i, res in enumerate(batch_results):
-                trend = res.trend.values if isinstance(res.trend, pd.Series) else res.trend
-                residual = res.resid.values if isinstance(res.resid, pd.Series) else res.resid
-
-                # Handle multiple seasonal columns
-                if isinstance(res.seasonal, pd.DataFrame):
-                    seasonal_total = res.seasonal.sum(axis=1).values
-                else:
-                    seasonal_total = res.seasonal.values
-
+        for i in range(n_basis):
+        # Extract 1D basis component
+            basis_1d = basis_components[i]  # Shape: (n_timesteps,) e.g., (288,)
+            n_points = len(basis_1d)
+        
+            try:
+            # Filter valid periods for this basis length
+                valid_periods = [p for p in periods if p < n_points / 2]
+                if not valid_periods:
+                    print(f"⚠ Warning: No valid periods for basis_{i} (length={n_points}), using original periods")
+                    valid_periods = periods
+            
+                print(f"  Basis {i}: length={n_points}, periods={valid_periods}")
+            
+            # Run statsmodels MSTL on this 1D basis
+                mstl = MSTL(basis_1d, periods=valid_periods)
+                result = mstl.fit()
+            
+            # Extract components
+                trend = result.trend
+                residual = result.resid
+                seasonal_total = result.seasonal.sum(axis=1)
+            
+            # # Handle seasonal component(s)
+            #     if isinstance(result.seasonal, pd.DataFrame):
+            #     # Multiple seasonal components - sum them
+            #         seasonal_total = result.seasonal.sum(axis=1).values
+            #     else:
+            #     # Single seasonal component
+            #         seasonal_total = result.seasonal.sum(axis=1)
+            
                 decomposed_basis[f"basis_{i}"] = {
                     "trend": trend,
                     seasonal_type: seasonal_total,
                     "residual": residual,
                 }
-
-        except Exception as e:
-            print(f" MSTL failed: {e}")
-        # --- Safe fallback for entire batch ---
-            for i, component in enumerate(basis_components):
-                base = np.mean(component) * np.ones_like(component)
-                seas = component - np.mean(component)
+            
+            except Exception as e:
+                print(f"⚠ MSTL failed for basis_{i}: {e}")
+                # Fallback: simple mean-centering
+                base = np.mean(basis_1d) * np.ones_like(basis_1d)
+                seas = basis_1d - base
                 decomposed_basis[f"basis_{i}"] = {
                     "trend": base,
-                    "seasonal_daily": seas if seasonal_type == "seasonal_daily" else np.zeros_like(base),
-                    "seasonal_weekly": seas if seasonal_type == "seasonal_weekly" else np.zeros_like(base),
-                    "residual": np.zeros_like(component),
-                }
+                    seasonal_type: seas,
+                    "residual": np.zeros_like(basis_1d),
+            }
 
         return decomposed_basis
 
@@ -309,12 +326,14 @@ class TimeBaseMSTL:
         print(f"Reusing learned bases to decompose {df.shape[1]} series...")
         period_lst = list(self.basis_components.keys())
         decompositions = {}
+    
         for period, basis in self.basis_components.items():
+            sub_periods = [int(period/4), int(period/3), int(period/2)]
             if period == min(period_lst):
                 seasonal_type = "seasonal_daily"
             else:
                 seasonal_type = "seasonal_weekly"
-            decomposed_basis = self.decompose_basis_components(basis, [int(period/2)], seasonal_type)
+            decomposed_basis = self.decompose_basis_components(basis, sub_periods, seasonal_type)
             decompositions[period] = decomposed_basis
         return self.reconstruct_series_decomposition(df, decompositions, self.series_coefficients)
 
