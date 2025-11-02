@@ -396,7 +396,7 @@ class Dataset_Custom_Decomposition(Dataset):
         
         # Auto-detect MSTL period if using segments
         if self.use_segments:
-            detected_period = self.timebase_mstl.timesteps_from_index(train_df)
+            detected_period = self.timebase_mstl.timesteps_from_index(train_df)[0]
             if self.mstl_period != detected_period:
                 print(f"[{self.flag}] Overriding mstl_period {self.mstl_period} with detected {detected_period}")
                 self.mstl_period = detected_period
@@ -432,9 +432,7 @@ class Dataset_Custom_Decomposition(Dataset):
             data_stamp = time_features(pd.to_datetime(df_stamp['date'].values), freq=self.freq)
             data_stamp = data_stamp.transpose(1, 0)
         
-        self.data_x
         self.data_stamp = data_stamp
-        
         mode_str = "segment-level" if self.use_segments else "point-level"
         print(f"[{self.flag}] Data preparation complete ({mode_str}). Temporal length: {self.temporal_length}")
 
@@ -505,19 +503,11 @@ class Dataset_Custom_Decomposition(Dataset):
             segments: [num_segs, seg_len, C] array
         """
         T, C = data.shape
-        stride = seg_len // 2  # 50% overlap
-        segments = []
+        num_segments = T // seg_len
+        data_trimmed = data[:effective_len]
+        segments = data_trimmed.reshape(num_segments, seg_len, C)
         
-        for start_idx in range(0, T - seg_len + 1, stride):
-            segment = data[start_idx:start_idx + seg_len]  # [seg_len, C]
-            segments.append(segment)
-        
-        if len(segments) == 0:
-            # Edge case: if data is shorter than seg_len
-            # Return empty array with correct shape
-            return np.zeros((0, seg_len, C), dtype=data.dtype)
-        
-        return np.stack(segments, axis=0)  # [num_segs, seg_len, C
+        return segments  # [num_segs, seg_len, C]
 
     def __getitem__(self, index):
         """
@@ -542,11 +532,11 @@ class Dataset_Custom_Decomposition(Dataset):
             Y_dict = {}
             
             for comp_name, comp_data in self.decomposed_components.items():
-                # Extract point-level sequences first
+                # Extract window first
                 x_seq = comp_data[s_begin:s_end]  # [seq_len, C]
                 y_seq = comp_data[r_begin:r_end]  # [label_len + pred_len, C]
                 
-                # Create overlapping segments (50% overlap)
+                # Creating segments
                 X_dict[comp_name] = self._create_segments_with_overlap(x_seq, self.mstl_period)
                 Y_dict[comp_name] = self._create_segments_with_overlap(y_seq, self.mstl_period)
             

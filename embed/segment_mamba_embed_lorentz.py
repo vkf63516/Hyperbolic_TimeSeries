@@ -30,19 +30,17 @@ class SegmentMambaEmbed(nn.Module):
         x: [B, num_seg, seg_len, C]
         returns: [B, output_dim]  (Euclidean latent, tangent vectors)
         """
-        B, num_seg, seg_len, C = x.shape
-        
+        B,num_seg, seg_len, C = x.shape
         if self.lookback_segment is not None and x.size(1) > self.lookback_segment:
-            print(self.lookback_segment)
             x = x[:, -self.lookback_segment:, :]
-        # Reshape to process all segments in batch
-        x = x.reshape(B * num_seg, seg_len, C)  # [B*num_seg, seg_len, C]
-        x = self.input_proj(x)
+        print(x.shape)
+        x = x.reshape(B * num_seg, seg_len, C)
+        print(x.shape)
         for layer in self.layers:
             x = layer(x)
         # Pool to single vector per segment
-        x = x.mean(dim=1)  # [B*num_seg, hidden_dim]
-        x = x.reshape(B, num_seg, -1)  # [B, num_seg, output_dim]
+        x = x.mean(dim=1)
+        print(x.shape)
         return torch.tanh(self.output_proj(x))
 
 
@@ -92,6 +90,18 @@ class SegmentParallelLorentzBlock(nn.Module):
           - combined_tangent : the summed tangent vector 
         """
         # 1) encode to Euclidean latent (interpreted as tangent vectors at origin)
+        B, num_seg, seg_len, C = trend.shape
+
+    # ========================================
+    # 2. Flatten Segments for Batch Processing
+    # ========================================
+        total_segs = B * num_seg
+
+        trend_flat = trend.reshape(total_segs, seg_len, C)
+        seasonal_weekly_flat = seasonal_weekly.reshape(total_segs, seg_len, C)
+        seasonal_daily_flat = seasonal_daily.reshape(total_segs, seg_len, C)
+        residual_flat = residual.reshape(total_segs, seg_len, C)
+
         z_trend_t = self.trend_embed(trend)       # [B, D]
         z_seasonal_weekly_t = self.seasonal_weekly_embed(seasonal_weekly) # [B, D]
         z_seasonal_daily_t = self.seasonal_daily_embed(seasonal_daily) # [B, D]
