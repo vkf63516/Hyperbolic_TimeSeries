@@ -36,6 +36,7 @@ class MambaEmbed(nn.Module):
         x = self.input_proj(x)
         for layer in self.layers:
             x = layer(x)
+        x = torch.tanh(x)
         x = x.mean(dim=1)              # mean pooling would be good for point level forecasting
         return torch.tanh(self.output_proj(x))
 
