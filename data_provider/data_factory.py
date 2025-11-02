@@ -41,7 +41,9 @@ def data_provider(args, flag):
         target=args.target,
         timeenc=timeenc,
         freq=freq,
-        basis=[args.n_basis_components, args.orthogonal_lr, args.orthogonal_iters]
+        basis=[args.n_basis_components, args.orthogonal_lr, args.orthogonal_iters],
+        use_segments=args.use_segments,
+        mstl_period=args.mstl_period
     )
     print(flag, len(data_set))
     data_loader = DataLoader(

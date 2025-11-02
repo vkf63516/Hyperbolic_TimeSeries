@@ -44,8 +44,8 @@ class MambaEmbed(nn.Module):
 # Parallel encoders + Lorentz manifold fusion
 # --------------------------
 class ParallelLorentzBlock(nn.Module):
-    def __init__(self, lookback, embed_dim=32, hidden_dim=64, 
-                curvature=-1.0, use_hierarchy=True, hierarchy_scales=[0.5,1.0,1.0,1.5]):
+    def __init__(self, lookback, input_dim, embed_dim=32, hidden_dim=64, 
+                curvature=-1.0, use_hierarchy=False, hierarchy_scales=[0.5,1.0,1.0,1.5]):
         """
         embed_dim: dimensionality of tangent-space vectors (intrinsic manifold dimension)
         For Lorentz model geoopt expects expmap/logmap shapes [B, embed_dim].
@@ -61,10 +61,10 @@ class ParallelLorentzBlock(nn.Module):
             self.residual_scale = nn.Parameter(torch.tensor(hierarchy_scales[-1]))
 
         # Branch encoders
-        self.trend_embed = MambaEmbed(input_dim=1, hidden_dim=hidden_dim, output_dim=embed_dim, lookback=lookback)
-        self.seasonal_weekly_embed = MambaEmbed(input_dim=1, hidden_dim=hidden_dim, output_dim=embed_dim, lookback=lookback)  
-        self.seasonal_daily_embed = MambaEmbed(input_dim=1, hidden_dim=hidden_dim, output_dim=embed_dim, lookback=lookback)
-        self.residual_embed = MambaEmbed(input_dim=1, hidden_dim=hidden_dim, output_dim=embed_dim, lookback=lookback)
+        self.trend_embed = MambaEmbed(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=embed_dim, lookback=lookback)
+        self.seasonal_weekly_embed = MambaEmbed(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=embed_dim, lookback=lookback)  
+        self.seasonal_daily_embed = MambaEmbed(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=embed_dim, lookback=lookback)
+        self.residual_embed = MambaEmbed(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=embed_dim, lookback=lookback)
         
         # Lorentz manifold (k controls scale; curvature = -1/k)
         # Passing k = curvature (1.0 gives standard curvature -1)

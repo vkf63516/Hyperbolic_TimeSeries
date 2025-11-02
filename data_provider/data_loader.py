@@ -103,7 +103,8 @@ class Dataset_ETT_hour(Dataset):
 class Dataset_ETT_minute(Dataset):
     def __init__(self, root_path, flag='train', size=None,
                  features='S', data_path='ETTm1.csv',
-                 target='OT', scale=True, timeenc=0, freq='t', basis=None):
+                 target='OT', scale=True, timeenc=0, freq='t', 
+                 basis=None, use_segments=False, mstl_period=24):
         # size [seq_len, label_len, pred_len]
         # info
         if size == None:
@@ -189,10 +190,12 @@ class Dataset_ETT_minute(Dataset):
     def inverse_transform(self, data):
         return self.scaler.inverse_transform(data)
 
+
 class Dataset_Custom(Dataset):
     def __init__(self, root_path, flag='train', size=None,
                  features='S', data_path='ETTh1.csv',
-                 target='OT', scale=True, timeenc=0, freq='h', basis=None):
+                 target='OT', scale=True, timeenc=0, freq='h',
+                 basis=None, use_segments=False, mstl_period=24):
         # size [seq_len, label_len, pred_len]
         # info
         if size == None:
@@ -248,8 +251,6 @@ class Dataset_Custom(Dataset):
         if self.scale:
             train_data = df_data[border1s[0]:border2s[0]]
             self.scaler.fit(train_data.values)
-            # print(self.scaler.mean_)
-            # exit()
             data = self.scaler.transform(df_data.values)
         else:
             data = df_data.values
@@ -290,17 +291,20 @@ class Dataset_Custom(Dataset):
     def inverse_transform(self, data):
         return self.scaler.inverse_transform(data)
 
+
 class Dataset_Custom_Decomposition(Dataset):
     """
-    Custom dataset with TimeBase MSTL decomposition.
-    Decomposition is applied after normalization.
-    Returns per-component structure for hyperbolic embedding.
+    Custom dataset with TimeBaseMSTL decomposition.
+    Unified implementation supporting both point-level and segment-level modes.
+    
+    - Point-level (use_segments=False): Returns [seq_len, C] for each component
+    - Segment-level (use_segments=True): Returns [num_segs, seg_len, C] for each component
     """
     def __init__(self, root_path, flag='train', size=None,
                  features='S', data_path='ETTh1.csv',
-                 target='OT', scale=True, timeenc=0, freq='h', basis=None):
+                 target='OT', scale=True, timeenc=0, freq='h', 
+                 basis=None, use_segments=False, mstl_period=24):
         # size [seq_len, label_len, pred_len]
-        # info
         if size == None:
             self.seq_len = 24 * 4 * 4
             self.label_len = 24 * 4
@@ -309,7 +313,12 @@ class Dataset_Custom_Decomposition(Dataset):
             self.seq_len = size[0]
             self.label_len = size[1]
             self.pred_len = size[2]
-        # basis info
+        
+        # Segment/Point configuration
+        self.use_segments = use_segments
+        self.mstl_period = mstl_period
+        
+        # TimeBaseMSTL basis parameters
         if basis == None:
             self.n_basis_components = 20
             self.orthogonal_lr = 1e-3
@@ -318,10 +327,12 @@ class Dataset_Custom_Decomposition(Dataset):
             self.n_basis_components = basis[0]
             self.orthogonal_lr = basis[1]
             self.orthogonal_iters = basis[2]
+        
         # init
         assert flag in ['train', 'test', 'val']
         type_map = {'train': 0, 'val': 1, 'test': 2}
         self.set_type = type_map[flag]
+        self.flag = flag
 
         self.features = features
         self.target = target
@@ -329,18 +340,19 @@ class Dataset_Custom_Decomposition(Dataset):
         self.timeenc = timeenc
         self.freq = freq
         self.timebase_mstl = TimeBaseMSTL(
-            self.n_basis_components,
-            self.orthogonal_lr,
-            self.orthogonal_iters
+            n_basis_components=self.n_basis_components,
+            orthogonal_lr=self.orthogonal_lr,
+            orthogonal_iters=self.orthogonal_iters
         )
+        
         self.root_path = root_path
         self.data_path = data_path
         self.__read_data__()
 
     def __read_data__(self):
         self.scaler = StandardScaler()
-        df_raw = pd.read_csv(os.path.join(self.root_path,
-                                          self.data_path))
+        df_raw = pd.read_csv(os.path.join(self.root_path, 
+        self.data_path))
 
         '''
         df_raw.columns: ['date', ...(other features), target feature]
@@ -349,7 +361,7 @@ class Dataset_Custom_Decomposition(Dataset):
         cols.remove(self.target)
         cols.remove('date')
         df_raw = df_raw[['date'] + cols + [self.target]]
-        # print(cols)
+
         num_train = int(len(df_raw) * 0.7)
         num_test = int(len(df_raw) * 0.2)
         num_vali = len(df_raw) - num_train - num_test
@@ -367,30 +379,49 @@ class Dataset_Custom_Decomposition(Dataset):
         if self.scale:
             train_data = df_data[border1s[0]:border2s[0]]
             self.scaler.fit(train_data.values)
-            # print(self.scaler.mean_)
-            # exit()
             data = self.scaler.transform(df_data.values)
         else:
             data = df_data.values
 
+        # ========================================
+        # TimeBaseMSTL Decomposition
+        # ========================================
         train_data_normalized = data[border1s[0]:border2s[0]]
         train_df = pd.DataFrame(train_data_normalized, columns=df_data.columns)
         train_dates = pd.to_datetime(df_raw['date'][border1s[0]:border2s[0]].values)
         train_df.index = train_dates
-
+        
+        print(f"[{self.flag}] Fitting TimeBaseMSTL on training data...")
         self.timebase_mstl.fit(train_df)
+        
+        # Auto-detect MSTL period if using segments
+        if self.use_segments:
+            detected_period = self.timebase_mstl.timesteps_from_index(train_df)
+            if self.mstl_period != detected_period:
+                print(f"[{self.flag}] Overriding mstl_period {self.mstl_period} with detected {detected_period}")
+                self.mstl_period = detected_period
 
+        # Transform current split using fitted TimeBaseMSTL
         current_data_normalized = data[border1:border2]
         current_df = pd.DataFrame(current_data_normalized, columns=df_data.columns)
         current_dates = pd.to_datetime(df_raw['date'][border1:border2].values)
         current_df.index = current_dates
 
+        print(f"[{self.flag}] Transforming data with TimeBaseMSTL...")
         components_per_column = self.timebase_mstl.transform(current_df)
-        self.decomposed_components = self._to_model_format(components_per_column)
-
+        
+        # Convert to model-ready format: always store as [T, C] point-level
+        self.decomposed_components = self._format_components(components_per_column)
+        
+        # Cache temporal length for efficient __len__ computation
+        self.temporal_length = self.decomposed_components['trend'].shape[0]
+        
+        # ========================================
+        # Time Features
+        # ========================================
         df_stamp = df_raw[['date']][border1:border2]
         df_stamp['date'] = pd.to_datetime(df_stamp.date)
-        self.dates = df_stamp['date'].values
+        self.dates = df_stamp['date'].values    
         if self.timeenc == 0:
             df_stamp['month'] = df_stamp.date.apply(lambda row: row.month, 1)
             df_stamp['day'] = df_stamp.date.apply(lambda row: row.day, 1)
@@ -400,77 +431,163 @@ class Dataset_Custom_Decomposition(Dataset):
         elif self.timeenc == 1:
             data_stamp = time_features(pd.to_datetime(df_stamp['date'].values), freq=self.freq)
             data_stamp = data_stamp.transpose(1, 0)
-
-        self.data_x = current_data_normalized  #Pure NumPy array [T, num_features]
-        self.data_y = current_data_normalized 
+        
+        self.data_x
         self.data_stamp = data_stamp
+        
+        mode_str = "segment-level" if self.use_segments else "point-level"
+        print(f"[{self.flag}] Data preparation complete ({mode_str}). Temporal length: {self.temporal_length}")
+
+    def _format_components(self, components_per_column):
+        """
+        Convert TimeBaseMSTL output to unified [T, num_features] format.
+        Always returns point-level arrays regardless of use_segments flag.
+        
+        Args:
+            components_per_column: dict from TimeBaseMSTL.transform()
+                {
+                    'feature_name': {
+                        'trend': np.array([T,]),
+                        'seasonal_weekly': np.array([T,]),
+                        'seasonal_daily': np.array([T,]),
+                        'residual': np.array([T,])
+                    },
+                    ...
+                }
+        
+        Returns:
+            dict: {
+                'trend': np.array([T, num_features]),
+                'seasonal_weekly': np.array([T, num_features]),
+                'seasonal_daily': np.array([T, num_features]),
+                'residual': np.array([T, num_features])
+            }
+        """
+        column_names = list(components_per_column.keys())
+        num_features = len(column_names)
+        
+        if num_features == 1:
+            # Single feature case
+            col = column_names[0]
+            return {
+                'trend': components_per_column[col]['trend'].reshape(-1, 1),
+                'seasonal_weekly': components_per_column[col]['seasonal_weekly'].reshape(-1, 1),
+                'seasonal_daily': components_per_column[col]['seasonal_daily'].reshape(-1, 1),
+                'residual': components_per_column[col]['residual'].reshape(-1, 1)
+            }
+        else:
+            # Multiple features case
+            return {
+                'trend': np.column_stack([
+                    components_per_column[col]['trend'] for col in column_names
+                ]),
+                'seasonal_weekly': np.column_stack([
+                    components_per_column[col]['seasonal_weekly'] for col in column_names
+                ]),
+                'seasonal_daily': np.column_stack([
+                    components_per_column[col]['seasonal_daily'] for col in column_names
+                ]),
+                'residual': np.column_stack([
+                    components_per_column[col]['residual'] for col in column_names
+                ])
+            }
+
+    def _create_segments_with_overlap(self, data, seg_len):
+        """
+        Create overlapping segments with 50% overlap (stride = seg_len // 2).
+        Only creates full segments that fit within the data.
+        
+        Args:
+            data: [T, C] array
+            seg_len: segment length (mstl_period)
+        
+        Returns:
+            segments: [num_segs, seg_len, C] array
+        """
+        T, C = data.shape
+        stride = seg_len // 2  # 50% overlap
+        segments = []
+        
+        for start_idx in range(0, T - seg_len + 1, stride):
+            segment = data[start_idx:start_idx + seg_len]  # [seg_len, C]
+            segments.append(segment)
+        
+        if len(segments) == 0:
+            # Edge case: if data is shorter than seg_len
+            # Return empty array with correct shape
+            return np.zeros((0, seg_len, C), dtype=data.dtype)
+        
+        return np.stack(segments, axis=0)  # [num_segs, seg_len, C
 
     def __getitem__(self, index):
+        """
+        Returns decomposed components in dict format.
+        
+        Point-level mode:
+            Returns: X_dict, Y_dict with [seq_len, C] and [label_len + pred_len, C] arrays
+        
+        Segment-level mode:
+            Returns: X_dict, Y_dict with [num_segs, seg_len, C] arrays
+        """
         s_begin = index
         s_end = s_begin + self.seq_len
         r_begin = s_end - self.label_len
         r_end = r_begin + self.label_len + self.pred_len
 
-        # seq_x = self.data_x[s_begin:s_end]
-        # seq_y = self.data_y[r_begin:r_end]
-        X_dict = {
-            'trend': self.decomposed_components['trend'][s_begin:s_end],  # [seq_len, num_features]
-            'seasonal_weekly': self.decomposed_components['seasonal_weekly'][s_begin:s_end],
-            'seasonal_daily': self.decomposed_components['seasonal_daily'][s_begin:s_end],
-            'residual': self.decomposed_components['residual'][s_begin:s_end]
-        }
-        
-        Y_dict = {
-            'trend': self.decomposed_components['trend'][r_begin:r_end],  # [pred_len, num_features]
-            'seasonal_weekly': self.decomposed_components['seasonal_weekly'][r_begin:r_end],
-            'seasonal_daily': self.decomposed_components['seasonal_daily'][r_begin:r_end],
-            'residual': self.decomposed_components['residual'][r_begin:r_end]
-        }
-        seq_x_mark = self.data_stamp[s_begin:s_end]
-        seq_y_mark = self.data_stamp[r_begin:r_end]
+        if self.use_segments:
+            # ========================================
+            # Segment-Level Mode with 50% Overlap
+            # ========================================
+            X_dict = {}
+            Y_dict = {}
+            
+            for comp_name, comp_data in self.decomposed_components.items():
+                # Extract point-level sequences first
+                x_seq = comp_data[s_begin:s_end]  # [seq_len, C]
+                y_seq = comp_data[r_begin:r_end]  # [label_len + pred_len, C]
+                
+                # Create overlapping segments (50% overlap)
+                X_dict[comp_name] = self._create_segments_with_overlap(x_seq, self.mstl_period)
+                Y_dict[comp_name] = self._create_segments_with_overlap(y_seq, self.mstl_period)
+            
+            seq_x_mark = self.data_stamp[s_begin:s_end]
+            seq_y_mark = self.data_stamp[r_begin:r_end]
+            
+        else:
+            # ========================================
+            # Point-Level Mode (Recommended)
+            # ========================================
+            X_dict = {
+                'trend': self.decomposed_components['trend'][s_begin:s_end],
+                'seasonal_weekly': self.decomposed_components['seasonal_weekly'][s_begin:s_end],
+                'seasonal_daily': self.decomposed_components['seasonal_daily'][s_begin:s_end],
+                'residual': self.decomposed_components['residual'][s_begin:s_end]
+            }
+            
+            Y_dict = {
+                'trend': self.decomposed_components['trend'][r_begin:r_end],
+                'seasonal_weekly': self.decomposed_components['seasonal_weekly'][r_begin:r_end],
+                'seasonal_daily': self.decomposed_components['seasonal_daily'][r_begin:r_end],
+                'residual': self.decomposed_components['residual'][r_begin:r_end]
+            }
+            
+            seq_x_mark = self.data_stamp[s_begin:s_end]
+            seq_y_mark = self.data_stamp[r_begin:r_end]
 
         return X_dict, Y_dict, seq_x_mark, seq_y_mark
 
-
-    def _to_model_format(self, components):
-        """
-        Convert per-column to per-component structure.
-        
-        Input: {'OT': {'trend': [T,], ...}, 'HUFL': {...}}
-        Output: {'trend': [T, num_features], \
-                 'seasonal_weekly': [T, num_features]}
-        """
-        column_names = list(components.keys())
-        num_features = len(column_names)
-        
-        if num_features == 1:
-            col = column_names[0]
-            return {
-                'trend': components[col]['trend'].reshape(-1, 1),
-                'seasonal_weekly': components[col]['seasonal_weekly'].reshape(-1, 1),
-                'seasonal_daily': components[col]['seasonal_daily'].reshape(-1, 1),
-                'residual': components[col]['residual'].reshape(-1, 1)
-            }
-        else:
-            return {
-                'trend': np.column_stack([
-                    components[col]['trend'] for col in column_names
-                ]),
-                'seasonal_weekly': np.column_stack([
-                    components[col]['seasonal_weekly'] for col in column_names
-                ]),
-                'seasonal_daily': np.column_stack([
-                    components[col]['seasonal_daily'] for col in column_names
-                ]),
-                'residual': np.column_stack([
-                    components[col]['residual'] for col in column_names
-                ])
-            }
-
     def __len__(self):
-        return len(self.data_x) - self.seq_len - self.pred_len + 1
+        """
+        Calculate number of valid sliding window samples.
+        
+        Note: decomposed_components are always stored as [T, C] regardless of use_segments.
+        Segmentation only happens in __getitem__.
+        """
+        
+        return self.temporal_length - self.seq_len - self.pred_len + 1
 
     def inverse_transform(self, data):
+        """Inverse scaling for predictions."""
         return self.scaler.inverse_transform(data)
 
 

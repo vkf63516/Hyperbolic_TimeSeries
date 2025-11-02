@@ -59,6 +59,7 @@ parser.add_argument('--checkpoints', type=str, default='./checkpoints/', help='l
 parser.add_argument('--seq_len', type=int, default=720, help='input sequence length')
 parser.add_argument('--label_len', type=int, default=48, help='start token length')
 parser.add_argument('--pred_len', type=int, default=96, help='prediction sequence length')
+parser.add_argument('--enc_in', type=int, default=7, help='encoder input size')
 parser.add_argument('--embed', type=str, default='fixed',help='time features encoding, options:[timeF, fixed, learned]')
 # optimization
 parser.add_argument('--num_workers', type=int, default=10, help='data loader num workers')
@@ -67,7 +68,7 @@ parser.add_argument('--train_epochs', type=int, default=100, help='train epochs'
 parser.add_argument('--batch_size', type=int, default=128, help='batch size')
 parser.add_argument('--patience', type=int, default=10, help='early stopping patience')
 parser.add_argument('--learning_rate', type=float, default=0.0001, help='optimizer learning rate')
-parser.add_argument('--des', type=str, default='test', help='exp description')
+parser.add_argument('--des', type=str, default='exp', help='exp description')
 parser.add_argument('--loss', type=str, default='mse', help='loss function')
 parser.add_argument('--lradj', type=str, default='type3', help='adjust learning rate')
 parser.add_argument('--pct_start', type=float, default=0.3, help='pct_start')

@@ -50,7 +50,7 @@ class SegmentMambaEmbed(nn.Module):
 # Parallel encoders + Lorentz manifold fusion
 # --------------------------
 class SegmentParallelLorentzBlock(nn.Module):
-    def __init__(self, lookback_steps, seg_len, embed_dim=32, hidden_dim=64,
+    def __init__(self, lookback_steps, seg_len, input_dim, embed_dim=32, hidden_dim=64,
                 curvature=-1.0, use_hierarchy=True, hierarchy_scales=[0.5,1.0,1.0,1.5]):
         """
         embed_dim: dimensionality of tangent-space vectors (intrinsic manifold dimension)
@@ -69,10 +69,10 @@ class SegmentParallelLorentzBlock(nn.Module):
 
         # Branch encoders
         lookback_segments = lookback_steps // seg_len if lookback_steps else None
-        self.trend_embed = SegmentMambaEmbed(input_dim=1, hidden_dim=hidden_dim, output_dim=embed_dim, lookback_segment=lookback_segments)
-        self.seasonal_weekly_embed = SegmentMambaEmbed(input_dim=1, hidden_dim=hidden_dim, output_dim=embed_dim, lookback_segment=lookback_segments)  
-        self.seasonal_daily_embed = SegmentMambaEmbed(input_dim=1, hidden_dim=hidden_dim, output_dim=embed_dim, lookback_segment=lookback_segments)
-        self.residual_embed = SegmentMambaEmbed(input_dim=1, hidden_dim=hidden_dim, output_dim=embed_dim, lookback_segment=lookback_segments)
+        self.trend_embed = SegmentMambaEmbed(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=embed_dim, lookback_segment=lookback_segments)
+        self.seasonal_weekly_embed = SegmentMambaEmbed(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=embed_dim, lookback_segment=lookback_segments)  
+        self.seasonal_daily_embed = SegmentMambaEmbed(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=embed_dim, lookback_segment=lookback_segments)
+        self.residual_embed = SegmentMambaEmbed(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=embed_dim, lookback_segment=lookback_segments)
 
         # Lorentz manifold (k controls scale; curvature = -1/k)
         # Passing k = curvature (1.0 gives standard curvature -1)

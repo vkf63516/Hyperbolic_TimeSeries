@@ -4,7 +4,7 @@ import geoopt
 import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[0]))
-from spec import safe_expmap
+from spec import safe_expmap0
 
 
 class HyperbolicMambaLorentz(nn.Module):
@@ -39,7 +39,7 @@ class HyperbolicMambaLorentz(nn.Module):
 
         # 4) Safe Exponential map to next point on manifold (This to prevent numerical instability)
         
-        z_next = safe_expmap(self.manifold, v_proj)
+        z_next = safe_expmap0(self.manifold, v_proj)
         z_next = torch.tanh(z_next)
         return z_next, v_proj
 

@@ -29,7 +29,7 @@ class HyperbolicSegmentForecaster(nn.Module):
         u_resid = self.manifold.logmap0(residual_z)
         
         combined_tangent = u_trend + u_weekly + u_daily + u_resid
-        combined_h = safe_expmap0(self.manifold, combined_tangent)
+        combined_h = segment_safe_expmap0(self.manifold, combined_tangent)
         combined_h = self.manifold.projx(combined_h)
         
         return combined_h
@@ -88,8 +88,4 @@ class HyperbolicSegmentForecaster(nn.Module):
         x_hat = torch.cat(preds_x, dim=1)
         z_pred = torch.cat(preds_z, dim=1)
         
-        B, num_seg, seg_len = x_hat.shape
-        x_hat_flat = x_hat.reshape(B, num_seg * seg_len)
-        x_hat_flat = x_hat_flat[:, :pred_len]
-        
-        return x_hat_flat, z_pred
+        return x_hat, z_pred
