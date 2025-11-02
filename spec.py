@@ -18,12 +18,13 @@ import math
 # Clamping with safe Exponential map - supports both 2D and 3D inputs
 # --------------------------
 
-def segment_safe_expmap0(manifold, u, max_norm=5.0, eps=1e-6):
+def segment_safe_expmap0(manifold, u, max_norm=10.0, eps=1e-6):
     original_shape = u.shape
     B, N, D = original_shape
     u = u.reshape(B * N, D)
     norm = u.norm(dim=-1, keepdim=True).clamp_min(eps)
-    scale = torch.clamp(norm, max=max_norm) / norm
+    scale = torch.minimum(torch.ones_like(norm), max_norm) / norm
+    # clamp = torch.clamp(scale, max=max_norm) / norm
     u = u * scale
     # Exponential map
     x = manifold.expmap0(u)
@@ -32,51 +33,35 @@ def segment_safe_expmap0(manifold, u, max_norm=5.0, eps=1e-6):
     x = x.reshape(B, N, manifold_dim)
     return x
 
-def safe_expmap(manifold, u, max_norm=5.0, eps=1e-8):
-    """
-    Safe exponential map supporting both 2D [B, D] and 3D [B, N, D] inputs.
-    """
-    
-    # Apply clamping
-    norm = u.norm(dim=-1, keepdim=True).clamp_min(eps)
-    scale = torch.clamp(norm, max=max_norm) / norm
-    u = u * scale
-    
-    # Exponential map
-    x = manifold.expmap(u)
-    x = manifold.projx(x)
-    
-    # Reshape back to 3D if needed
-    if is_3d:
-        manifold_dim = x.shape[-1]  # embed_dim + 1 for Lorentz
-        x = x.reshape(B, N, manifold_dim)
-    
-    return x
 
-def safe_expmap0(manifold, u, max_norm=10.0, eps=1e-8):
+def safe_expmap(manifold, v, base_point, eps=1e-15, max_norm=0.99):
+    """Similar to safe_expmap0 but for non-origin base points"""
+    v_norm = torch.norm(v, dim=-1, keepdim=True).clamp(min=eps)
+    v_safe = v / v_norm * torch.clamp(v_norm, max=max_norm)
+    
+    return manifold.expmap(base_point, v_safe)
+
+def safe_expmap0(manifold, v, eps=1e-15, max_norm=0.99):
     """
-    Safe exponential map from origin supporting both 2D [B, D] and 3D [B, N, D] inputs.
+    Safely map tangent vector v to manifold point.
+    
+    For Lorentz: ensures norm(v) < max_norm to avoid overflow
+    For Poincaré: ensures ||v|| < max_norm for stability
     
     Args:
-        manifold: geoopt manifold (e.g., Lorentz)
-        u: tangent vectors at origin
-           - 2D: [B, D] for point-level
-           - 3D: [B, num_seg, D] for segment-level
-        max_norm: maximum norm for clamping
-        eps: small constant for numerical stability
+        manifold: geoopt.Lorentz or geoopt.PoincareBall
+        v: tangent vector [B, D]
+        eps: numerical stability epsilon
+        max_norm: maximum allowed norm (default 0.99 keeps safe margin)
     
     Returns:
-        manifold points with same shape structure as input
-        - 2D input: [B, manifold_dim]
+        Point on manifold [B, D+1] for Lorentz, [B, D] for Poincaré
     """
-    # Apply norm clamping
-    norm = u.norm(dim=-1, keepdim=True).clamp_min(eps)
-    scale = torch.clamp(norm, max=max_norm) / norm
-    u = u * scale
-    # Exponential map from origin
-    x = manifold.expmap0(u)
-    x = manifold.projx(x)
-    return x
+    # Clip norm to safe region
+    v_norm = torch.norm(v, dim=-1, keepdim=True).clamp(min=eps)
+    v_safe = v / v_norm * torch.clamp(v_norm, max=max_norm)
+    
+    return manifold.expmap0(v_safe)
 
 class RevIN(nn.Module):
     def __init__(self, num_channels: int, affine: bool = True, eps: float = 1e-8):
@@ -140,74 +125,7 @@ class EarlyStopping:
         self.val_loss_min = val_loss
 
     
-# def Create_Segments_With_MSTL_Period(tensors_dict, input_len, pred_len, 
-#                                       mstl_period=24, device="cuda"):
-#     """
-#     Create sliding window samples using MSTL-detected period as segment length.
-    
-#     Args:
-#         tensors_dict: { feature: { component: [1, T, C] } }
-#         input_len: lookback window length T
-#         pred_len: forecast horizon L
-#         mstl_period: Period detected by MSTL (e.g., 24 for daily with hour frequency)
-#         device: computation device
-    
-#     Returns:
-#         segments_dict with sliding windows split into periodic segments
-#     """
-#     segment_length = mstl_period  # Use MSTL period directly (daily for all)
-#     segments = {}
-    
-#     for feat, comps in tensors_dict.items():
-#         X, Y = {}, {}
-        
-#         for comp_name, comp_tensor in comps.items():
-#             data = comp_tensor.squeeze(0).to(device)  # [T, C]
-#             T, C = data.shape
-            
-#             # Sliding window parameters
-#             num_samples = T - input_len - pred_len + 1
-            
-#             # Calculate how many complete periods fit in windows
-#             num_input_segments = input_len // segment_length
-#             num_pred_segments = (pred_len + segment_length - 1) // segment_length
-            
-#             # Adjust to exact multiples of period
-#             effective_input_len = num_input_segments * segment_length
-#             effective_pred_len = num_pred_segments * segment_length
-            
-#             x_segments = []
-#             y_segments = []
-            
-#             # Create sliding windows (overlapping)
-#             for i in range(num_samples):
-#                 # Input window: [i : i+effective_input_len]
-#                 x_window = data[i:i+effective_input_len]  # [effective_input_len, C]
-                
-#                 # Reshape into periodic segments
-#                 x_seg = x_window.reshape(num_input_segments, segment_length, C)
-#                 x_segments.append(x_seg)
-                
-#                 # Output window: [i+input_len : i+input_len+effective_pred_len]
-#                 y_start = i + input_len
-#                 y_window = data[y_start:y_start+effective_pred_len]
-                
-#                 # Handle edge case at end of series
-#                 if y_window.shape[0] < effective_pred_len:
-#                     pad_len = effective_pred_len - y_window.shape[0]
-#                     padding = torch.zeros(pad_len, C, device=device)
-#                     y_window = torch.cat([y_window, padding], dim=0)
-                
-#                 y_seg = y_window.reshape(num_pred_segments, segment_length, C)
-#                 y_segments.append(y_seg)
-            
-#             X[comp_name] = torch.stack(x_segments, dim=0)  # [N_samples, N_seg, P, C]
-#             Y[comp_name] = torch.stack(y_segments, dim=0)  # [N_samples, N'_seg, P, C]
-        
-#         segments[feat] = {"X": X, "Y": Y}
-    
-#     return segments
-
+# 
 
 # def prepare_timebase_data_with_mstl(train_dict, val_dict, test_dict, 
 #                                      mstl_period, input_len, pred_len, device="cuda"):

@@ -36,9 +36,8 @@ class MambaEmbed(nn.Module):
         x = self.input_proj(x)
         for layer in self.layers:
             x = layer(x)
-        x = torch.tanh(x)
         x = x.mean(dim=1)              # mean pooling would be good for point level forecasting
-        return torch.tanh(self.output_proj(x))
+        return self.output_proj(x)
 
 
 # --------------------------
@@ -53,6 +52,7 @@ class ParallelLorentzBlock(nn.Module):
         Internally manifold points live in R^{embed_dim + 1}, but geoopt APIs hide that.
         """
         super().__init__()
+        
         self.use_hierarchy = use_hierarchy
         if use_hierarchy:
             self.hierarchy_scales = hierarchy_scales
@@ -66,10 +66,10 @@ class ParallelLorentzBlock(nn.Module):
         self.seasonal_weekly_embed = MambaEmbed(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=embed_dim, lookback=lookback)  
         self.seasonal_daily_embed = MambaEmbed(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=embed_dim, lookback=lookback)
         self.residual_embed = MambaEmbed(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=embed_dim, lookback=lookback)
-        
         # Lorentz manifold (k controls scale; curvature = -1/k)
         # Passing k = curvature (1.0 gives standard curvature -1)
         self.manifold = geoopt.manifolds.Lorentz(k=curvature)
+        self.effective_scale = nn.Parameter(torch.tensor(0.1))
 
     def forward(self, trend, seasonal_weekly, seasonal_daily, residual):
         """
@@ -94,11 +94,17 @@ class ParallelLorentzBlock(nn.Module):
             z_seasonal_weekly_t = z_seasonal_weekly_t * self.seasonal_weekly_scale.abs()
             z_seasonal_daily_t = z_seasonal_daily_t * self.seasonal_daily_scale.abs()
             z_residual_t = z_residual_t * self.residual_scale.abs()
-            
-        z_trend_h = safe_expmap0(self.manifold, z_trend_t)    # manifold point
-        z_seasonal_weekly_h = safe_expmap0(self.manifold, z_seasonal_weekly_t)
-        z_seasonal_daily_h = safe_expmap0(self.manifold, z_seasonal_daily_t)
-        z_residual_h = safe_expmap0(self.manifold, z_residual_t)
+        # Scaling to prevent numerical instability
+        effective_scale = torch.tanh(self.effective_scale)
+        scaled_trend_embed = z_trend_t * effective_scale
+        scaled_weekly_embed = z_seasonal_weekly_t * effective_scale
+        scaled_daily_embed = z_seasonal_daily_t * effective_scale
+        scaled_residual_embed = z_residual_t * effective_scale
+
+        z_trend_h = safe_expmap0(self.manifold, scaled_trend_embed)    # manifold point
+        z_seasonal_weekly_h = safe_expmap0(self.manifold, scaled_weekly_embed)
+        z_seasonal_daily_h = safe_expmap0(self.manifold, scaled_daily_embed)
+        z_residual_h = safe_expmap0(self.manifold, scaled_residual_embed)
 
         # # (Optional) project to manifold numerically safely
         z_trend_h = self.manifold.projx(z_trend_h)
@@ -113,7 +119,8 @@ class ParallelLorentzBlock(nn.Module):
         u_residual = self.manifold.logmap0(z_residual_h)
 
         combined_tangent = u_trend + u_seasonal_weekly + u_seasonal_daily + u_residual  # tangent-space fusion (Euclidean sum)
-        combined_h = safe_expmap(self.manifold, combined_tangent)
+        scaled_tangent = combined_tangent * effective_scale
+        combined_h = safe_expmap0(self.manifold, scaled_tangent)
         # combined_h = self.manifold.expmap0(combined_tangent)
         combined_h = self.manifold.projx(combined_h)
 
