@@ -34,7 +34,7 @@ class HyperbolicSegmentForecaster(nn.Module):
         
         return combined_h
 
-    def forecast(self, pred_len, trend_z=None, seasonal_weekly_z=None, 
+    def forward(self, pred_len, trend_z=None, seasonal_weekly_z=None, 
                 seasonal_daily_z=None, residual_z=None, z0=None,
                 teacher_forcing=False, z_true_seq=None, K=6):
         """

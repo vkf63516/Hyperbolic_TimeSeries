@@ -36,7 +36,7 @@ class HyperbolicSeqForecaster(nn.Module):
     def combine_only(self, *z_list):
         return self.combine_branches(*z_list)
 
-    def forecast(self, pred_len, trend_z=None, seasonal_weekly_z=None, 
+    def forward(self, pred_len, trend_z=None, seasonal_weekly_z=None, 
                 seasonal_daily_z=None, residual_z=None, z0=None,
                 teacher_forcing=False, z_true_seq=None, K=6):
         """

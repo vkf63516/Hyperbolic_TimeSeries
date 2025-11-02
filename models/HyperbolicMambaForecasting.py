@@ -33,42 +33,25 @@ class Model(nn.Module):
         self.curvature = configs.curvature
         self.use_hierarchy = configs.use_hierarchy
         self.hierarchy_scales = configs.hierarchy_scales
-        self.use_segments = configs.use_segments
         self.mstl_period = configs.mstl_period
         # Model dimensions
         # Number of input features
         #self.enc_in = configs.enc_in
         
         # Embedding: Maps decomposed components to hyperbolic space
-        if self.use_segments:
-            self.embedding = SegmentParallelLorentzBlock(
-                lookback_steps=self.seq_len,
-                seg_len=self.mstl_period,
-                embed_dim=self.embed_dim,
-                hidden_dim=self.hidden_dim,
-                curvature=self.curvature
-            )
-            self.forecaster = HyperbolicSegmentForecaster(
-                embed_dim=self.embed_dim,
-                hidden_dim=self.hidden_dim,
-                seg_len=self.mstl_period,
-                manifold=self.embedding.manifold
-            )
-   
-        else:
-            self.embedding = ParallelLorentzBlock(
-                lookback=self.seq_len,
-                embed_dim=self.embed_dim,
-                hidden_dim=self.hidden_dim,
-                curvature=self.curvature
-            )
-            # Forecaster: Autoregressively predicts in hyperbolic space
-            self.forecaster = HyperbolicSeqForecaster(
-                embed_dim=self.embed_dim,
-                hidden_dim=self.hidden_dim,
-                output_dim=1,
-                manifold=self.embedding.manifold
-            )
+        self.embedding = ParallelLorentzBlock(
+            lookback=self.seq_len,
+            embed_dim=self.embed_dim,
+            hidden_dim=self.hidden_dim,
+            curvature=self.curvature
+        )
+        # Forecaster: Autoregressively predicts in hyperbolic space
+        self.forecaster = HyperbolicSeqForecaster(
+            embed_dim=self.embed_dim,
+            hidden_dim=self.hidden_dim,
+            output_dim=1,
+            manifold=self.embedding.manifold
+        )
    
         
     # def forward(self, x_enc, x_mark_enc=None, x_dec=None, x_mark_dec=None):
@@ -115,40 +98,42 @@ class Model(nn.Module):
             
     #     return x_hat
     
-    def forward_with_decomposition(self, trend, seasonal_weekly, seasonal_daily, residual):
+    def forward(self, trend, seasonal_weekly, seasonal_daily, 
+                residual, teacher_forcing=False, z_true_seq=None):
         """
         Forward pass with explicit decomposed components.
         Use this when you have TimeBaseMSTL decomposition.
         
         Args:
-            trend: [B, seq_len, 1]
-            weekly: [B, seq_len, 1]
-            daily: [B, seq_len, 1]
-            resid: [B, seq_len, 1]
+            trend: [B, seq_len, C]
+            weekly: [B, seq_len, C]
+            daily: [B, seq_len, C]
+            resid: [B, seq_len, C]
             
         Returns:
             predictions: [B, pred_len, output_dim]
         """
         # Encode components to hyperbolic space
-        encoded = self.embedding(trend, seasonal_weekly, seasonal_daily, residual)
+        embedded = self.embedding(trend, seasonal_weekly,
+                                 seasonal_daily, residual,
+                                 use_hierarchy=self.use_hierarchy)
         
         # Get individual and combined hyperbolic representations
-        trend_h = encoded['trend_h']
-        seasonal_weekly_h = encoded['seasonal_weekly_h']
-        seasonal_daily_h = encoded['seasonal_daily_h']
-        residual_h = encoded['residual_h']
-        z0 = encoded["combined_h"] 
+        trend_h = embedded['trend_h']
+        seasonal_weekly_h = embedded['seasonal_weekly_h']
+        seasonal_daily_h = embedded['seasonal_daily_h']
+        residual_h = embedded['residual_h']
+        z0 = embedded["combined_h"] 
         # Forecast using combined representation
-        x_hat, z_pred = self.forecaster.forecast(
+        x_hat, z_pred = self.forecaster(
             pred_len=self.pred_len,
             trend_z=trend_h,
             seasonal_weekly_z=seasonal_weekly_h,  
             seasonal_daily_z=seasonal_daily_h,
             residual_z=residual_h,
             z0=z0,
-            teacher_forcing=False,
+            teacher_forcing=teacher_forcing,
             z_true_seq=None
         )
         
         return x_hat
-        

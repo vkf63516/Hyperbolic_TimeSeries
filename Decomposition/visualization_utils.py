@@ -75,7 +75,7 @@ def plot_component_correlation_maps(decompositions, features=None, figsize=(16, 
         for f in features
     })
     seasonal_daily_df = pd.DataFrame({
-        f: decompositions[f].["seasonal_daily"]
+        f: decompositions[f]["seasonal_daily"]
         for f in features
     })
     residual_df = pd.DataFrame({

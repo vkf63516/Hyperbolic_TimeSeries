@@ -27,7 +27,6 @@ def build_decomposition_tensors(df_components_or_dict):
     residual_tensor = torch.tensor(df["residual"].values, dtype=torch.float32).unsqueeze(-1)
     seasonal_weekly_tensor = torch.tensor(df["seasonal_weekly"].values, dtype=torch.float32).unsqueeze(-1)
     seasonal_daily_tensor = torch.tensor(df["seasonal_daily"].values, dtype=torch.float32).unsqueeze(-1)
-    # Aggregate seasonalities
 
     return {
         "trend": trend_tensor,
