@@ -45,7 +45,7 @@ class MambaEmbed(nn.Module):
 # --------------------------
 class ParallelLorentzBlock(nn.Module):
     def __init__(self, lookback, input_dim, embed_dim=32, hidden_dim=64, 
-                curvature=-1.0, use_hierarchy=False, hierarchy_scales=[0.5,1.0,1.0,1.5]):
+                curvature=1.0, use_hierarchy=False, hierarchy_scales=[0.5,1.0,1.0,1.5]):
         """
         embed_dim: dimensionality of tangent-space vectors (intrinsic manifold dimension)
         For Lorentz model geoopt expects expmap/logmap shapes [B, embed_dim].

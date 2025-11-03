@@ -14,4 +14,6 @@ python run.py \
   --learning_rate 0.001 \
   --train_epochs 50 \
   --use_decomposition \
+  --enc_in 21 \
+  --use_tensorboard
 

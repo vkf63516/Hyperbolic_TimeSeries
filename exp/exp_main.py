@@ -21,6 +21,7 @@ from torch.optim import lr_scheduler
 from spec import EarlyStopping, prepare_timebase_data_with_mstl
 from Decomposition.TimeBase_Series_Trend_Decomposition import TimeBaseMSTL
 from Decomposition.tensor_utils import build_decomposition_tensors
+from torch.utils.tensorboard import SummaryWriter
 import pandas as pd
 
 import os
@@ -43,7 +44,23 @@ class Exp_Main(Exp_Basic):
         self.use_segments = args.use_segments  # Default to point-level
         # Initialize decomposition cache
         if self.use_segments:
-            self.mstl_period = None
+            self.mstl_period = args.mstl_period
+        if args.use_tensorboard:
+            timestamp = time.strftime('%Y%m%d_%H%M%S')
+            log_dir = os.path.join(
+                './runs', 
+                f"{args.model}_{args.data}_sl{args.seq_len}_pl{args.pred_len}_{timestamp}"
+            )
+            self.writer = SummaryWriter(log_dir)
+            
+            # Log hyperparameters as text
+            hparams_text = "\n".join([f"{k}: {v}" for k, v in vars(args).items()])
+            self.writer.add_text('Hyperparameters', hparams_text, 0)
+            
+            print(f"TensorBoard logs will be saved to: {log_dir}")
+        else:
+            self.writer = None 
+        
             
     def _build_model(self):
         model_dict = {
@@ -218,6 +235,11 @@ class Exp_Main(Exp_Basic):
                     speed = (time.time() - time_now) / iter_count
                     left_time = speed * ((self.args.train_epochs - epoch) * train_steps - iter_count)
                     print('\tspeed: {:.4f}s/iter; left time: {:.4f}s'.format(speed, left_time))
+                    
+                    if self.writer is not None:
+                        self.writer.add_scalar('Speed/seconds_per_iter', speed, global_step)
+                        self.writer.add_scalar('Speed/estimated_time_left_seconds', left_time, global_step)
+
 
                 # Backward
                 if self.args.use_amp:
@@ -230,6 +252,9 @@ class Exp_Main(Exp_Basic):
                     loss.backward()
                     nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=5.0)
                     model_geooptim.step()
+                if self.writer is not None:
+                    global_step = epoch * train_steps + i
+                    self.writer.add_scalar('Loss/train_iter', loss.item(), global_step)
 
             # Memory tracking
             if torch.cuda.is_available():
@@ -243,12 +268,32 @@ class Exp_Main(Exp_Basic):
             # End of epoch
             print(f"Epoch {epoch + 1} Max Memory (MB): {max_memory}")
             print("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_time))
+            
         
             train_loss = np.average(train_loss)
             vali_loss = self.vali(vali_data, vali_loader, criterion)
 
             print("Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f}".format(
                 epoch + 1, train_steps, train_loss, vali_loss))
+            # TensorBoard: Log epoch metrics
+            if self.writer is not None:
+                self.writer.add_scalar('Loss/train_epoch', train_loss_avg, epoch)
+                self.writer.add_scalar('Loss/vali_epoch', vali_loss, epoch)
+                self.writer.add_scalar('Learning_Rate/lr', model_geooptim.param_groups[0]['lr'], epoch)
+                self.writer.add_scalar('Time/epoch_seconds', epoch_time_elapsed, epoch)
+                
+                # Log GPU memory usage
+                if torch.cuda.is_available():
+                    memory_allocated = torch.cuda.memory_allocated() / 1024**2  # MB
+                    memory_reserved = torch.cuda.memory_reserved() / 1024**2  # MB
+                    self.writer.add_scalar('Memory/gpu_allocated_mb', memory_allocated, epoch)
+                    self.writer.add_scalar('Memory/gpu_reserved_mb', memory_reserved, epoch)
+                
+                # Log train vs vali loss comparison
+                self.writer.add_scalars('Loss/train_vs_vali', {
+                    'train': train_loss_avg,
+                    'vali': vali_loss
+                }, epoch)
 
             # Early stopping
             early_stopping(vali_loss, self.model, path)
@@ -379,6 +424,23 @@ class Exp_Main(Exp_Basic):
         f.write('mse:{}, mae:{}, rse:{}'.format(mse, mae, rse))
         f.write('\n\n')
         f.close()
+        if self.writer is not None:
+            self.writer.add_scalar('Test/MAE', mae, 0)
+            self.writer.add_scalar('Test/MSE', mse, 0)
+            self.writer.add_scalar('Test/RMSE', rmse, 0)
+            self.writer.add_scalar('Test/MAPE', mape, 0)
+            
+            # Log all test metrics together
+            self.writer.add_scalars('Test/all_metrics', {
+                'MAE': mae,
+                'MSE': mse,
+                'RMSE': rmse,
+                'MAPE': mape
+            }, 0)
+            
+            # Close writer
+            self.writer.close()
+            print(f"TensorBoard logs saved. View with: tensorboard --logdir=./runs")
         
         np.save(folder_path + 'metrics.npy', np.array([mae, mse, rmse, mape, mspe, rse, corr]))
         np.save(folder_path + 'pred.npy', preds)

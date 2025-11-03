@@ -504,6 +504,7 @@ class Dataset_Custom_Decomposition(Dataset):
         """
         T, C = data.shape
         num_segments = T // seg_len
+        effective_len = num_segments * seg_len
         data_trimmed = data[:effective_len]
         segments = data_trimmed.reshape(num_segments, seg_len, C)
         

@@ -43,7 +43,7 @@ parser.add_argument('--save_freq', type=int, default=10,
 
 parser.add_argument('--embed_dim', type=int, default=32, help='hyperbolic embedding dimension')
 parser.add_argument('--hidden_dim', type=int, default=128, help='mamba hidden dimension')
-parser.add_argument('--curvature', type=float, default=-1.0, help='negative number for hyperbolic curvature')
+parser.add_argument('--curvature', type=float, default=1.0, help='negative number for hyperbolic curvature')
 parser.add_argument('--use_hierarchy', action='store_true', default=False, help='use hierarchy scaling')
 parser.add_argument('--hierarchy_scales', type=float, nargs=4, default=[0.5,1.0,1.0,2.0], help='hierarchy scaling factors')
 
@@ -75,6 +75,9 @@ parser.add_argument('--pct_start', type=float, default=0.3, help='pct_start')
 parser.add_argument('--freq', type=str, default='h',
                     help='freq for time features encoding, options:[s:secondly, t:minutely, h:hourly, d:daily, b:business days, w:weekly, m:monthly]')
 
+# Replace the line with:
+parser.add_argument('--use_tensorboard', action='store_true', default=False, 
+                    help='use TensorBoard for logging')
 # GPU
 parser.add_argument('--use_amp', action='store_true', help='use AMP', default=False)
 parser.add_argument('--use_gpu', type=bool, default=True, help='use gpu')
