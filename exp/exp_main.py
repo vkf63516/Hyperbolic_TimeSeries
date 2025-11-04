@@ -8,7 +8,6 @@ Controlled by args.use_segments flag:
 
 from data_provider.data_factory import data_provider
 from exp.exp_basic import Exp_Basic
-from models import TimeBase
 from models import HyperbolicMambaForecasting
 from utils.tools import adjust_learning_rate, visual
 from utils.metrics import metric

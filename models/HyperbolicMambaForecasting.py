@@ -69,6 +69,18 @@ class Model(nn.Module):
                     use_hierarchy=self.use_hierarchy,
                     hierarchy_scales=self.hierarchy_scales
                 )
+            else:
+                self.forecaster = HyperbolicPointForecaster(
+                    lookback=self.seq_len,
+                    pred_len=self.pred_len,
+                    n_features=self.enc_in,
+                    embed_dim=self.embed_dim,
+                    hidden_dim=self.hidden_dim,
+                    curvature=self.curvature,
+                    manifold_type=self.manifold_type,
+                    use_hierarchy=self.use_hierarchy,
+                    hierarchy_scales=self.hierarchy_scales
+                )
 
             # Forecaster: Autoregressively predicts in hyperbolic space
 

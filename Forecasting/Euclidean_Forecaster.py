@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from embed.mamba_embed_euclidean import ParallelEuclideanEmbed
+from Lifting.euclidean_reconstructor import EuclideanReconstructor
 
 class PointForecastEuclidean(nn.Module):
     """
