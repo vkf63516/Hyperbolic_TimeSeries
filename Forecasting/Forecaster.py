@@ -74,7 +74,7 @@ class HyperbolicPointForecaster(nn.Module):
         # Initial encoding
         embed_output = self.embed_hyperbolic(trend, seasonal_weekly, seasonal_daily, residual)
         z_current = embed_output['combined_h']  # [B, embed_dim]
-        
+        K = 6
         predictions = []
         embed_trajectory = []
         
@@ -94,6 +94,8 @@ class HyperbolicPointForecaster(nn.Module):
             else:
                 x_next = x_pred
             
+            if (step + 1) % K == 0:
+                x_next = x_next.detach()
             # Update history: shift and append prediction
             trend_hist = torch.cat([
                 trend_hist[:, 1:, :],

@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from embed.mamba_embed_euclidean import ParallelEuclideanEmbed
+from embed.linear_embed_euclidean import ParallelEuclideanEmbed
 from Lifting.euclidean_reconstructor import EuclideanReconstructor
 
 class PointForecastEuclidean(nn.Module):
@@ -24,7 +24,17 @@ class PointForecastEuclidean(nn.Module):
             use_hierarchy=use_hierarchy,
             hierarchy_scales=hierarchy_scales
         )
-        
+        self.dynamics = nn.Sequential(
+            nn.Linear(embed_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
+            nn.Dropout(0.1),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, embed_dim)
+        )
+        self.step_size = nn.Parameter(torch.tensor(0.1))
         # Reconstructor: simple MLP (no logmap/expmap needed!)
         self.reconstructor = EuclideanReconstructor(
             embed_dim=embed_dim,
@@ -50,10 +60,10 @@ class PointForecastEuclidean(nn.Module):
         euclidean_trajectory = []
         
         # Keep rolling history
-        trend_hist = trend.clone()
-        weekly_hist = weekly.clone()
-        daily_hist = daily.clone()
-        residual_hist = residual.clone()
+        # trend_hist = trend.clone()
+        # weekly_hist = weekly.clone()
+        # daily_hist = daily.clone()
+        # residual_hist = residual.clone()
         
         for step in range(self.pred_len):
             # Reconstruct: just MLP, no manifold operations!
@@ -61,18 +71,13 @@ class PointForecastEuclidean(nn.Module):
             predictions.append(x_pred)
             euclidean_trajectory.append(z_current)
 
-            if teacher_forcing and target is not None:
-                x_next = target[:, step:, :]
-            
+            # if teacher_forcing and target is not None:
+            #     x_next = target[:, step:, :]
+            # Predict velocity (change in latent space)
+            velocity = self.dynamics(z_current) # [B, embed_dim]
+            step_size = torch.sigmoid(self.step_size)
             # Update history
-            trend_hist = torch.cat([trend_hist[:, 1:, :], x_next.unsqueeze(1)], dim=1)
-            weekly_hist = torch.cat([weekly_hist[:, 1:, :], x_next.unsqueeze(1)], dim=1)
-            daily_hist = torch.cat([daily_hist[:, 1:, :], x_next.unsqueeze(1)], dim=1)
-            residual_hist = torch.cat([residual_hist[:, 1:, :], x_next.unsqueeze(1)], dim=1)
-            
-            # Re-encode
-            embed_output = self.embed(trend_hist, weekly_hist, daily_hist, residual_hist)
-            z_current = embed_output['combined_e']
+            z_current = z_current + step_size * velocity  # [B, embed_dim]
         
         return {
             'predictions': torch.stack(predictions, dim=1),          # [B, horizon, input_dim]

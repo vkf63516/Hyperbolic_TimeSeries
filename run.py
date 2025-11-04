@@ -7,7 +7,9 @@ import torch
 from exp.exp_main import Exp_Main
 import random
 import numpy as np
-
+import gc 
+torch.cuda.empty_cache()
+gc.collect()
 
 parser = argparse.ArgumentParser(description="Hyperbolic TimeSeries with TimeBaseMSTL")
 # basic config

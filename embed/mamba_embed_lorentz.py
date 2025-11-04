@@ -80,6 +80,30 @@ class ParallelLorentz(nn.Module):
         scaled_point = safe_expmap0(self.manifold, scaled_tangent)
         return self.manifold.projx(scaled_point)
 
+    def hierarchical_combine(self, z_trend_h, z_weekly_h, z_daily_h, z_residual_h):
+        """
+        Build up from general (trend) to specific (residual)
+        Each component modifies the previous state
+        """
+        # Start from trend (root of hierarchy)
+        z_current = z_trend_h
+
+        # Incorporate weekly (moves from trend toward weekly)
+        v_to_weekly = self.manifold.logmap(z_current, z_weekly_h)
+        z_current = safe_expmap(self.manifold, z_current, 0.25 * v_to_weekly)
+        z_current = self.manifold.projx(z_current)
+    
+        # Incorporate daily
+        v_to_daily = self.manifold.logmap(z_current, z_daily_h)
+        z_current = safe_expmap(self.manifold, z_current, 0.25 * v_to_daily)
+        z_current = self.manifold.projx(z_current)
+    
+        # Incorporate residual
+        v_to_residual = self.manifold.logmap(z_current, z_residual_h)
+        z_current = safe_expmap(self.manifold, z_current, 0.25 * v_to_residual)
+        z_current = self.manifold.projx(z_current)
+    
+        return z_current
     def forward(self, trend, seasonal_weekly, seasonal_daily, residual):
         """
         Inputs:

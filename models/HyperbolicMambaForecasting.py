@@ -15,11 +15,11 @@ from spec import safe_expmap0
 
 class Model(nn.Module):
     """
-    Hyperbolic Mamba Forecasting Model
+    Hyperbolic Forecasting Model
     
     Architecture:
     1. Decompose time series into trend, seasonal_daily, seasonal_weekly, residual
-    2. Encode each component to hyperbolic space via Mamba encoders
+    2. Encode each component to hyperbolic space via encoders
     3. Combine components in tangent space
     4. Autoregressively forecast in hyperbolic space
     5. Reconstruct to Euclidean space

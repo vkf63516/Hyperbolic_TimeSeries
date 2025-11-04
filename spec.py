@@ -76,7 +76,7 @@ def segment_safe_expmap0(manifold, u, max_norm=10.0, eps=1e-6):
     return x
 
 
-def safe_expmap(manifold, v, base_point, eps=1e-15, max_norm=0.99):
+def safe_expmap(manifold, base_point, v, eps=1e-15, max_norm=0.99):
     """Similar to safe_expmap0 but for non-origin base points"""
     v_norm = torch.norm(v, dim=-1, keepdim=True).clamp(min=eps)
     v_safe = v / v_norm * torch.clamp(v_norm, max=max_norm)
