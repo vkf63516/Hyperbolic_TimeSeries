@@ -60,10 +60,10 @@ class SegmentParallelLorentzBlock(nn.Module):
         
         if use_hierarchy:
             self.hierarchy_scales = hierarchy_scales
-            self.trend_scale = nn.Parameter(torch.tensor(hierarchy_scales[0]))
-            self.seasonal_weekly_scale = nn.Parameter(torch.tensor(hierarchy_scales[1]))
-            self.seasonal_daily_scale = nn.Parameter(torch.tensor(hierarchy_scales[2]))
-            self.residual_scale = nn.Parameter(torch.tensor(hierarchy_scales[-1]))
+            trend_scale = torch.exp(self.log_scales[0])
+            weekly_scale = torch.exp(self.log_scales[1])
+            daily_scale = torch.exp(self.log_scales[2])
+            residual_scale = torch.exp(self.log_scales[3])
 
         # Branch encoders
         lookback_segments = lookback_steps // seg_len if lookback_steps else None
@@ -106,11 +106,6 @@ class SegmentParallelLorentzBlock(nn.Module):
         z_seasonal_weekly_t = self.seasonal_weekly_embed(seasonal_weekly) # [B, D]
         z_seasonal_daily_t = self.seasonal_daily_embed(seasonal_daily) # [B, D]
         z_residual_t = self.residual_embed(residual)       # [B, D]
-        if self.use_hierarchy:
-            z_trend_t = z_trend_t * self.trend_scale.abs()  # abs() ensures positive
-            z_seasonal_weekly_t = z_seasonal_weekly_t * self.seasonal_weekly_scale.abs()
-            z_seasonal_daily_t = z_seasonal_daily_t * self.seasonal_daily_scale.abs()
-            z_residual_t = z_residual_t * self.residual_scale.abs()
 
         z_trend_h = safe_expmap0(self.manifold, z_trend_t)    # manifold point
         z_seasonal_weekly_h = safe_expmap0(self.manifold, z_seasonal_weekly_t)
@@ -122,6 +117,11 @@ class SegmentParallelLorentzBlock(nn.Module):
         z_seasonal_weekly_h = self.manifold.projx(z_seasonal_weekly_h)
         z_seasonal_daily_h = self.manifold.projx(z_seasonal_daily_h)
         z_residual_h = self.manifold.projx(z_residual_h)
+        if self.use_hierarchy:
+            z_trend_ = z_trend_h * self.trend_scale 
+            z_seasonal_weekly_h = z_seasonal_weekly_h * self.seasonal_weekly_scale
+            z_seasonal_daily_h = z_seasonal_daily_h * self.seasonal_daily_scale
+            z_residual_h = z_residual_h * self.residual_scale
 
         # 3) Fuse: logmap0(manifold) -> tangent vectors -> sum -> expmap back
         u_trend = self.manifold.logmap0(z_trend_h)    # [B, D]

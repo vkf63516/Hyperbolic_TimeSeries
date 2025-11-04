@@ -18,7 +18,7 @@ import torch
 import torch.nn as nn
 from torch import optim
 from torch.optim import lr_scheduler
-from spec import EarlyStopping, prepare_timebase_data_with_mstl
+from spec import EarlyStopping, compute_hierarchical_loss_with_manifold_dist
 from Decomposition.TimeBase_Series_Trend_Decomposition import TimeBaseMSTL
 from Decomposition.tensor_utils import build_decomposition_tensors
 from torch.utils.tensorboard import SummaryWriter
@@ -130,8 +130,7 @@ class Exp_Main(Exp_Basic):
                     seasonal_weekly=weekly_x,
                     seasonal_daily=daily_x,
                     residual=resid_x,
-                    teacher_forcing=False,
-                    z_true_seq=None
+                    teacher_forcing=False                
                 )
             
                 # Compute validation loss
@@ -211,8 +210,8 @@ class Exp_Main(Exp_Basic):
                             seasonal_weekly=weekly_x,
                             seasonal_daily=daily_x,
                             residual=resid_x,
-                            teacher_forcing=False,
-                            z_true_seq=None
+                            teacher_forcing=True,
+                            target=target
                         )
                         loss = criterion(outputs, target)
                         train_loss.append(loss.item())
@@ -222,8 +221,8 @@ class Exp_Main(Exp_Basic):
                         seasonal_weekly=weekly_x,
                         seasonal_daily=daily_x,
                         residual=resid_x,
-                        teacher_forcing=False,
-                        z_true_seq=None
+                        teacher_forcing=True,
+                        target=target
                     )
                     loss = criterion(outputs, target)
                     train_loss.append(loss.item())
@@ -277,10 +276,10 @@ class Exp_Main(Exp_Basic):
                 epoch + 1, train_steps, train_loss, vali_loss))
             # TensorBoard: Log epoch metrics
             if self.writer is not None:
-                self.writer.add_scalar('Loss/train_epoch', train_loss_avg, epoch)
-                self.writer.add_scalar('Loss/vali_epoch', vali_loss, epoch)
+                self.writer.add_scalar('Loss/train_loss', train_loss, epoch)
+                self.writer.add_scalar('Loss/vali_loss', vali_loss, epoch)
                 self.writer.add_scalar('Learning_Rate/lr', model_geooptim.param_groups[0]['lr'], epoch)
-                self.writer.add_scalar('Time/epoch_seconds', epoch_time_elapsed, epoch)
+                self.writer.add_scalar('Time/epoch_seconds', time.time() - epoch_time, epoch)
                 
                 # Log GPU memory usage
                 if torch.cuda.is_available():
@@ -291,7 +290,7 @@ class Exp_Main(Exp_Basic):
                 
                 # Log train vs vali loss comparison
                 self.writer.add_scalars('Loss/train_vs_vali', {
-                    'train': train_loss_avg,
+                    'train': train_loss,
                     'vali': vali_loss
                 }, epoch)
 
@@ -374,8 +373,7 @@ class Exp_Main(Exp_Basic):
                     seasonal_weekly=weekly_x,
                     seasonal_daily=daily_x,
                     residual=resid_x,
-                    teacher_forcing=False,
-                    z_true_seq=None
+                    teacher_forcing=False
                 )
             
             # ========================================

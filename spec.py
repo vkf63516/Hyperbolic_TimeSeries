@@ -18,6 +18,48 @@ import math
 # Clamping with safe Exponential map - supports both 2D and 3D inputs
 # --------------------------
 
+def compute_hierarchical_loss_with_manifold_dist(embeddings_dict, manifold, margin=0.1):
+    """
+    Enforce hierarchy using actual hyperbolic distances from origin.
+    
+    Hierarchy: trend < weekly < daily < residual (distance from origin)
+    """
+    trend_h = embeddings_dict["trend_h"]
+    weekly_h = embeddings_dict["seasonal_weekly_h"]
+    daily_h = embeddings_dict["seasonal_daily_h"]
+    residual_h = embeddings_dict["residual_h"]
+    
+    # Origin on Lorentz manifold
+    origin = manifold.origin  # [1, 0, 0, ..., 0]
+    
+    # Hyperbolic distances from origin (encodes depth)
+    trend_dist_from_origin = manifold.dist(trend_h, origin)
+    weekly_dist_from_origin = manifold.dist(weekly_h, origin)
+    daily_dist_from_origin = manifold.dist(daily_h, origin)
+    residual_dist_from_origin = manifold.dist(residual_h, origin)
+    
+    # Part 1: Distance-based hierarchy (norms)
+    # Enforce: trend_dist < weekly_dist < daily_dist < residual_dist
+    hierarchy_loss = (
+        torch.relu(trend_dist_from_origin + margin - weekly_dist_from_origin) +
+        torch.relu(weekly_dist_from_origin + margin - daily_dist_from_origin) +
+        torch.relu(daily_dist_from_origin + margin - residual_dist_from_origin)
+    ).mean()
+    
+    # Part 2: Entailment (parent-child proximity)
+    # Parents and children should be geodesically close
+    trend_to_weekly = manifold.dist(trend_h, weekly_h)
+    weekly_to_daily = manifold.dist(weekly_h, daily_h)
+    
+    entailment_loss = (
+        trend_to_weekly +
+        weekly_to_daily
+    ).mean()
+    
+    total_loss = hierarchy_loss + 0.5 * entailment_loss
+    return total_loss
+
+
 def segment_safe_expmap0(manifold, u, max_norm=10.0, eps=1e-6):
     original_shape = u.shape
     B, N, D = original_shape

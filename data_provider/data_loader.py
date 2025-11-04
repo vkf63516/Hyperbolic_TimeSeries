@@ -296,9 +296,6 @@ class Dataset_Custom_Decomposition(Dataset):
     """
     Custom dataset with TimeBaseMSTL decomposition.
     Unified implementation supporting both point-level and segment-level modes.
-    
-    - Point-level (use_segments=False): Returns [seq_len, C] for each component
-    - Segment-level (use_segments=True): Returns [num_segs, seg_len, C] for each component
     """
     def __init__(self, root_path, flag='train', size=None,
                  features='S', data_path='ETTh1.csv',
@@ -439,7 +436,7 @@ class Dataset_Custom_Decomposition(Dataset):
     def _format_components(self, components_per_column):
         """
         Convert TimeBaseMSTL output to unified [T, num_features] format.
-        Always returns point-level arrays regardless of use_segments flag.
+        use_segments is not important for this apect.
         
         Args:
             components_per_column: dict from TimeBaseMSTL.transform()
@@ -490,9 +487,9 @@ class Dataset_Custom_Decomposition(Dataset):
                 ])
             }
 
-    def _create_segments_with_overlap(self, data, seg_len):
+    def _create_segments(self, data, seg_len):
         """
-        Create overlapping segments with 50% overlap (stride = seg_len // 2).
+        Create segments that fit
         Only creates full segments that fit within the data.
         
         Args:
@@ -527,7 +524,7 @@ class Dataset_Custom_Decomposition(Dataset):
 
         if self.use_segments:
             # ========================================
-            # Segment-Level Mode with 50% Overlap
+            # Segment-Level Mode Overlapping Window
             # ========================================
             X_dict = {}
             Y_dict = {}
@@ -538,15 +535,15 @@ class Dataset_Custom_Decomposition(Dataset):
                 y_seq = comp_data[r_begin:r_end]  # [label_len + pred_len, C]
                 
                 # Creating segments
-                X_dict[comp_name] = self._create_segments_with_overlap(x_seq, self.mstl_period)
-                Y_dict[comp_name] = self._create_segments_with_overlap(y_seq, self.mstl_period)
+                X_dict[comp_name] = self._create_segments(x_seq, self.mstl_period)
+                Y_dict[comp_name] = self._create_segments(y_seq, self.mstl_period)
             
             seq_x_mark = self.data_stamp[s_begin:s_end]
             seq_y_mark = self.data_stamp[r_begin:r_end]
             
         else:
             # ========================================
-            # Point-Level Mode (Recommended)
+            # Point-Level Mode Representing the segments
             # ========================================
             X_dict = {
                 'trend': self.decomposed_components['trend'][s_begin:s_end],

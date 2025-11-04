@@ -7,9 +7,9 @@ import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[0]))
 
-from embed.mamba_embed_lorentz import ParallelLorentzBlock
-from embed.segment_mamba_embed_lorentz import SegmentParallelLorentzBlock
-from Forecaster import HyperbolicSeqForecaster
+
+from Forecasting.Euclidean_Forecaster import PointForecastEuclidean
+from Forecasting.Forecaster import HyperbolicPointForecaster
 from Segment_Forecaster import HyperbolicSegmentForecaster
 from spec import safe_expmap0
 
@@ -35,6 +35,7 @@ class Model(nn.Module):
         self.hierarchy_scales = configs.hierarchy_scales
         self.mstl_period = configs.mstl_period
         self.use_segments = configs.use_segments
+        self.manifold_type = configs.manifold_type
         # Model dimensions
         # Number of input features
         self.enc_in = configs.enc_in
@@ -57,26 +58,24 @@ class Model(nn.Module):
             )
    
         else:
-            self.embedding = ParallelLorentzBlock(
-                lookback=self.seq_len,
-                input_dim=self.enc_in,
-                embed_dim=self.embed_dim,
-                hidden_dim=self.hidden_dim,
-                curvature=self.curvature,
-                use_hierarchy=self.use_hierarchy
-            )
+            if self.manifold_type == "Euclidean":
+
+                self.forecaster = PointForecastEuclidean(
+                    lookback=self.seq_len,
+                    pred_len=self.pred_len,
+                    n_features=self.enc_in,
+                    embed_dim=self.embed_dim,
+                    hidden_dim=self.hidden_dim,
+                    use_hierarchy=self.use_hierarchy,
+                    hierarchy_scales=self.hierarchy_scales
+                )
+
             # Forecaster: Autoregressively predicts in hyperbolic space
-            self.forecaster = HyperbolicSeqForecaster(
-                embed_dim=self.embed_dim,
-                hidden_dim=self.hidden_dim,
-                output_dim=1,
-                manifold=self.embedding.manifold
-            )
+
    
     
     def forward(self, trend, seasonal_weekly, seasonal_daily, 
-                                   residual, use_hierarchy=False, 
-                                   teacher_forcing=False, z_true_seq=None):
+                residual, teacher_forcing=False, target=None):
         """
         Forward pass with explicit decomposed components.
         Use this when you have TimeBaseMSTL decomposition.
@@ -90,45 +89,10 @@ class Model(nn.Module):
         Returns:
             predictions: [B, pred_len, output_dim]
         """
-        # Encode components to hyperbolic space
-        if self.use_segments:
-            lookback_segment = self.seq_len // self.mstl_period
-            embedded = self.embedding(trend, seasonal_weekly, seasonal_daily, residual)
-            trend_h = embedded['trend_h']
-            seasonal_weekly_h = embedded['seasonal_weekly_h']
-            seasonal_daily_h = embedded['seasonal_daily_h']
-            residual_h = embedded['residual_h']
-            z0 = embedded["combined_h"] 
-            x_hat, z_pred = self.forecaster(
-                pred_len=self.pred_len,
-                trend_z=trend_h,
-                seasonal_weekly_z=seasonal_weekly_h,  
-                seasonal_daily_z=seasonal_daily_h,
-                residual_z=residual_h,
-                z0=z0,
-                teacher_forcing=teacher_forcing,
-                z_true_seq=None
-            )
-        else:
-            embedded = self.embedding(trend, seasonal_weekly,
-                                 seasonal_daily, residual)
-        
+
+        forecasts = self.forecaster(trend, seasonal_weekly, seasonal_daily, residual,
+                                    teacher_forcing, target)
+        x_hat = forecasts["predictions"]
         # Get individual and combined hyperbolic representations
-            trend_h = embedded['trend_h']
-            seasonal_weekly_h = embedded['seasonal_weekly_h']
-            seasonal_daily_h = embedded['seasonal_daily_h']
-            residual_h = embedded['residual_h']
-            z0 = embedded["combined_h"] 
-            # Forecast using combined representation
-            x_hat, z_pred = self.forecaster(
-                pred_len=self.pred_len,
-                trend_z=trend_h,
-                seasonal_weekly_z=seasonal_weekly_h,  
-                seasonal_daily_z=seasonal_daily_h,
-                residual_z=residual_h,
-                z0=z0,
-                teacher_forcing=teacher_forcing,
-                z_true_seq=None
-            )
         
         return x_hat
