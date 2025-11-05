@@ -436,7 +436,7 @@ class Dataset_Custom_Decomposition(Dataset):
     def _format_components(self, components_per_column):
         """
         Convert TimeBaseMSTL output to unified [T, num_features] format.
-        use_segments is not important for this apect.
+        use_segments is not important for this aspect.
         
         Args:
             components_per_column: dict from TimeBaseMSTL.transform()

@@ -8,6 +8,7 @@ from exp.exp_main import Exp_Main
 import random
 import numpy as np
 import gc 
+
 torch.cuda.empty_cache()
 gc.collect()
 
@@ -15,7 +16,7 @@ parser = argparse.ArgumentParser(description="Hyperbolic TimeSeries with TimeBas
 # basic config
 parser.add_argument('--is_training', type=int, required=True, default=1, help='status')
 parser.add_argument('--model_id', type=str, required=True, default='test', help='model id')
-parser.add_argument('--model', type=str, required=True, default='HyperbolicMambaForecasting', help='model name')
+parser.add_argument('--model', type=str, required=True, default='HyperbolicForecasting', help='model name')
 # TimeBaseMSTL arguments
 parser.add_argument('--gradient_truncation_K', type=int, default=6, 
                     help='truncation steps for BPTT in hyperbolic forecasting')
@@ -66,7 +67,7 @@ parser.add_argument('--enc_in', type=int, default=7, help='encoder input size')
 parser.add_argument('--embed', type=str, default='fixed',help='time features encoding, options:[timeF, fixed, learned]')
 # optimization
 parser.add_argument('--num_workers', type=int, default=10, help='data loader num workers')
-parser.add_argument('--itr', type=int, default=2, help='experiment runs')
+parser.add_argument('--itr', type=int, default=1, help='experiment runs')
 parser.add_argument('--train_epochs', type=int, default=100, help='train epochs')
 parser.add_argument('--batch_size', type=int, default=128, help='batch size')
 parser.add_argument('--patience', type=int, default=10, help='early stopping patience')

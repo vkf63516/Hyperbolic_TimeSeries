@@ -5,10 +5,10 @@ Controlled by args.use_segments flag:
 - use_segments=True: Segment-level hyperbolic space (SegmentParallelLorentzBlock)
 - use_segments=False: Point-level hyperbolic space (ParallelLorentzBlock)
 """
-
+from tensorboard_logger import EnhancedTensorBoardLogger
 from data_provider.data_factory import data_provider
 from exp.exp_basic import Exp_Basic
-from models import HyperbolicMambaForecasting
+from models import HyperbolicForecasting
 from utils.tools import adjust_learning_rate, visual
 from utils.metrics import metric
 from geoopt import optim as geooptim
@@ -38,13 +38,14 @@ class Exp_Main(Exp_Basic):
         self.n_basis_components = args.num_basis
         self.orthogonal_lr = args.orthogonal_lr
         self.orthogonal_iters = args.orthogonal_iters
-        
+        self.manifold_type = args.manifold_type 
         # Support for both segment-level and point-level
         self.use_segments = args.use_segments  # Default to point-level
         # Initialize decomposition cache
         if self.use_segments:
             self.mstl_period = args.mstl_period
         if args.use_tensorboard:
+            self.tb_logger = EnhancedTensorBoardLogger(log_dir='./runs',experiment_name=f'{args.model}_{args.data}_{args.pred_len}')
             timestamp = time.strftime('%Y%m%d_%H%M%S')
             log_dir = os.path.join(
                 './runs', 
@@ -63,7 +64,7 @@ class Exp_Main(Exp_Basic):
             
     def _build_model(self):
         model_dict = {
-            "HyperbolicMambaForecasting": HyperbolicMambaForecasting
+            "HyperbolicForecasting": HyperbolicForecasting
         }
         model = model_dict[self.args.model].Model(self.args).float()
         total_params = sum(p.numel() for p in model.parameters())
@@ -80,6 +81,12 @@ class Exp_Main(Exp_Basic):
     
 
     def _select_optimizer(self):
+        if self.manifold_type == "Euclidean":
+            model_geooptim = optim.AdamW(
+                    params=self.model.parameters(),
+                    lr=self.args.learning_rate,
+                    weight_decay=1e-4)
+            return model_geooptim
         model_geooptim = geooptim.RiemannianAdam(
             params=self.model.parameters(), 
             lr=self.args.learning_rate
@@ -168,14 +175,16 @@ class Exp_Main(Exp_Basic):
             epochs=self.args.train_epochs,
             max_lr=self.args.learning_rate
         )
-        
+        train_losses_dict = {}
         max_memory = -1
         for epoch in range(self.args.train_epochs):
             iter_count = 0
             train_loss = []
+
             self.model.train()
             epoch_time = time.time()
             for i, (X_dict, Y_dict, batch_x_mark, batch_y_mark) in enumerate(train_loader):
+                global_step = epoch * len(train_loader) + i
                 iter_count += 1
                 model_geooptim.zero_grad()
             
@@ -225,7 +234,16 @@ class Exp_Main(Exp_Basic):
                     )
                     loss = criterion(outputs, target)
                     train_loss.append(loss.item())
-            
+                if i % 100 == 0:
+                    self.tb_logger.log_losses(
+                        global_step,
+                        train_loss=loss.item(),
+                        train_losses_dict={
+                            'mse': loss.item(),
+                        }
+                    )
+                    # Log learning rate
+                    self.tb_logger.log_learning_rate(global_step, model_geooptim)
                 # Logging
                 if (iter_count) % 100 == 0:
                     print("\titers: {0}, epoch: {1} | loss: {2:.7f}".format(
@@ -266,10 +284,35 @@ class Exp_Main(Exp_Basic):
             # End of epoch
             print(f"Epoch {epoch + 1} Max Memory (MB): {max_memory}")
             print("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_time))
+            avg_train_loss = np.mean(train_loss)
+            train_losses_dict = {k: v / len(train_loader) for k, v in train_losses_dict.items()}
             
+            # Validation
+            
+            # Log losses
+            
+            # Log metrics
+            
+            # Log hierarchy scales
+            manifold_type = self.manifold_type  # or 'lorentz', 'poincare'
+            self.tb_logger.log_hierarchy_scales(epoch, self.model, manifold_type)
+            
+            # Log model parameters (every 10 epochs)
+            if epoch % 10 == 0:
+                self.tb_logger.log_model_parameters(epoch, self.model)
+            
+            # Log sample predictions (every 5 epochs)
+                    
+                    
         
             train_loss = np.average(train_loss)
             vali_loss = self.vali(vali_data, vali_loader, criterion)
+            self.tb_logger.log_losses(
+                epoch,
+                train_loss=train_loss,
+                val_loss=vali_loss,
+                train_losses_dict=train_losses_dict
+            )
 
             print("Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f}".format(
                 epoch + 1, train_steps, train_loss, vali_loss))

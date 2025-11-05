@@ -104,6 +104,7 @@ class ParallelLorentz(nn.Module):
         z_current = self.manifold.projx(z_current)
     
         return z_current
+        
     def forward(self, trend, seasonal_weekly, seasonal_daily, residual):
         """
         Inputs:

@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from embed.linear_embed_euclidean import ParallelEuclideanEmbed
+from embed.mlp_embed_euclidean import ParallelEuclideanEmbed
 from Lifting.euclidean_reconstructor import EuclideanReconstructor
 
 class PointForecastEuclidean(nn.Module):
@@ -9,7 +9,7 @@ class PointForecastEuclidean(nn.Module):
     NO manifold operations - pure Euclidean arithmetic
     """
     def __init__(self, lookback, n_features, pred_len, embed_dim=32, hidden_dim=64,
-                 use_hierarchy=False, hierarchy_scales=[0.5, 1.0, 1.0, 1.5]):
+                 use_hierarchy=False, hierarchy_scales=[0.5, 1.0, 1.0, 1.5], embed_dropout=0.5, dynamic_dropout=0.1):
         super().__init__()
         self.lookback = lookback
         self.embed_dim = embed_dim
@@ -28,7 +28,7 @@ class PointForecastEuclidean(nn.Module):
             nn.Linear(embed_dim, hidden_dim),
             nn.LayerNorm(hidden_dim),
             nn.GELU(),
-            nn.Dropout(0.1),
+            nn.Dropout(dynamic_dropout),
             nn.Linear(hidden_dim, hidden_dim),
             nn.LayerNorm(hidden_dim),
             nn.GELU(),
