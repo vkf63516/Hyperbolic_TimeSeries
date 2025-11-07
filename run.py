@@ -30,6 +30,8 @@ parser.add_argument('--use_decomposition', action='store_true', default=False,
                     help='Use TimeBaseMSTL decomposition')
 parser.add_argument('--num_basis', type=int, default=10,
                     help='number of basis components for TimeBaseMSTL')
+parser.add_argument("--use_attention_pooling", action="store_true", default=False,
+                    help="uses attention to give more relevance to specific timesteps")
 parser.add_argument('--orthogonal_lr', type=float, default=1e-3,
                     help='learning rate for orthogonal basis fitting')
 parser.add_argument('--orthogonal_iters', type=int, default=300,

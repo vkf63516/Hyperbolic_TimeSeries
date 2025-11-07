@@ -50,10 +50,12 @@ def compute_hierarchical_loss_with_manifold_dist(embeddings_dict, manifold, marg
     # Parents and children should be geodesically close
     trend_to_weekly = manifold.dist(trend_h, weekly_h)
     weekly_to_daily = manifold.dist(weekly_h, daily_h)
+    daily_to_residual = manifold.dist(daily_h, residual_h)
     
     entailment_loss = (
         trend_to_weekly +
-        weekly_to_daily
+        weekly_to_daily +
+        daily_to_residual
     ).mean()
     
     total_loss = hierarchy_loss + 0.5 * entailment_loss
@@ -165,29 +167,3 @@ class EarlyStopping:
             print(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ...')
         torch.save(model.state_dict(), path + '/' + 'checkpoint.pth')
         self.val_loss_min = val_loss
-
-    
-# 
-
-# def prepare_timebase_data_with_mstl(train_dict, val_dict, test_dict, 
-#                                      mstl_period, input_len, pred_len, device="cuda"):
-#     """
-#     Complete pipeline: normalize → segment with MSTL period.
-    
-#     Args:
-#         stride: 'overlap' for stride=1 (standard sliding window)
-#                 'period' for stride=mstl_period (period-aligned samples)
-#                 int for custom stride
-#     """
-    
-#     # Choose segmentation strategy
-#         # Standard overlapping sliding windows
-#     segment_fn = lambda d: Create_Segments_With_MSTL_Period(
-#         d, input_len, pred_len, mstl_period, device
-#     )
-    
-#     train_seg = segment_fn(train_dict)
-#     val_seg = segment_fn(val_dict)
-#     test_seg = segment_fn(test_dict)
-    
-#     return train_seg, val_seg, test_seg

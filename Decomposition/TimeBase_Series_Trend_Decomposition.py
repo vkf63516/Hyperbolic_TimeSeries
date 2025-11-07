@@ -223,7 +223,8 @@ class TimeBaseMSTL:
                                      smooth_window_ratio=0.1, use_segment_level=True):
         """
         Reconstruct each series from decomposed basis.
-        The segments are used internally for reconstruction
+        The segments are used internally for reconstruction.
+        Segments to series
     
         Parameters
         ----------

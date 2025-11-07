@@ -21,15 +21,18 @@ class MLPEmbed(nn.Module):
             ) for _ in range(n_layer)
         ])
         self.output_proj = nn.Linear(hidden_dim, output_dim)
+        if self.use_attention_pooling:
+            self.attention = nn.Sequential(
+                nn.Linear(hidden_dim, hidden_dim // 2),
+                nn.Tanh(),
+                nn.Linear(hidden_dim // 2, 1)
+            )
 
     def forward(self, x):
         """
         x: [B, seqlen, input_dim]
         returns: [B, output_dim]  (Euclidean latent, tangent vectors)
         """
-        # if self.lookback is not None and x.size(1) > self.lookback:
-        #     print(self.lookback)
-        #     x = x[:, -self.lookback:, :]
         x = self.input_proj(x)
         for layer in self.layers:
             x = layer(x)

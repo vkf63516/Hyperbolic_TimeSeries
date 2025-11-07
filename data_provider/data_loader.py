@@ -578,6 +578,8 @@ class Dataset_Custom_Decomposition(Dataset):
         """Inverse scaling for predictions."""
         return self.scaler.inverse_transform(data)
 
+# class M5(Dataset):
+#     def __init__
 
 class Dataset_Pred(Dataset):
     def __init__(self, root_path, flag='pred', size=None,

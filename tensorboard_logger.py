@@ -14,7 +14,6 @@ class EnhancedTensorBoardLogger:
     - Training/validation losses (properly scaled)
     - Component-wise embeddings and reconstructions
     - Hyperbolic geometry visualizations
-    - Attention weights
     - Hierarchy scales
     - Prediction vs ground truth plots
     """
@@ -58,9 +57,9 @@ class EnhancedTensorBoardLogger:
         }, epoch)
         
         # Log on proper scale (log scale for better visibility)
-        if train_loss > 0:
+        if train_loss > 10:
             self.writer.add_scalar('Loss/Train_Log', np.log10(train_loss + 1e-10), epoch)
-        if val_loss is not None and val_loss > 0:
+        if val_loss is not None and val_loss > 10:
             self.writer.add_scalar('Loss/Val_Log', np.log10(val_loss + 1e-10), epoch)
         
         # Component losses
@@ -87,46 +86,7 @@ class EnhancedTensorBoardLogger:
             # Log on multiple scales for clarity
             if value > 0:
                 self.writer.add_scalar(f'{prefix}/{name}_log', np.log10(value + 1e-10), epoch)
-    
-    # ============================================
-    # Component Embeddings
-    # ============================================
-    
-    def log_embeddings(self, epoch, embeddings_dict, labels=None):
-        """
-        Log component embeddings (trend, weekly, daily, residual).
         
-        Args:
-            epoch: int
-            embeddings_dict: dict - {'trend': tensor, 'weekly': tensor, ...}
-            labels: list - labels for each embedding
-        """
-        for component_name, embedding in embeddings_dict.items():
-            if embedding is None:
-                continue
-            
-            # Ensure embedding is 2D [N, embed_dim]
-            if embedding.dim() > 2:
-                embedding = embedding.reshape(-1, embedding.shape[-1])
-            
-            # Log embedding projector
-            self.writer.add_embedding(
-                embedding.detach().cpu(),
-                metadata=labels,
-                tag=f'Embeddings/{component_name}',
-                global_step=epoch
-            )
-            
-            # Log embedding statistics
-            self.writer.add_histogram(f'Embeddings/{component_name}_histogram', 
-                                     embedding.detach().cpu(), epoch)
-            
-            # Log embedding norms
-            norms = torch.norm(embedding, dim=-1).detach().cpu()
-            self.writer.add_scalar(f'Embeddings/{component_name}_mean_norm', 
-                                  norms.mean().item(), epoch)
-            self.writer.add_histogram(f'Embeddings/{component_name}_norms', norms, epoch)
-    
     # ============================================
     # Hierarchy Scales
     # ============================================
@@ -142,7 +102,7 @@ class EnhancedTensorBoardLogger:
         """
         # Get encoder
         if manifold_type in ['lorentz', 'poincare']:
-            encoder = model.embed_hyperbolic
+            encoder = model.forecater.embed
         else:
             encoder = model.forecaster.embed
         
@@ -173,39 +133,6 @@ class EnhancedTensorBoardLogger:
             for name, weight in normalized_weights.items():
                 self.writer.add_scalar(f'Hierarchy/Weight_{name}', weight, epoch)
     
-    # ============================================
-    # Attention Weights (if using attention pooling)
-    # ============================================
-    
-    def log_attention_weights(self, epoch, attention_weights, component_name=''):
-        """
-        Log attention weights from attention pooling.
-        
-        Args:
-            epoch: int
-            attention_weights: tensor [B, seq_len, 1] or [B, seq_len]
-            component_name: str - name of component
-        """
-        if attention_weights is None:
-            return
-        
-        # Average over batch
-        if attention_weights.dim() == 3:
-            attention_weights = attention_weights.squeeze(-1)  # [B, seq_len]
-        
-        avg_attention = attention_weights.mean(dim=0).detach().cpu()  # [seq_len]
-        
-        # Log histogram
-        self.writer.add_histogram(f'Attention/{component_name}_weights', avg_attention, epoch)
-        
-        # Create attention heatmap
-        fig, ax = plt.subplots(figsize=(10, 2))
-        sns.heatmap(avg_attention.unsqueeze(0).numpy(), 
-                   ax=ax, cmap='viridis', cbar=True)
-        ax.set_xlabel('Timestep')
-        ax.set_title(f'{component_name} Attention Weights')
-        self.writer.add_figure(f'Attention/{component_name}_heatmap', fig, epoch)
-        plt.close(fig)
     
     # ============================================
     # Predictions vs Ground Truth
@@ -272,7 +199,6 @@ class EnhancedTensorBoardLogger:
         # Error statistics
         self.writer.add_scalar('Errors/Mean_Absolute_Error', errors.abs().mean().item(), epoch)
         self.writer.add_scalar('Errors/RMSE', (errors ** 2).mean().sqrt().item(), epoch)
-        self.writer.add_scalar('Errors/Max_Absolute_Error', errors.abs().max().item(), epoch)
         
         # Error histogram
         self.writer.add_histogram('Errors/Distribution', errors.flatten(), epoch)
@@ -286,7 +212,6 @@ class EnhancedTensorBoardLogger:
         ax.set_ylabel('Mean Absolute Error')
         ax.set_title('Prediction Error vs Forecast Horizon')
         ax.grid(True, alpha=0.3)
-        self.writer.add_figure('Errors/Error_vs_Horizon', fig, epoch)
         plt.close(fig)
     
     # ============================================
@@ -381,25 +306,15 @@ class EnhancedTensorBoardLogger:
     # Model Parameters
     # ============================================
     
-    def log_model_parameters(self, epoch, model):
+    def log_model_parameters(self, model):
         """
         Log model parameter statistics (gradients, weights).
         
         Args:
-            epoch: int
             model: nn.Module
         """
-        for name, param in model.named_parameters():
-            if param.requires_grad and param.grad is not None:
-                # Parameter values
-                self.writer.add_histogram(f'Parameters/{name}', param.detach().cpu(), epoch)
-                
-                # Gradients
-                self.writer.add_histogram(f'Gradients/{name}', param.grad.detach().cpu(), epoch)
-                
-                # Gradient norms
-                grad_norm = param.grad.norm().item()
-                self.writer.add_scalar(f'GradientNorms/{name}', grad_norm, epoch)
+        total_params = sum(p.numel() for p in model.parameters())
+        print(f"Total number of parameters: {total_params}")
     
     def log_learning_rate(self, epoch, optimizer):
         """Log current learning rate"""

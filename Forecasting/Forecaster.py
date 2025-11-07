@@ -16,7 +16,7 @@ class HyperbolicPointForecaster(nn.Module):
     """
     def __init__(self, lookback, pred_len, n_features, embed_dim, hidden_dim, 
                  curvature, manifold_type, use_hierarchy=False, 
-                 hierarchy_scales=[0.5,1.0,1.5,2.0]):
+                 hierarchy_scales=[0.5,1.0,1.5,2.0], use_attention_pooling=False):
         super().__init__()
         self.lookback = lookback
         self.embed_dim = embed_dim
