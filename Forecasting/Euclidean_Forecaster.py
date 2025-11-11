@@ -22,13 +22,14 @@ class PointForecastEuclidean(nn.Module):
             embed_dim=embed_dim,
             hidden_dim=hidden_dim,
             use_hierarchy=use_hierarchy,
-            hierarchy_scales=hierarchy_scales
+            hierarchy_scales=hierarchy_scales,
+            use_attention_pooling=use_attention_pooling
         )
         self.dynamics = nn.Sequential(
             nn.Linear(embed_dim, hidden_dim),
             nn.LayerNorm(hidden_dim),
             nn.GELU(),
-            nn.Dropout(dynamic_dropout),
+            nn.Dropout(0.1),
             nn.Linear(hidden_dim, hidden_dim),
             nn.LayerNorm(hidden_dim),
             nn.GELU(),

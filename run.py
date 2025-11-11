@@ -9,9 +9,6 @@ import random
 import numpy as np
 import gc 
 
-torch.cuda.empty_cache()
-gc.collect()
-
 parser = argparse.ArgumentParser(description="Hyperbolic TimeSeries with TimeBaseMSTL")
 # basic config
 parser.add_argument('--is_training', type=int, required=True, default=1, help='status')
@@ -86,7 +83,7 @@ parser.add_argument('--use_tensorboard', action='store_true', default=False,
                     help='use TensorBoard for logging')
 # GPU
 parser.add_argument('--use_amp', action='store_true', help='use AMP', default=False)
-parser.add_argument('--use_gpu', type=bool, default=True, help='use gpu')
+parser.add_argument('--use_gpu', action='store_true', default=False, help='use gpu')
 parser.add_argument('--gpu', type=int, default=0, help='gpu id')
 parser.add_argument('--use_multi_gpu', type=int, default=0, help='use multiple gpus')
 parser.add_argument('--devices', type=str, default='0,1', help='multi-gpu device ids')

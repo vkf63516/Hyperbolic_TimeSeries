@@ -239,7 +239,7 @@ class TimeBaseMSTL:
         for i, name in enumerate(df.columns):
             trend_global = (
                 pd.Series(df[name].values)
-                .rolling(window=window, min_periods=1, center=True)
+                .rolling(window=window, min_periods=1, center=False)
                 .mean()
                 .values
             )
@@ -337,5 +337,24 @@ class TimeBaseMSTL:
                 seasonal_type = "seasonal_weekly"
             decomposed_basis = self.decompose_basis_components(basis, sub_periods, seasonal_type)
             decompositions[period] = decomposed_basis
-        return self.reconstruct_series_decomposition(df, decompositions, self.series_coefficients)
+        return self.reconstruct_series_decomposition(df, decompositions, self._compute_new_coefficients(df))
+   
+    def _compute_new_coefficients(self, df):
+        """Compute coefficients by projecting new data onto learned basis."""
+        new_segments_dict = self.extract_periodic_segments(df, self.steps_per_period)
+        new_coefficients = {}
+    
+        for period, new_segments in new_segments_dict.items():
+            learned_basis = self.basis_components[period]
+            n_series, n_segments, seg_len = new_segments.shape
+            all_segment_coeffs = np.zeros((n_series, n_segments, self.n_basis_components))
+
+            for i in range(n_series):
+                valid_series = new_segments[i][np.any(new_segments[i] != 0, axis=1)]
+                if len(valid_series) > 0:
+                    all_segment_coeffs[i, :len(valid_series), :] = valid_series @ learned_basis.T
+
+            new_coefficients[period] = all_segment_coeffs
+    
+        return new_coefficients
 

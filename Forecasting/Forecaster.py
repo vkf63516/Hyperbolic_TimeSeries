@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import geoopt
 from embed.mlp_embed_lorentz import ParallelLorentz
-from embed.mlp_embed_poincare import ParallelPoincare
+#from embed.mlp_embed_poincare import ParallelPoincare
 from Lifting.hyperbolic_reconstructor import HyperbolicReconstructionHead
 
 

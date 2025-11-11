@@ -193,7 +193,7 @@ class Exp_Main(Exp_Basic):
                 weekly_x = X_dict['seasonal_weekly'].float().to(self.device)
                 daily_x = X_dict['seasonal_daily'].float().to(self.device)
                 resid_x = X_dict['residual'].float().to(self.device)
-            
+                
                 trend_y = Y_dict['trend'].float().to(self.device)
                 weekly_y = Y_dict['seasonal_weekly'].float().to(self.device)
                 daily_y = Y_dict['seasonal_daily'].float().to(self.device)
@@ -298,8 +298,6 @@ class Exp_Main(Exp_Basic):
             self.tb_logger.log_hierarchy_scales(epoch, self.model, manifold_type)
             
             # Log model parameters (every 10 epochs)
-            if epoch % 10 == 0:
-                self.tb_logger.log_model_parameters(epoch, self.model)
             
             # Log sample predictions (every 5 epochs)
                     
@@ -482,9 +480,6 @@ class Exp_Main(Exp_Basic):
             self.writer.close()
             print(f"TensorBoard logs saved. View with: tensorboard --logdir=./runs")
         
-        np.save(folder_path + 'metrics.npy', np.array([mae, mse, rmse, mape, mspe, rse, corr]))
-        np.save(folder_path + 'pred.npy', preds)
-        np.save(folder_path + 'true.npy', trues)
 
         return
 

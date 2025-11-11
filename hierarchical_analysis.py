@@ -14,7 +14,41 @@ from sklearn.preprocessing import normalize
 from sklearn.metrics.pairwise import cosine_similarity
 import argparse
 import warnings
+import random
 warnings.filterwarnings('ignore')
+
+
+# ============================================
+# SEED SETTING FUNCTION
+# ============================================
+def set_seed(seed=42):
+    """
+    Set random seeds for reproducibility across all libraries.
+    
+    Args:
+        seed: Integer seed value (default: 42)
+    """
+    # Python's built-in random
+    random.seed(seed)
+    
+    # NumPy
+    np.random.seed(seed)
+    
+    # For any PyTorch usage (if you expand later)
+    try:
+        import torch
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+    except ImportError:
+        pass
+    
+    # Set Python hash seed
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    
+    print(f"✓ Random seed set to {seed} for reproducibility")
 
 
 def extract_mstl_components_from_dataset(dataset):
@@ -97,12 +131,14 @@ def visualize_component_characteristics(data_dict, save_dir='./plots/hierarchy')
     
     print(f"✓ Saved component overview to {save_dir}/component_overview.png")
 
+
 def test_spherical_structure(patterns_normalized, component='daily'):
     """Minimal spherical structure test."""
     
     # Project to unit sphere
     patterns_sphere = normalize(patterns_normalized, norm='l2', axis=1)
     n_patterns = len(patterns_sphere)
+    
     # Compute angular distances
     cos_sim = cosine_similarity(patterns_sphere)
     angular_dist = np.arccos(np.clip(cos_sim, -1, 1))
@@ -116,9 +152,7 @@ def test_spherical_structure(patterns_normalized, component='daily'):
     
     spherical_fit = cv_euclidean / cv_angular if cv_angular > 0 else 1.0
     
-    # ================================================
-    # NEW: Actually compute spherical silhouettes!
-    # ================================================
+    # Compute spherical silhouettes
     max_k = min(20, n_patterns // 2)
     spherical_silhouettes = []
     
@@ -148,9 +182,7 @@ def test_spherical_structure(patterns_normalized, component='daily'):
         best_k_sphere = 2
         best_sil_sphere = 0.0
     
-    # ================================================
-    # Scoring (with actual silhouette now)
-    # ================================================
+    # Scoring
     score_sphere = 0
     
     # Metric 1: Spherical fit ratio
@@ -165,12 +197,11 @@ def test_spherical_structure(patterns_normalized, component='daily'):
     elif best_sil_sphere > 0.2:
         score_sphere += 1
     
-    # Metric 3: Comparison bonus (if spherical clearly better)
+    # Metric 3: Comparison bonus
     if spherical_fit > 1.3 and best_sil_sphere > 0.25:
         score_sphere += 1
     
     print(f"Spherical structure score: {score_sphere}/5")
-    
     
     return {
         'spherical_fit': spherical_fit,
@@ -182,15 +213,91 @@ def test_spherical_structure(patterns_normalized, component='daily'):
         'cv_angular': cv_angular
     }
 
+
+def compute_euclidean_score(hierarchy_score, spherical_score,
+                           cophenetic, spherical_fit, distance_matrix):
+    """
+    Compute Euclidean structure score (0-5).
+    
+    Euclidean geometry is appropriate when:
+    1. No hierarchical structure (low cophenetic)
+    2. No spherical structure (low spherical fit)
+    3. Uniform/isotropic distances (low CV)
+    
+    This is NOT just "default" - we measure evidence FOR Euclidean.
+    
+    Args:
+        hierarchy_score: Score from hierarchical analysis (0-5)
+        spherical_score: Score from spherical analysis (0-5)
+        cophenetic: Cophenetic correlation coefficient
+        spherical_fit: Spherical fit ratio
+        distance_matrix: [N, N] pairwise distances
+    
+    Returns:
+        score: Integer from 0 to 5
+        breakdown: Dict explaining score components
+    """
+    score = 0
+    breakdown = {}
+    
+    # ==========================================
+    # Metric 1: Lack of Special Structure (max 2 points)
+    # ==========================================
+    max_other = max(hierarchy_score, spherical_score)
+    
+    if max_other <= 1:
+        score += 2
+        breakdown['other_structures'] = '+2 (no special structure detected)'
+    elif max_other <= 2:
+        score += 1
+        breakdown['other_structures'] = '+1 (weak special structure)'
+    else:
+        breakdown['other_structures'] = '+0 (strong special structure)'
+    
+    # ==========================================
+    # Metric 2: Anti-Hierarchical Evidence (max 1 point)
+    # ==========================================
+    if cophenetic < 0.5:
+        score += 1
+        breakdown['anti_hierarchical'] = f'+1 (flat structure, cophenetic={cophenetic:.3f})'
+    else:
+        breakdown['anti_hierarchical'] = f'+0 (hierarchical, cophenetic={cophenetic:.3f})'
+    
+    # ==========================================
+    # Metric 3: Anti-Spherical Evidence (max 1 point)
+    # ==========================================
+    if spherical_fit < 1.0:
+        score += 1
+        breakdown['anti_spherical'] = f'+1 (not spherical, fit={spherical_fit:.3f})'
+    else:
+        breakdown['anti_spherical'] = f'+0 (spherical fit={spherical_fit:.3f})'
+    
+    # ==========================================
+    # Metric 4: Distance Uniformity (max 1 point)
+    # ==========================================
+    distances = distance_matrix[np.triu_indices_from(distance_matrix, k=1)]
+    cv = np.std(distances) / (np.mean(distances) + 1e-8)
+    
+    if cv < 0.4:
+        score += 1
+        breakdown['uniformity'] = f'+1 (uniform distances, CV={cv:.3f})'
+    else:
+        breakdown['uniformity'] = f'+0 (varied distances, CV={cv:.3f})'
+    
+    breakdown['total'] = score
+    
+    return score, breakdown
+
+
 def experiment_2_hierarchical_structure(
     data_dict,
     window_size, 
     component='daily',
-    max_patterns=5000,  # Safety limit
+    max_patterns=5000,
     save_dir='./plots/hierarchy'
 ):
     """
-    Complete structure analysis: hierarchical + spherical.
+    Complete structure analysis: hierarchical + spherical + euclidean.
     """
     os.makedirs(save_dir, exist_ok=True)
     
@@ -206,21 +313,20 @@ def experiment_2_hierarchical_structure(
     print(f"Window size: {window_size}, Stride: {stride}")
     
     # ==========================================
-    # PATTERN EXTRACTION (Same as before)
+    # PATTERN EXTRACTION
     # ==========================================
     print(f"\nExtracting patterns...")
     patterns = []
     for i in range(0, T - window_size + 1, stride):
         patterns.append(component_data[i:i+window_size, :].flatten())
-
-        # Progress indicator
+        
         if (i // stride) % 500 == 0:
             print(f"  Progress: {i}/{T} ({100*i/T:.1f}%)")
     
     patterns = np.array(patterns)
     n_patterns_total = len(patterns)
-
-    print(f" Extracted {n_patterns_total:,} patterns")
+    
+    print(f"✓ Extracted {n_patterns_total:,} patterns")
     
     # Memory estimate
     pattern_mem_mb = patterns.nbytes / (1024**2)
@@ -228,7 +334,7 @@ def experiment_2_hierarchical_structure(
     
     # Subsample if needed
     if n_patterns_total > max_patterns:
-        print(f"Subsampling to {max_patterns:,} patterns")
+        print(f"⚠ Subsampling to {max_patterns:,} patterns")
         indices = np.random.choice(n_patterns_total, max_patterns, replace=False)
         indices.sort()
         patterns = patterns[indices]
@@ -252,21 +358,21 @@ def experiment_2_hierarchical_structure(
     print(f"Computing pairwise distances...")
     import time
     start = time.time()
-
+    
     distances = pdist(patterns_normalized, metric='euclidean')
     distance_matrix = squareform(distances)
-
-    print(f"Distances computed in {time.time()-start:.1f}s")
+    
+    print(f"✓ Distances computed in {time.time()-start:.1f}s")
     
     # Hierarchical clustering
     print(f"Building hierarchical clustering...")
-
+    
     linkage_matrix = linkage(distances, method='ward')
-    print(f"Clustering built in {time.time()-start:.1f}s")
+    print(f"✓ Clustering built in {time.time()-start:.1f}s")
     
     # Cophenetic correlation
     c, _ = cophenet(linkage_matrix, distances)
-
+    
     print(f"Cophenetic correlation: {c:.4f}")
     
     # Test different k
@@ -293,7 +399,7 @@ def experiment_2_hierarchical_structure(
         branching = n_patterns ** (1 / depth)
     else:
         branching = 1.0
-
+    
     print(f"Branching factor: {branching:.2f}")
     
     # Cluster separation
@@ -349,7 +455,29 @@ def experiment_2_hierarchical_structure(
         patterns_normalized, 
         component=component
     )
-
+    
+    # ==========================================
+    # PART 3: EUCLIDEAN STRUCTURE TEST
+    # ==========================================
+    print(f"\n{'='*80}")
+    print(f"PART 3: EUCLIDEAN STRUCTURE ANALYSIS")
+    print(f"{'='*80}")
+    
+    euclidean_score, euclidean_breakdown = compute_euclidean_score(
+        hierarchy_score,
+        spherical_results['spherical_score'],
+        c,
+        spherical_results['spherical_fit'],
+        distance_matrix
+    )
+    
+    print(f"\nEuclidean Structure Analysis:")
+    for key, value in euclidean_breakdown.items():
+        if key != 'total':
+            print(f"  {value}")
+    
+    print(f"\nEuclidean score: {euclidean_score}/5")
+    
     # ==========================================
     # PART 4: COMBINED RECOMMENDATION
     # ==========================================
@@ -362,80 +490,78 @@ def experiment_2_hierarchical_structure(
     print(f"\nStructure Scores:")
     print(f"  Hierarchical (tree-like):      {hierarchy_score}/5")
     print(f"  Spherical (pattern geometry):  {spherical_score}/5")
+    print(f"  Euclidean (flat/unstructured): {euclidean_score}/5")
     
-    # Decision logic
-    recommendations = []
+    # Three-way comparison
+    scores = {
+        'HYPERBOLIC': hierarchy_score,
+        'SPHERICAL': spherical_score,
+        'EUCLIDEAN': euclidean_score
+    }
     
-    # Strong hierarchy → Hyperbolic
-    if hierarchy_score >= 4:
+    # Find winner
+    winner = max(scores, key=scores.get)
+    max_score = scores[winner]
+    
+    # Find runner-up
+    scores_sorted = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    runner_up_name = scores_sorted[1][0]
+    runner_up_score = scores_sorted[1][1]
+    
+    # Determine confidence
+    gap = max_score - runner_up_score
+    
+    if gap >= 2:
+        confidence = 'HIGH'
+        symbol = '✓✓✓'
+    elif gap >= 1:
+        confidence = 'MODERATE'
+        symbol = '✓✓'
+    else:
+        confidence = 'LOW'
+        symbol = '⚠⚠'
+    
+    # Build recommendations list
+    recommendations = [{
+        'geometry': winner,
+        'priority': 'PRIMARY',
+        'score': max_score,
+        'confidence': confidence,
+        'reason': f"{winner} scores highest ({max_score}/5 vs {runner_up_score}/5)"
+    }]
+    
+    # Add runner-up if close
+    if gap < 2:
         recommendations.append({
-            'geometry': 'HYPERBOLIC',
-            'priority': 'PRIMARY',
-            'score': hierarchy_score,
-            'reason': 'Strong hierarchical structure detected'
-        })
-    elif hierarchy_score >= 2:
-        recommendations.append({
-            'geometry': 'HYPERBOLIC',
+            'geometry': runner_up_name,
             'priority': 'TEST',
-            'score': hierarchy_score,
-            'reason': 'Moderate hierarchical structure'
+            'score': runner_up_score,
+            'confidence': 'SECONDARY',
+            'reason': f"Close alternative ({runner_up_score}/5)"
         })
-    
-    # Strong spherical/periodic → Spherical
-    spherical = spherical_score
-    if spherical >= 4:
-        recommendations.append({
-            'geometry': 'SPHERICAL',
-            'priority': 'PRIMARY',
-            'score': spherical_score,
-            'reason': f'Strong spherical structure (sph:{spherical_score})'
-        })
-    elif spherical >= 2:
-        recommendations.append({
-            'geometry': 'SPHERICAL',
-            'priority': 'TEST',
-            'score': spherical,
-            'reason': f'Moderate spherical structure'
-        })
-    
-    # Fallback → Euclidean
-    if not recommendations:
-        recommendations.append({
-            'geometry': 'EUCLIDEAN',
-            'priority': 'PRIMARY',
-            'score': 0,
-            'reason': 'No strong structure detected'
-        })
-    
-    # Sort by score
-    recommendations.sort(key=lambda x: x['score'], reverse=True)
     
     print(f"\n{'='*80}")
     print(f"FINAL RECOMMENDATIONS:")
     print(f"{'='*80}")
     
-    for rank, rec in enumerate(recommendations, 1):
-        if rec['priority'] == 'PRIMARY':
-            symbol = "✓✓✓"
-        elif rec['priority'] == 'TEST':
-            symbol = "⚠⚠"
-        else:
-            symbol = "→"
-        
-        print(f"{rank}. {symbol} {rec['geometry']:12s} (score: {rec['score']}/5)")
-        print(f"   Reason: {rec['reason']}")
+    print(f"\n{symbol} PRIMARY: {winner} ({max_score}/5)")
+    print(f"   Confidence: {confidence}")
+    print(f"   Runner-up: {runner_up_name} ({runner_up_score}/5)")
+    print(f"   Gap: {gap} points")
+    
+    if gap >= 2:
+        print(f"\n   Strong evidence for {winner} geometry")
+    elif gap >= 1:
+        print(f"\n   Moderate preference for {winner} over {runner_up_name}")
+    else:
+        print(f"\n   Weak preference - consider testing both")
     
     # ==========================================
-    # VISUALIZATIONS (Enhanced)
+    # VISUALIZATIONS
     # ==========================================
     print(f"\n{'='*80}")
     print(f"Generating visualizations...")
     print(f"{'='*80}")
-    # ==========================================
-    # VISUALIZATIONS (2x3 grid)
-    # ==========================================
-    print(f"\nGenerating visualizations...")
     
     fig = plt.figure(figsize=(18, 12))
     
@@ -449,11 +575,11 @@ def experiment_2_hierarchical_structure(
     
     # Plot 2: Projection
     ax2 = plt.subplot(2, 3, 2)
-
+    
     if n_patterns > 3000:
         pca = PCA(n_components=2, random_state=42)
         patterns_2d = pca.fit_transform(patterns_normalized)
-        title_str = f'PCA (k={best_k})'
+        title_str = f't-SNE (k={best_k})'
     else:
         perplexity = min(30, n_patterns - 1)
         tsne = TSNE(n_components=2, random_state=42, perplexity=perplexity)
@@ -533,18 +659,23 @@ SPHERICAL:
   Best sil:     {spherical_results.get('best_silhouette_sphere', 0):.4f}
   Score:        {spherical_score}/5
 
+EUCLIDEAN:
+  No hierarchy: {euclidean_breakdown['anti_hierarchical'][:2]}
+  No spherical: {euclidean_breakdown['anti_spherical'][:2]}
+  Uniformity:   {euclidean_breakdown['uniformity'][:2]}
+  Score:        {euclidean_score}/5
+
 
 {'='*40}
 RECOMMENDATION:
 
-{rec_text}
+{symbol} {winner} ({max_score}/5)
 
-{primary_rec['reason']}
+Confidence: {confidence}
+Gap: {gap} points vs {runner_up_name}
+
+{recommendations[0]['reason']}
 """
-    
-    if len(recommendations) > 1:
-        secondary = recommendations[1]
-        summary += f"\n\nSecondary: {secondary['geometry']}"
     
     ax6.text(0.05, 0.5, summary, fontsize=9, family='monospace',
              verticalalignment='center',
@@ -566,17 +697,28 @@ RECOMMENDATION:
     return {
         'component': component,
         'n_patterns': n_patterns,
+        
         # Hierarchical metrics
         'cophenetic_correlation': c,
         'branching_factor': branching,
         'best_k': best_k,
         'hierarchy_score': hierarchy_score,
+        
         # Spherical metrics
         'spherical_fit': spherical_results.get('spherical_fit', 0),
         'spherical_score': spherical_score,
+        
+        # Euclidean metrics
+        'euclidean_score': euclidean_score,
+        'euclidean_breakdown': euclidean_breakdown,
+        
         # Combined recommendation
         'recommendations': recommendations,
-        'primary_geometry': recommendations[0]['geometry'] if recommendations else 'EUCLIDEAN'
+        'primary_geometry': winner,
+        'runner_up_geometry': runner_up_name,
+        'confidence': confidence,
+        'score_gap': gap,
+        'all_scores': scores
     }
 
 
@@ -596,7 +738,7 @@ if __name__ == '__main__':
     parser.add_argument('--freq', type=str, default='h')
     parser.add_argument('--embed', type=str, default='timeF')
     
-    # MSTL parametersz
+    # MSTL parameters
     parser.add_argument('--num_basis', type=int, default=10)
     parser.add_argument('--orthogonal_lr', type=float, default=1e-3)
     parser.add_argument('--orthogonal_iters', type=int, default=300)
@@ -614,13 +756,21 @@ if __name__ == '__main__':
     parser.add_argument('--window_weekly', type=int, default=1008)
     parser.add_argument('--window_trend', type=int, default=4320)
     
+    # Seed parameter
+    parser.add_argument('--seed', type=int, default=42,
+                       help='Random seed for reproducibility')
+    
     args = parser.parse_args()
+    
+    # Set seed FIRST
+    set_seed(args.seed)
     
     print("=" * 80)
     print("HIERARCHICAL STRUCTURE ANALYSIS FOR MSTL COMPONENTS")
     print("=" * 80)
     print(f"Dataset: {args.data_path}")
     print(f"Max patterns per component: {args.max_patterns:,}")
+    print(f"Random seed: {args.seed}")
     
     # Load data
     from data_provider.data_factory import data_provider
@@ -628,20 +778,20 @@ if __name__ == '__main__':
     print("\nLoading training data...")
     train_data, train_loader = data_provider(args, flag='train')
     
-    # Extract components (direct from dataset, not loader!)
+    # Extract components
     data_dict = extract_mstl_components_from_dataset(train_data)
     
     # Component overview
     print("\nCreating component overview...")
     visualize_component_characteristics(data_dict, save_dir=args.save_dir)
     
-    # Analyze each component WITH ALL THREE TESTS
+    # Analyze each component
     results = {}
     window_sizes = {
         'daily': args.window_daily,
         'weekly': args.window_weekly,
         'trend': args.window_trend,
-        'residual': args.window_daily  # Same as daily
+        'residual': args.window_daily
     }
     
     # Run complete analysis on all components
@@ -664,6 +814,7 @@ if __name__ == '__main__':
             print(f"\n{comp.upper()}:")
             print(f"  Hierarchical:  {res['hierarchy_score']}/5 (cophenetic: {res['cophenetic_correlation']:.4f})")
             print(f"  Spherical:     {res['spherical_score']}/5")
-            print(f"  → PRIMARY: {res['primary_geometry']}")
+            print(f"  Euclidean:     {res['euclidean_score']}/5")
+            print(f"  → PRIMARY: {res['primary_geometry']} (confidence: {res['confidence']})")
     
-    print(f"\n All analyses saved to: {args.save_dir}/")
+    print(f"\n✓ All analyses saved to: {args.save_dir}/")

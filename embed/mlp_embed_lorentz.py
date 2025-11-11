@@ -7,33 +7,44 @@ sys.path.append(str(Path(__file__).resolve().parents[0]))
 from spec import safe_expmap, safe_expmap0
 
 class MLPEmbed(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim, n_layer=3, lookback=None):
+    def __init__(self, input_dim, hidden_dim, output_dim, n_layer=3, lookback=None, use_attention_pooling=False):
         super().__init__()
         self.lookback = lookback
+        self.use_attention_pooling = use_attention_pooling
         self.input_proj = nn.Linear(input_dim, hidden_dim)
         self.layers = nn.ModuleList([
             nn.Sequential(
                 nn.Linear(hidden_dim, hidden_dim),
                 nn.LayerNorm(hidden_dim),
                 nn.GELU(),
-                nn.Dropout(0.1)
+                nn.Dropout(0.5)
             ) for _ in range(n_layer)
         ])
         self.output_proj = nn.Linear(hidden_dim, output_dim)
+        if self.use_attention_pooling:
+            self.attention = nn.Sequential(
+                nn.Linear(hidden_dim, hidden_dim // 2),
+                nn.Tanh(),
+                nn.Linear(hidden_dim // 2, 1)
+            )
 
     def forward(self, x):
         """
-        x: [B, T, input_dim]
+        x: [B, seqlen, input_dim]
         returns: [B, output_dim]  (Euclidean latent, tangent vectors)
         """
-        # if self.lookback is not None and x.size(1) > self.lookback:
-        #     print(self.lookback)
-        #     x = x[:, -self.lookback:, :]
         x = self.input_proj(x)
         for layer in self.layers:
             x = layer(x)
-        x_pool = x.mean(dim=1)              # mean pooling would be good for point level forecasting
-        return self.output_proj(x_pool)
+        #Compresses a series to a vector.
+        # STEP 5: Pool across time (attention or mean)
+        if self.use_attention_pooling:
+            attn_scores = self.attention(x)  # [32, 336, 1]
+            attn_weights = torch.softmax(attn_scores, dim=1)  # [32, 336, 1]
+            x_pooled = (x * attn_weights).sum(dim=1)  # [32, 64]
+        else:
+            x_pooled = x.mean(dim=1)   # mean pooling would be good for point level forecasting
+        return self.output_proj(x_pooled)
 
 # --------------------------
 # Parallel Lorentz Encoder

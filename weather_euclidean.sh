@@ -1,24 +1,25 @@
 python run.py \
   --is_training 1 \
-  --model_id Weather_96_96_exp1_HScales \
+  --model_id Weather_96_720_exp1_HScales \
   --model HyperbolicForecasting \
   --data custom_decomposition \
-  --root_path ./time-series-dataset/dataset/weather/ \
+  --root_path ./time-series-dataset/dataset/ \
   --data_path weather.csv \
-  --features MS \
+  --features M \
   --seq_len 96 \
-  --pred_len 96 \
+  --pred_len 720 \
   --embed_dim 32 \
   --hidden_dim 64 \
   --batch_size 32 \
   --learning_rate 0.0001 \
-  --train_epochs 50 \
+  --train_epochs 30 \
   --use_decomposition \
   --enc_in 21 \
   --use_tensorboard \
-  --patience 6
+  --patience 6 \
   --manifold_type "Euclidean" \
   --use_hierarchy \
-  --use_amp
-
+  --use_amp \
+  --use_attention_pooling \
+  --use_gpu 
 

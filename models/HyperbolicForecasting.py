@@ -10,7 +10,7 @@ sys.path.append(str(Path(__file__).resolve().parents[0]))
 
 from Forecasting.Euclidean_Forecaster import PointForecastEuclidean
 from Forecasting.Forecaster import HyperbolicPointForecaster
-from Segment_Forecaster import HyperbolicSegmentForecaster
+from Forecasting.Segment_Forecaster import HyperbolicSegmentForecaster
 from spec import safe_expmap0
 
 class Model(nn.Module):

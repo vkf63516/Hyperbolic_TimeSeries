@@ -40,11 +40,11 @@ class MLPEmbed(nn.Module):
         # STEP 5: Pool across time (attention or mean)
         if self.use_attention_pooling:
             attn_scores = self.attention(x)  # [32, 336, 1]
-            attn_weights = softmax(attn_scores, dim=1)  # [32, 336, 1]
+            attn_weights = torch.softmax(attn_scores, dim=1)  # [32, 336, 1]
             x_pooled = (x * attn_weights).sum(dim=1)  # [32, 64]
         else:
             x_pooled = x.mean(dim=1)   # mean pooling would be good for point level forecasting
-        return self.output_proj(x_pool)
+        return self.output_proj(x_pooled)
 
 class ParallelEuclideanEmbed(nn.Module):
     def __init__(self, lookback, input_dim, embed_dim=32, hidden_dim=64,
@@ -60,7 +60,6 @@ class ParallelEuclideanEmbed(nn.Module):
                 nn.Parameter(torch.log(torch.tensor(hierarchy_scales[2]))),  # daily
                 nn.Parameter(torch.log(torch.tensor(hierarchy_scales[3])))   # residual
             ])
-            self.residual_scale = nn.Parameter(torch.tensor(hierarchy_scales[-1]))
         self.trend_embed = MLPEmbed(
             input_dim=input_dim, 
             hidden_dim=hidden_dim, 
