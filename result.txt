@@ -13,15 +13,16 @@ mse:0.3581330478191376, mae:0.4167640805244446, rse:0.7886319756507874
 Weather_336_exp1_HScales_HyperbolicForecasting_custom_decomposition_ftMS_sl336_pl96_exp_ebfixed_Euclidean_1_seed2024  
 mse:0.4486302137374878, mae:0.4482463300228119, rse:0.8826661705970764
 
-Weather_384_exp1_HScales_HyperbolicForecasting_custom_decomposition_ftMS_sl384_pl96_exp_ebfixed_Euclidean_0_seed2023  
-mse:0.4743698835372925, mae:0.47035226225852966, rse:0.9076340198516846
-
-Weather_336_exp1_HScales_HyperbolicForecasting_custom_decomposition_ftMS_sl336_pl96_exp_ebfixed_Euclidean_0_seed2023  
-mse:0.4723006784915924, mae:0.44746583700180054, rse:0.9056523442268372
 
 Weather_96_96_exp1_HScales_HyperbolicForecasting_custom_decomposition_ftM_sl96_pl96_exp_ebfixed_Euclidean_0_seed2023  
 mse:0.3022753596305847, mae:0.3466168940067291, rse:0.7245253324508667
 
 Weather_96_720_exp1_HScales_HyperbolicForecasting_custom_decomposition_ftM_sl96_pl720_exp_ebfixed_Euclidean_0_seed2023  
 mse:0.5406925678253174, mae:0.5403838157653809, rse:0.9676253795623779
+
+Weather_96_96_exp1_HScales_HyperbolicForecasting_custom_decomposition_ftM_sl96_pl96_exp_ebfixed_Euclidean_0_seed2023  
+mse:0.3204231262207031, mae:0.36201032996177673, rse:0.7459577322006226
+
+Weather_96_96_exp1_HScales_HyperbolicForecasting_custom_decomposition_ftM_sl96_pl96_exp_ebfixed_Euclidean_0_seed2023  
+mse:0.5276944637298584, mae:0.5349376201629639, rse:0.9572901129722595
 

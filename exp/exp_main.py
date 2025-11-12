@@ -19,7 +19,6 @@ from torch import optim
 from torch.optim import lr_scheduler
 from spec import EarlyStopping, compute_hierarchical_loss_with_manifold_dist
 from Decomposition.TimeBase_Series_Trend_Decomposition import TimeBaseMSTL
-from Decomposition.tensor_utils import build_decomposition_tensors
 from torch.utils.tensorboard import SummaryWriter
 import pandas as pd
 
@@ -109,7 +108,7 @@ class Exp_Main(Exp_Basic):
         self.model.eval()
     
         with torch.no_grad():
-            for i, (X_dict, Y_dict, batch_x_mark, batch_y_mark) in enumerate(vali_loader):
+            for i, (X_dict, batch_y, batch_x_mark, batch_y_mark) in enumerate(vali_loader):
                 # ========================================
                 # IDENTICAL to train loop up to forward pass
                 # ========================================
@@ -118,29 +117,22 @@ class Exp_Main(Exp_Basic):
                 daily_x = X_dict['seasonal_daily'].float().to(self.device)
                 resid_x = X_dict['residual'].float().to(self.device)
             
-                trend_y = Y_dict['trend'].float().to(self.device)
-                weekly_y = Y_dict['seasonal_weekly'].float().to(self.device)
-                daily_y = Y_dict['seasonal_daily'].float().to(self.device)
-                resid_y = Y_dict['residual'].float().to(self.device)
-            
-                target = (trend_y + weekly_y + daily_y + resid_y)
-            
-                if not self.args.use_segments:
-                    target = target[:, -self.args.pred_len:, :]
-            
-                if target.dim() == 3 and target.shape[-1] == 1:
-                    target = target.squeeze(-1)
+                batch_y = batch_y.float().to(self.device)
             
                 outputs = self.model(
                     trend=trend_x,
                     seasonal_weekly=weekly_x,
                     seasonal_daily=daily_x,
                     residual=resid_x,
-                    teacher_forcing=False                
                 )
+                f_dim = -1 if self.args.features == 'MS' else 0
+                batch_y = batch_y[:, -self.args.pred_len:, f_dim:]
+                outputs = outputs[:, -self.args.pred_len:, f_dim:]
+                preds = outputs.detach().cpu()
+                trues = batch_y.detach().cpu()
             
                 # Compute validation loss
-                loss = criterion(outputs, target)
+                loss = criterion(preds, trues)
                 total_loss.append(loss.item())
         total_loss = np.average(total_loss)
         self.model.train()
@@ -183,7 +175,7 @@ class Exp_Main(Exp_Basic):
 
             self.model.train()
             epoch_time = time.time()
-            for i, (X_dict, Y_dict, batch_x_mark, batch_y_mark) in enumerate(train_loader):
+            for i, (X_dict, batch_y, batch_x_mark, batch_y_mark) in enumerate(train_loader):
                 global_step = epoch * len(train_loader) + i
                 iter_count += 1
                 model_geooptim.zero_grad()
@@ -193,22 +185,11 @@ class Exp_Main(Exp_Basic):
                 weekly_x = X_dict['seasonal_weekly'].float().to(self.device)
                 daily_x = X_dict['seasonal_daily'].float().to(self.device)
                 resid_x = X_dict['residual'].float().to(self.device)
-                
-                trend_y = Y_dict['trend'].float().to(self.device)
-                weekly_y = Y_dict['seasonal_weekly'].float().to(self.device)
-                daily_y = Y_dict['seasonal_daily'].float().to(self.device)
-                resid_y = Y_dict['residual'].float().to(self.device)
-
                 # Ground truth
-                target = (trend_y + weekly_y + daily_y + resid_y)
+                batch_y = batch_y.float().to(self.device)
             
                 # For point-level, extract only prediction part
-                if not self.args.use_segments:
-                    target = target[:, -self.args.pred_len:, :]
-            
                 # Squeeze if needed
-                if target.dim() == 3 and target.shape[-1] == 1:
-                    target = target.squeeze(-1)
             
                 # Forward
                 if self.args.use_amp:
@@ -217,22 +198,24 @@ class Exp_Main(Exp_Basic):
                             trend=trend_x,
                             seasonal_weekly=weekly_x,
                             seasonal_daily=daily_x,
-                            residual=resid_x,
-                            teacher_forcing=True,
-                            target=target
+                            residual=resid_x
                         )
-                        loss = criterion(outputs, target)
+                        f_dim = -1 if self.args.features == 'MS' else 0
+                        batch_y = batch_y[:, -self.args.pred_len:, f_dim:]
+                        outputs = outputs[:, -self.args.pred_len:, f_dim:]
+                        loss = criterion(outputs, batch_y)
                         train_loss.append(loss.item())
                 else:
                     outputs = self.model(
                         trend=trend_x,
                         seasonal_weekly=weekly_x,
                         seasonal_daily=daily_x,
-                        residual=resid_x,
-                        teacher_forcing=True,
-                        target=target
+                        residual=resid_x
                     )
-                    loss = criterion(outputs, target)
+                    f_dim = -1 if self.args.features == 'MS' else 0
+                    batch_y = batch_y[:, -self.args.pred_len:, f_dim:]
+                    outputs = outputs[:, -self.args.pred_len:, f_dim:]
+                    loss = criterion(outputs, batch_y)
                     train_loss.append(loss.item())
                 if i % 100 == 0:
                     self.tb_logger.log_losses(
@@ -375,7 +358,7 @@ class Exp_Main(Exp_Basic):
 
         self.model.eval()
         with torch.no_grad():
-            for i, (X_dict, Y_dict, batch_x_mark, batch_y_mark) in enumerate(test_loader):
+            for i, (X_dict, batch_y, batch_x_mark, batch_y_mark) in enumerate(test_loader):
                 # ========================================
                 # Load Input Components (SAME AS TRAIN)
                 # ========================================
@@ -385,25 +368,12 @@ class Exp_Main(Exp_Basic):
                 resid_x = X_dict['residual'].float().to(self.device)
             
                 # ========================================
-                # Load Target Components (SAME AS TRAIN)
+                # Load Ground Truth (SAME AS TRAIN)
                 # ========================================
-                trend_y = Y_dict['trend'].float().to(self.device)
-                weekly_y = Y_dict['seasonal_weekly'].float().to(self.device)
-                daily_y = Y_dict['seasonal_daily'].float().to(self.device)
-                resid_y = Y_dict['residual'].float().to(self.device)
-            
-                # ========================================
-                # Prepare Ground Truth (SAME AS TRAIN)
-                # ========================================
-                target = (trend_y + weekly_y + daily_y + resid_y)
+                batch_y = batch_y.float().to(self.device)
             
                 # For point-level, extract only prediction part
-                if not self.args.use_segments:
-                    target = target[:, -self.args.pred_len:, :]
             
-                # Squeeze if needed
-                if target.dim() == 3 and target.shape[-1] == 1:
-                    target = target.squeeze(-1)
             
                 # ========================================
                 # Forward Pass (SAME AS TRAIN, but no AMP)
@@ -412,10 +382,12 @@ class Exp_Main(Exp_Basic):
                     trend=trend_x,
                     seasonal_weekly=weekly_x,
                     seasonal_daily=daily_x,
-                    residual=resid_x,
-                    teacher_forcing=False
+                    residual=resid_x
                 )
-            
+                f_dim = -1 if self.args.features == 'MS' else 0
+                batch_y = batch_y[:, -self.args.pred_len:, f_dim:]
+                outputs = outputs[:, -self.args.pred_len:, f_dim:]
+        
             # ========================================
             # For Segment-Level: Flatten for Metrics
             # ========================================
@@ -425,19 +397,18 @@ class Exp_Main(Exp_Basic):
                         B, num_pred_segs, seg_len = outputs.shape
                         outputs = outputs.reshape(B, num_pred_segs * seg_len)
                 
-                # target: [B, num_pred_segs, seg_len] → [B, pred_len]
-                    if target.dim() == 3:
-                        B, num_pred_segs, seg_len = target.shape
-                        target = target.reshape(B, num_pred_segs * seg_len)
+                    if batch_y.dim() == 3:
+                        B, num_pred_segs, seg_len = batch_y.shape
+                        batch_y = batch_y.reshape(B, num_pred_segs * seg_len)
             
             # ========================================
             # Convert to NumPy
             # ========================================
                 outputs = outputs.detach().cpu().numpy()
-                target = target.detach().cpu().numpy()
+                batch_y = batch_y.detach().cpu().numpy()
             
                 preds.append(outputs)
-                trues.append(target)
+                trues.append(batch_y)
 
         # ========================================
         # Concatenate All Batches

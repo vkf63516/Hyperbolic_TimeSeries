@@ -69,8 +69,7 @@ class HyperbolicPointForecaster(nn.Module):
             manifold=self.manifold
         )
     
-    def forward(self, trend, seasonal_weekly, seasonal_daily, residual, 
-                teacher_forcing=False, target=None):
+    def forward(self, trend, seasonal_weekly, seasonal_daily, residual):
         """
         Args:
             trend, seasonal_weekly, seasonal_daily, residual: [B, lookback, n_features]

@@ -43,7 +43,7 @@ class PointForecastEuclidean(nn.Module):
             hidden_dim=hidden_dim
         )
     
-    def forward(self, trend, weekly, daily, residual, teacher_forcing=False, target=None):
+    def forward(self, trend, weekly, daily, residual):
         """
         Args:
             trend, weekly, daily, residual: [B, lookback, input_dim]

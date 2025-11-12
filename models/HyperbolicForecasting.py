@@ -86,8 +86,7 @@ class Model(nn.Module):
 
    
     
-    def forward(self, trend, seasonal_weekly, seasonal_daily, 
-                residual, teacher_forcing=False, target=None):
+    def forward(self, trend, seasonal_weekly, seasonal_daily, residual):
         """
         Forward pass with explicit decomposed components.
         Use this when you have TimeBaseMSTL decomposition.
@@ -102,8 +101,7 @@ class Model(nn.Module):
             predictions: [B, pred_len, output_dim]
         """
 
-        forecasts = self.forecaster(trend, seasonal_weekly, seasonal_daily, residual,
-                                    teacher_forcing, target)
+        forecasts = self.forecaster(trend, seasonal_weekly, seasonal_daily, residual)
         x_hat = forecasts["predictions"]
         # Get individual and combined hyperbolic representations
         

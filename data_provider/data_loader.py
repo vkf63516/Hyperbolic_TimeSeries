@@ -430,6 +430,8 @@ class Dataset_Custom_Decomposition(Dataset):
             data_stamp = data_stamp.transpose(1, 0)
         
         self.data_stamp = data_stamp
+        self.data_x = data[border1:border2]
+        self.data_y = data[border1:border2]
         mode_str = "segment-level" if self.use_segments else "point-level"
         print(f"[{self.flag}] Data preparation complete ({mode_str}). Temporal length: {self.temporal_length}")
 
@@ -512,10 +514,10 @@ class Dataset_Custom_Decomposition(Dataset):
         Returns decomposed components in dict format.
         
         Point-level mode:
-            Returns: X_dict, Y_dict with [seq_len, C] and [label_len + pred_len, C] arrays
+            Returns: X_dict with [seq_len, C] and [label_len + pred_len, C] arrays
         
         Segment-level mode:
-            Returns: X_dict, Y_dict with [num_segs, seg_len, C] arrays
+            Returns: X_dict with [num_segs, seg_len, C] arrays
         """
         s_begin = index
         s_end = s_begin + self.seq_len
@@ -527,19 +529,17 @@ class Dataset_Custom_Decomposition(Dataset):
             # Segment-Level Mode Overlapping Window
             # ========================================
             X_dict = {}
-            Y_dict = {}
             
             for comp_name, comp_data in self.decomposed_components.items():
                 # Extract window first
                 x_seq = comp_data[s_begin:s_end]  # [seq_len, C]
-                y_seq = comp_data[r_begin:r_end]  # [label_len + pred_len, C]
                 
                 # Creating segments
                 X_dict[comp_name] = self._create_segments(x_seq, self.mstl_period)
-                Y_dict[comp_name] = self._create_segments(y_seq, self.mstl_period)
             
             seq_x_mark = self.data_stamp[s_begin:s_end]
             seq_y_mark = self.data_stamp[r_begin:r_end]
+            seq_y = self.data_y[r_begin:r_end]
             
         else:
             # ========================================
@@ -552,17 +552,11 @@ class Dataset_Custom_Decomposition(Dataset):
                 'residual': self.decomposed_components['residual'][s_begin:s_end]
             }
             
-            Y_dict = {
-                'trend': self.decomposed_components['trend'][r_begin:r_end],
-                'seasonal_weekly': self.decomposed_components['seasonal_weekly'][r_begin:r_end],
-                'seasonal_daily': self.decomposed_components['seasonal_daily'][r_begin:r_end],
-                'residual': self.decomposed_components['residual'][r_begin:r_end]
-            }
-            
             seq_x_mark = self.data_stamp[s_begin:s_end]
             seq_y_mark = self.data_stamp[r_begin:r_end]
+            seq_y = self.data_y[r_begin:r_end]
 
-        return X_dict, Y_dict, seq_x_mark, seq_y_mark
+        return X_dict, seq_y, seq_x_mark, seq_y_mark
 
     def __len__(self):
         """
