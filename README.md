@@ -99,13 +99,6 @@ Implements TimeBaseMSTL - a TimeBase-inspired decomposition using learned orthog
             transform(df): Decomposes new data using learned basis
             Returns per-feature decomposition dictionary
 
-Decomposition/tensor_utils.py
-
-Utility functions for converting decomposition results to PyTorch tensors:
-
-    build_decomposition_tensors(): Converts TimeBaseMSTL output to torch tensors with shape [T, 1] for each component
-    build_mamba_input_tensors(): Constructs model-ready tensors of shape [num_series, T, 3] for Mamba-based models
-
 Decomposition/visualization_utils.py
 
 Visualization tools for analyzing decomposition quality:
@@ -146,31 +139,11 @@ Implements embeddings for Euclidean space:
         Optional learnable hierarchy scales
         Separate embedding networks for each component
 
-Utility Modules
-utils/tools.py
+Helper Modules
+spec.py
 
 Helper functions for training:
 
     adjust_learning_rate(): Learning rate scheduling with multiple strategies (type1-6, TST, constant)
     EarlyStopping: Early stopping callback with patience counter and checkpoint saving
     dotdict: Dictionary wrapper for dot-notation attribute access
-
-utils/masking.py
-
-Attention masking utilities:
-
-    TriangularCausalMask: Upper triangular mask for causal (autoregressive) attention
-    ProbMask: Probabilistic attention mask based on scores
-    LocalMask: Local attention mask with logarithmic window size
-
-utils/augmentations.py
-
-Data augmentation strategies for time series:
-
-    BatchAugmentation: Augmentation applied at batch level
-        freq_mask(): Frequency domain masking
-        freq_mix(): Frequency domain mixing between samples
-        noise(): Add Gaussian noise
-        vFlip(): Vertical flip (negate values)
-        hFlip(): Horizontal flip (reverse time order)
-        time_combination(): Time-based combinations (partial implementation shown)

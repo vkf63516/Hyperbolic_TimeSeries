@@ -32,7 +32,8 @@ class HyperbolicPointForecaster(nn.Module):
                 hidden_dim=hidden_dim,
                 curvature=curvature, 
                 use_hierarchy=use_hierarchy,
-                hierarchy_scales=hierarchy_scales
+                hierarchy_scales=hierarchy_scales,
+                use_attention_pooling=use_attention_pooling
             )
         else:
             self.embed_hyperbolic = ParallelLorentz(
@@ -42,7 +43,8 @@ class HyperbolicPointForecaster(nn.Module):
                 hidden_dim=hidden_dim,
                 curvature=curvature,
                 use_hierarchy=use_hierarchy,
-                hierarchy_scales=hierarchy_scales
+                hierarchy_scales=hierarchy_scales,
+                use_attention_pooling=use_attention_pooling
             )
         
         self.manifold = self.embed_hyperbolic.manifold

@@ -3,18 +3,72 @@ import torch.nn as nn
 from embed.mlp_embed_euclidean import ParallelEuclideanEmbed
 from Lifting.euclidean_reconstructor import EuclideanReconstructor
 
+class ResidualDynamics(nn.Module):
+    """
+    Residual block for dynamics prediction.
+    Outputs: z_next = z + weighted_residual
+    This prevents drift by keeping updates close to identity mapping.
+    """
+    def __init__(self, embed_dim, hidden_dim, dropout=0.3, n_layers=2):
+        super().__init__()
+        
+        layers = []
+        
+        # Input layer
+        layers.append(nn.Linear(embed_dim, hidden_dim))
+        layers.append(nn.LayerNorm(hidden_dim))
+        layers.append(nn.GELU())
+        layers.append(nn.Dropout(dropout))
+        
+        # Hidden layers
+        for _ in range(n_layers - 1):
+            layers.append(nn.Linear(hidden_dim, hidden_dim))
+            layers.append(nn.LayerNorm(hidden_dim))
+            layers.append(nn.GELU())
+            layers.append(nn.Dropout(dropout))
+        
+        # Output layer (maps back to embed_dim)
+        layers.append(nn.Linear(hidden_dim, embed_dim))
+        
+        self.residual_net = nn.Sequential(*layers)
+        
+        # Learnable residual weight (initialized near 0 for stability)
+        self.residual_weight = nn.Parameter(torch.tensor(0.1))
+    
+    def forward(self, z):
+        """
+        Args:
+            z: [B, embed_dim] - current state
+        Returns:
+            z_next: [B, embed_dim] - next state with residual connection
+        """
+        residual = self.residual_net(z)
+        # Residual connection: z_next = z + α * f(z)
+        # where α is learnable and starts small
+        return z + self.residual_weight * residual
+
+
 class PointForecastEuclidean(nn.Module):
     """
     Point-level Euclidean forecasting
     NO manifold operations - pure Euclidean arithmetic
     """
     def __init__(self, lookback, n_features, pred_len, embed_dim=32, hidden_dim=64,
-                 use_hierarchy=False, hierarchy_scales=[0.5, 1.0, 1.0, 1.5], embed_dropout=0.5, dynamic_dropout=0.1, use_attention_pooling=False):
+                 use_hierarchy=False, hierarchy_scales=[0.5, 1.0, 1.0, 1.5], 
+                 use_attention_pooling=False, use_revin=False, 
+                 use_truncated_bptt=False, truncate_every=16):
         super().__init__()
         self.lookback = lookback
         self.embed_dim = embed_dim
         self.pred_len = pred_len
-        
+        self.use_revin = use_revin
+        self.use_truncated_bptt = use_truncated_bptt
+        self.truncate_every = truncate_every
+        if self.use_revin:
+            self.revin_trend = RevIN(num_channels=n_features, affine=True)
+            self.revin_weekly = RevIN(num_channels=n_features, affine=True)
+            self.revin_daily = RevIN(num_channels=n_features, affine=True)
+            self.revin_residual = RevIN(num_channels=n_features, affine=True)
         # Encoder: 4 parallel Mamba blocks
         self.embed = ParallelEuclideanEmbed(
             lookback=lookback,
@@ -22,25 +76,23 @@ class PointForecastEuclidean(nn.Module):
             embed_dim=embed_dim,
             hidden_dim=hidden_dim,
             use_hierarchy=use_hierarchy,
+            n_layer=3,
             hierarchy_scales=hierarchy_scales,
             use_attention_pooling=use_attention_pooling
         )
-        self.dynamics = nn.Sequential(
-            nn.Linear(embed_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
-            nn.GELU(),
-            nn.Dropout(0.1),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
-            nn.GELU(),
-            nn.Linear(hidden_dim, embed_dim)
+        self.dynamics = ResidualDynamics(
+            embed_dim=embed_dim,
+            hidden_dim=hidden_dim,
+            dropout=0.3,
+            n_layers=2
         )
         self.step_size = nn.Parameter(torch.tensor(0.1))
         # Reconstructor: simple MLP (no logmap/expmap needed!)
         self.reconstructor = EuclideanReconstructor(
             embed_dim=embed_dim,
             output_dim=n_features,
-            hidden_dim=hidden_dim
+            hidden_dim=hidden_dim,
+            dropout=0.2
         )
     
     def forward(self, trend, weekly, daily, residual):
@@ -54,33 +106,53 @@ class PointForecastEuclidean(nn.Module):
             euclidean_trajectory: [B, horizon, embed_dim]
         """
         # Initial encoding
-        embed_output = self.embed(trend, weekly, daily, residual)
+        if self.use_revin:
+            trend_norm, trend_stats = self.revin_trend.normalize(trend)
+            weekly_norm, weekly_stats = self.revin_weekly.normalize(weekly)
+            daily_norm, daily_stats = self.revin_daily.normalize(daily)
+            residual_norm, residual_stats = self.revin_residual.normalize(residual)
+        else:
+            trend_norm, weekly_norm, daily_norm, residual_norm = trend, weekly, daily, residual
+            trend_stats = weekly_stats = daily_stats = residual_stats = None
+        
+        # Step 2: Initial encoding
+        embed_output = self.embed(trend_norm, weekly_norm, daily_norm, residual_norm)
         z_current = embed_output['combined_e']  # [B, embed_dim]
         
         predictions = []
         euclidean_trajectory = []
         
-        # Keep rolling history
-        # trend_hist = trend.clone()
-        # weekly_hist = weekly.clone()
-        # daily_hist = daily.clone()
-        # residual_hist = residual.clone()
-        
+        # Step 3: Autoregressive forecasting with residual dynamics
         for step in range(self.pred_len):
-            # Reconstruct: just MLP, no manifold operations!
-            x_pred = self.reconstructor(z_current)  # [B, input_dim]
-            predictions.append(x_pred)
+            # Store current state
             euclidean_trajectory.append(z_current)
-
-            # if teacher_forcing and target is not None:
-            #     x_next = target[:, step:, :]
-            # Predict velocity (change in latent space)
-            velocity = self.dynamics(z_current) # [B, embed_dim]
-            step_size = torch.sigmoid(self.step_size)
-            # Update history
-            z_current = z_current + step_size * velocity  # [B, embed_dim]
+            
+            # Reconstruct to observation space (normalized)
+            x_pred_norm = self.reconstructor(z_current)  # [B, n_features]
+            
+            # Denormalize prediction (use trend stats as representative)
+            if self.use_revin:
+                x_pred = self.revin_trend.denormalize(
+                    x_pred_norm.unsqueeze(1), 
+                    trend_stats
+                ).squeeze(1)
+            else:
+                x_pred = x_pred_norm
+            
+            predictions.append(x_pred)
+            
+            # Predict next state with residual connection
+            z_next = self.dynamics(z_current)  # [B, embed_dim]
+            
+            # Interpolate between current and next state
+            step_size = torch.sigmoid(self.step_size)  # ∈ [0, 1]
+            z_current = z_current + step_size * (z_next - z_current)
+            
+            # Truncated BPTT: Detach gradients every N steps
+            if self.use_truncated_bptt and (step + 1) % self.truncate_every == 0 and step < self.pred_len - 1:
+                z_current = z_current.detach()
         
         return {
-            'predictions': torch.stack(predictions, dim=1),          # [B, horizon, input_dim]
-            'euclidean_trajectory': torch.stack(euclidean_trajectory, dim=1),  # [B, horizon, embed_dim]
+            'predictions': torch.stack(predictions, dim=1),          # [B, pred_len, n_features]
+            'euclidean_trajectory': torch.stack(euclidean_trajectory, dim=1),  # [B, pred_len, embed_dim]
         }

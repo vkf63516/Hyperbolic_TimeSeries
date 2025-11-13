@@ -60,7 +60,7 @@ class ParallelLorentz(nn.Module):
     """
     def __init__(self, lookback, input_dim, embed_dim=32, hidden_dim=64, 
                  curvature=1.0, use_hierarchy=False, hierarchy_scales=[0.5, 1.0, 1.5, 2.0],
-                 n_layer=2, use_attention_pooling=True):
+                 n_layer=2, use_attention_pooling=False):
         """
         Args:
             lookback: int - lookback window size
@@ -298,4 +298,165 @@ class ParallelLorentz(nn.Module):
             "residual_h": z_residual_h,
             "combined_tangent": combined_tangent,
             "combined_h": combined_h
+        }
+
+# Add this class to the end of your existing mlp_embed_lorentz.py file
+
+class SingleLorentz(nn.Module):
+    """
+    Encodes a single component to hyperbolic space.
+    Used for testing individual components in isolation.
+    """
+    def __init__(self, lookback, input_dim, embed_dim=32, hidden_dim=64, 
+                 curvature=1.0, n_layer=2, use_attention_pooling=False):
+        """
+        Args:
+            lookback: int - lookback window size
+            input_dim: int - number of input features
+            embed_dim: int - dimension of hyperbolic embeddings
+            hidden_dim: int - hidden dimension for MLP
+            curvature: float - curvature of Lorentz manifold
+            n_layer: int - number of MLP layers
+            use_attention_pooling: bool - use attention pooling
+        """
+        super().__init__()
+        
+        # Single MLP encoder
+        self.embed = MLPEmbed(
+            input_dim=input_dim,
+            hidden_dim=hidden_dim,
+            output_dim=embed_dim,
+            n_layer=n_layer,
+            lookback=lookback,
+            use_attention_pooling=use_attention_pooling
+        )
+        
+        # Lorentz manifold
+        self.manifold = geoopt.manifolds.Lorentz(k=curvature)
+        
+        # Scaling parameter
+        self.effective_scale = nn.Parameter(torch.tensor(0.1))
+    
+    def forward(self, x):
+        """
+        Encode single component to hyperbolic space.
+        
+        Args:
+            x: [B, seq_len, input_dim] - single time series component
+        
+        Returns:
+            dict with:
+                - tangent: [B, embed_dim] - tangent space representation
+                - hyperbolic: [B, embed_dim+1] - point on Lorentz manifold
+        """
+        # 1) Encode to Euclidean latent (tangent vector)
+        z_tangent = self.encoder(x)  # [B, embed_dim]
+        
+        # 2) Scale
+        effective_scale = torch.tanh(self.effective_scale)
+        scaled_tangent = z_tangent * effective_scale
+        
+        # 3) Map to hyperbolic space
+        z_h = safe_expmap0(self.manifold, scaled_tangent)
+        z_h = self.manifold.projx(z_h)
+        
+        return {
+            "tangent": z_tangent,
+            "lorentz": z_h
+        }
+
+
+class HybridLorentz(nn.Module):
+    """
+    Hybrid encoder: One component in hyperbolic, others in Euclidean.
+    Perfect for ablation studies.
+    """
+    def __init__(self, lookback, input_dim, embed_dim=32, hidden_dim=64, 
+                 curvature=1.0, hyperbolic_component='seasonal_weekly',
+                 n_layer=2, use_attention_pooling=False):
+        """
+        Args:
+            hyperbolic_component: str - which component to encode in hyperbolic space
+                Options: 'trend', 'seasonal_weekly', 'seasonal_daily', 'residual'
+        """
+        super().__init__()
+        
+        self.hyperbolic_component = hyperbolic_component
+        self.components = ['trend', 'seasonal_weekly', 'seasonal_daily', 'residual']
+        
+        # Lorentz manifold for hyperbolic component
+        self.manifold = geoopt.manifolds.Lorentz(k=curvature)
+        
+        # Create encoders - one hyperbolic, rest Euclidean
+        self.encoders = nn.ModuleDict()
+        
+        for comp in self.components:
+            self.encoders[comp] = MLPEmbed(
+                input_dim=input_dim,
+                hidden_dim=hidden_dim,
+                output_dim=embed_dim,
+                n_layer=n_layer,
+                lookback=lookback,
+                use_attention_pooling=use_attention_pooling
+            )
+        
+        # Scaling parameters
+        self.hyp_scale = nn.Parameter(torch.tensor(0.1))  # for hyperbolic component
+        self.euc_scale = nn.Parameter(torch.tensor(1.0))  # for Euclidean components
+    
+    def forward(self, trend, seasonal_weekly, seasonal_daily, residual):
+        """
+        Encode components with hybrid approach.
+        
+        Args:
+            trend, seasonal_weekly, seasonal_daily, residual: [B, seq_len, input_dim]
+        
+        Returns:
+            dict with:
+                - tangent_vectors: dict of [B, embed_dim] for each component
+                - hyperbolic_point: [B, embed_dim+1] (only for hyperbolic component)
+                - combined_tangent: [B, embed_dim] - all components in tangent space
+                - component_types: dict showing which space each uses
+        """
+        components_data = {
+            'trend': trend,
+            'seasonal_weekly': seasonal_weekly,
+            'seasonal_daily': seasonal_daily,
+            'residual': residual
+        }
+        
+        tangent_vectors = {}
+        hyperbolic_point = None
+        
+        for comp_name, comp_data in components_data.items():
+            # Encode to latent space
+            z_latent = self.encoders[comp_name](comp_data)  # [B, embed_dim]
+            
+            if comp_name == self.hyperbolic_component:
+                # Map to hyperbolic space
+                scale = torch.tanh(self.hyp_scale)
+                z_scaled = z_latent * scale
+                z_h = safe_expmap0(self.manifold, z_scaled)
+                z_h = self.manifold.projx(z_h)
+                hyperbolic_point = z_h
+                
+                # Get tangent for combination
+                tangent_vectors[comp_name] = self.manifold.logmap0(z_h)
+            else:
+                # Keep in Euclidean space (just scale)
+                scale = torch.sigmoid(self.euc_scale)
+                tangent_vectors[comp_name] = z_latent * scale
+        
+        # Combine all in tangent space
+        combined_tangent = sum(tangent_vectors.values())
+        
+        return {
+            "tangent_vectors": tangent_vectors,
+            "hyperbolic_point": hyperbolic_point,
+            "combined_tangent": combined_tangent,
+            "hyperbolic_component": self.hyperbolic_component,
+            "component_types": {
+                comp: ('hyperbolic' if comp == self.hyperbolic_component else 'euclidean')
+                for comp in self.components
+            }
         }

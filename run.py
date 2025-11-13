@@ -27,6 +27,8 @@ parser.add_argument('--use_decomposition', action='store_true', default=False,
                     help='Use TimeBaseMSTL decomposition')
 parser.add_argument('--num_basis', type=int, default=10,
                     help='number of basis components for TimeBaseMSTL')
+parser.add_argument('--use_wandb', action='store_true', 
+                    help='use wandb for experiment tracking')
 parser.add_argument("--use_attention_pooling", action="store_true", default=False,
                     help="uses attention to give more relevance to specific timesteps")
 parser.add_argument('--orthogonal_lr', type=float, default=1e-3,
@@ -65,6 +67,7 @@ parser.add_argument('--pred_len', type=int, default=96, help='prediction sequenc
 parser.add_argument('--enc_in', type=int, default=7, help='encoder input size')
 parser.add_argument('--embed', type=str, default='fixed',help='time features encoding, options:[timeF, fixed, learned]')
 # optimization
+parser.add_argument('--use_revin', action='store_true', default=False, help='RevIN')
 parser.add_argument('--num_workers', type=int, default=10, help='data loader num workers')
 parser.add_argument('--itr', type=int, default=1, help='experiment runs')
 parser.add_argument('--train_epochs', type=int, default=100, help='train epochs')

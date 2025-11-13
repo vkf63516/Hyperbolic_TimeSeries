@@ -57,7 +57,7 @@ class SegmentMLPEmbed(nn.Module):
         B, N_seg, seg_len, C = x.shape
         
         # Flatten each segment
-        x = x.reshape(B, N_seg, seg_len * C)
+        x = x.reshape(B, N_seg * seg_len, C)
         
         # Encode segments
         x = self.segment_encoder(x)  # [B, N_segments, hidden_dim]

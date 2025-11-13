@@ -15,16 +15,14 @@ class EuclideanReconstructor(nn.Module):
         layers.append(nn.Linear(embed_dim, hidden_dim))
         layers.append(nn.LayerNorm(hidden_dim))  # Better than BatchNorm for sequences
         layers.append(nn.GELU())                 # Smoother than ReLU
-        if dropout > 0:
-            layers.append(nn.Dropout(dropout))
+        layers.append(nn.Dropout(dropout))
         
         # Hidden layers
         for _ in range(n_layers - 1):
             layers.append(nn.Linear(hidden_dim, hidden_dim))
             layers.append(nn.LayerNorm(hidden_dim))
             layers.append(nn.GELU())
-            if dropout > 0:
-                layers.append(nn.Dropout(dropout))
+            layers.append(nn.Dropout(dropout))
         
         # Output layer
         layers.append(nn.Linear(hidden_dim, output_dim))

@@ -39,8 +39,8 @@ class MLPEmbed(nn.Module):
         #Compresses a series to a vector.
         # STEP 5: Pool across time (attention or mean)
         if self.use_attention_pooling:
-            attn_scores = self.attention(x)  # [32, 336, 1]
-            attn_weights = torch.softmax(attn_scores, dim=1)  # [32, 336, 1]
+            attn_scores = self.attention(x)  # [32, 96, 1]
+            attn_weights = torch.softmax(attn_scores, dim=1)  # [32, 96, 1]
             x_pooled = (x * attn_weights).sum(dim=1)  # [32, 64]
         else:
             x_pooled = x.mean(dim=1)   # mean pooling would be good for point level forecasting
@@ -49,7 +49,7 @@ class MLPEmbed(nn.Module):
 class ParallelEuclideanEmbed(nn.Module):
     def __init__(self, lookback, input_dim, embed_dim=32, hidden_dim=64,
                 use_hierarchy=False, hierarchy_scales=[0.5,1.0,1.5,2.0], 
-                n_layer=3, use_attention_pooling=True):
+                n_layer=2, use_attention_pooling=False):
         super().__init__()
         # 5 parallel Mamba encoder blocks
         self.use_hierarchy = use_hierarchy

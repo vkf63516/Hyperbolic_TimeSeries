@@ -5,7 +5,7 @@ Controlled by args.use_segments flag:
 - use_segments=True: Segment-level hyperbolic space (SegmentParallelLorentzBlock)
 - use_segments=False: Point-level hyperbolic space (ParallelLorentzBlock)
 """
-from tensorboard_logger import EnhancedTensorBoardLogger
+from wandb_logger import WandbLogger
 from data_provider.data_factory import data_provider
 from exp.exp_basic import Exp_Basic
 from models import HyperbolicForecasting
@@ -19,7 +19,6 @@ from torch import optim
 from torch.optim import lr_scheduler
 from spec import EarlyStopping, compute_hierarchical_loss_with_manifold_dist
 from Decomposition.TimeBase_Series_Trend_Decomposition import TimeBaseMSTL
-from torch.utils.tensorboard import SummaryWriter
 import pandas as pd
 
 import os
@@ -32,6 +31,7 @@ import numpy as np
 
 class Exp_Main(Exp_Basic):
     def __init__(self, args):
+        self.wandb_logger = None
         super(Exp_Main, self).__init__(args)
         self.use_decomposition = args.use_decomposition
         self.n_basis_components = args.num_basis
@@ -43,23 +43,41 @@ class Exp_Main(Exp_Basic):
         # Initialize decomposition cache
         if self.use_segments:
             self.mstl_period = args.mstl_period
-        if args.use_tensorboard:
-            self.tb_logger = EnhancedTensorBoardLogger(log_dir='./runs',experiment_name=f'{args.model}_{args.data}_{args.pred_len}')
-            timestamp = time.strftime('%Y%m%d_%H%M%S')
-            log_dir = os.path.join(
-                './runs', 
-                f"{args.model}_{args.data}_sl{args.seq_len}_pl{args.pred_len}_{timestamp}"
-            )
-            self.writer = SummaryWriter(log_dir)
-            
-            # Log hyperparameters as text
-            hparams_text = "\n".join([f"{k}: {v}" for k, v in vars(args).items()])
-            self.writer.add_text('Hyperparameters', hparams_text, 0)
-            
-            print(f"TensorBoard logs will be saved to: {log_dir}")
-        else:
-            self.writer = None 
         
+        # Initialize wandb logger
+        if args.use_wandb:
+            # Create experiment name
+            experiment_name = f"{args.model}_{args.data}_sl{args.seq_len}_pl{args.pred_len}_{args.manifold_type}"
+            
+            # Prepare config dict
+            config = {
+                'model': args.model,
+                'data': args.data,
+                'seq_len': args.seq_len,
+                'pred_len': args.pred_len,
+                'learning_rate': args.learning_rate,
+                'batch_size': args.batch_size,
+                'train_epochs': args.train_epochs,
+                'embed_dim': args.embed_dim,
+                'hidden_dim': args.hidden_dim,
+                'manifold_type': args.manifold_type,
+                'use_segments': args.use_segments,
+                'use_hierarchy': args.use_hierarchy,
+                'use_decomposition': args.use_decomposition,
+                'use_attention_pooling': args.use_attention_pooling,
+                'loss': args.loss,
+                'patience': args.patience,
+            }
+            
+            self.wandb_logger = WandbLogger(
+                project_name="Hyperbolic_TimeSeries",
+                experiment_name=experiment_name,
+                config=config
+            )
+            
+            print(f"Wandb logging enabled. Experiment: {experiment_name}")
+        else:
+            self.wandb_logger = None        
             
     def _build_model(self):
         model_dict = {
@@ -69,7 +87,9 @@ class Exp_Main(Exp_Basic):
         total_params = sum(p.numel() for p in model.parameters())
         print(f"Total parameters: {total_params:,}")
         #print(f"Mode: {'Segment-level' if self.use_segments else 'Point-level'} hyperbolic embeddings")
-
+        if self.wandb_logger is not None:
+            self.wandb_logger.log_model_parameters(model)
+            self.wandb_logger.watch_model(model, log_freq=100)
         if self.args.use_multi_gpu and self.args.use_gpu:
             model = nn.DataParallel(model, device_ids=self.args.device_ids)
         return model
@@ -106,6 +126,8 @@ class Exp_Main(Exp_Basic):
     def vali(self, vali_data, vali_loader, criterion):
         total_loss = []
         self.model.eval()
+        all_preds = []
+        all_trues = []
     
         with torch.no_grad():
             for i, (X_dict, batch_y, batch_x_mark, batch_y_mark) in enumerate(vali_loader):
@@ -128,22 +150,30 @@ class Exp_Main(Exp_Basic):
                 f_dim = -1 if self.args.features == 'MS' else 0
                 batch_y = batch_y[:, -self.args.pred_len:, f_dim:]
                 outputs = outputs[:, -self.args.pred_len:, f_dim:]
-                preds = outputs.detach().cpu()
-                trues = batch_y.detach().cpu()
-            
+                preds = outputs.detach()
+                trues = batch_y.detach()
+                all_preds.append(preds.numpy())
+                all_trues.append(trues.numpy())
                 # Compute validation loss
                 loss = criterion(preds, trues)
                 total_loss.append(loss.item())
-        total_loss = np.average(total_loss)
+                
+        avg_total_loss = np.average(total_loss)
+        all_preds = np.concatenate(all_preds, axis=0)
+        all_trues = np.concatenate(all_trues, axis=0)
+        global_loss = np.mean((all_preds - all_trues) ** 2)
+        print(f"[DIAGNOSTIC] Val loss (avg of batches): {avg_total_loss:.6f}")
+        print(f"[DIAGNOSTIC] Val loss (global): {global_loss:.6f}")
+        print(f"[DIAGNOSTIC] Num batches: {len(total_loss)}")
+        print(f"[DIAGNOSTIC] Total samples: {len(all_preds)}")
         self.model.train()
-        return total_loss
+        return avg_total_loss
 
     def train(self, setting):
         train_data, train_loader = self._get_data(flag='train')
         vali_data, vali_loader = self._get_data(flag='val')
         test_data, test_loader = self._get_data(flag='test')
-        
-
+      
         path = os.path.join(self.args.checkpoints, setting)
         if not os.path.exists(path):
             os.makedirs(path)
@@ -188,13 +218,10 @@ class Exp_Main(Exp_Basic):
                 # Ground truth
                 batch_y = batch_y.float().to(self.device)
             
-                # For point-level, extract only prediction part
-                # Squeeze if needed
-            
-                # Forward
+                # Forward pass
                 if self.args.use_amp:
                     with torch.cuda.amp.autocast():
-                        outputs = self.model(  #Now calls forward() automatically
+                        outputs = self.model(
                             trend=trend_x,
                             seasonal_weekly=weekly_x,
                             seasonal_daily=daily_x,
@@ -217,17 +244,18 @@ class Exp_Main(Exp_Basic):
                     outputs = outputs[:, -self.args.pred_len:, f_dim:]
                     loss = criterion(outputs, batch_y)
                     train_loss.append(loss.item())
-                if i % 100 == 0:
-                    self.tb_logger.log_losses(
+                
+                # Log iteration metrics
+                if i % 100 == 0 and self.wandb_logger is not None:
+                    self.wandb_logger.log_losses(
                         global_step,
                         train_loss=loss.item(),
-                        train_losses_dict={
-                            'mse': loss.item(),
-                        }
+                        train_losses_dict={'mse': loss.item()}
                     )
                     # Log learning rate
-                    self.tb_logger.log_learning_rate(global_step, model_geooptim)
-                # Logging
+                    self.wandb_logger.log_learning_rate(global_step, model_geooptim)
+                
+                # Console logging
                 if (iter_count) % 100 == 0:
                     print("\titers: {0}, epoch: {1} | loss: {2:.7f}".format(
                         iter_count, epoch + 1, loss.item()))
@@ -235,12 +263,15 @@ class Exp_Main(Exp_Basic):
                     left_time = speed * ((self.args.train_epochs - epoch) * train_steps - iter_count)
                     print('\tspeed: {:.4f}s/iter; left time: {:.4f}s'.format(speed, left_time))
                     
-                    if self.writer is not None:
-                        self.writer.add_scalar('Speed/seconds_per_iter', speed, global_step)
-                        self.writer.add_scalar('Speed/estimated_time_left_seconds', left_time, global_step)
+                    # Log system metrics
+                    if self.wandb_logger is not None:
+                        self.wandb_logger.log_system_metrics(
+                            global_step,
+                            speed_per_iter=speed,
+                            time_left=left_time
+                        )
 
-
-                # Backward
+                # Backward pass
                 if self.args.use_amp:
                     scaler.scale(loss).backward()
                     scaler.unscale_(model_geooptim)
@@ -251,18 +282,15 @@ class Exp_Main(Exp_Basic):
                     loss.backward()
                     nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=5.0)
                     model_geooptim.step()
-                if self.writer is not None:
-                    global_step = epoch * train_steps + i
-                    self.writer.add_scalar('Loss/train_iter', loss.item(), global_step)
 
             # Memory tracking
             if torch.cuda.is_available():
                 current_memory = torch.cuda.max_memory_allocated(device=self.device) / 1024 ** 2
                 max_memory = max(max_memory, current_memory)
             
-                # Scheduler step (for OneCycleLR)
-                if self.args.lradj == 'TST':
-                    scheduler.step()
+            # Scheduler step (for OneCycleLR)
+            if self.args.lradj == 'TST':
+                scheduler.step()
         
             # End of epoch
             print(f"Epoch {epoch + 1} Max Memory (MB): {max_memory}")
@@ -271,51 +299,31 @@ class Exp_Main(Exp_Basic):
             train_losses_dict = {k: v / len(train_loader) for k, v in train_losses_dict.items()}
             
             # Validation
-            
-            # Log losses
-            
-            # Log metrics
-            
-            # Log hierarchy scales
-            manifold_type = self.manifold_type  # or 'lorentz', 'poincare'
-            self.tb_logger.log_hierarchy_scales(epoch, self.model, manifold_type)
-            
-            # Log model parameters (every 10 epochs)
-            
-            # Log sample predictions (every 5 epochs)
-                    
-                    
-        
-            train_loss = np.average(train_loss)
             vali_loss = self.vali(vali_data, vali_loader, criterion)
-            self.tb_logger.log_losses(
-                epoch,
-                train_loss=train_loss,
-                val_loss=vali_loss,
-                train_losses_dict=train_losses_dict
-            )
+            # test_loss = self.vali(test_data, test_loader, criterion)
+            # Log epoch metrics to wandb
+            if self.wandb_logger is not None:
+                self.wandb_logger.log_losses(
+                    epoch,
+                    train_loss=avg_train_loss,
+                    val_loss=vali_loss,
+                    train_losses_dict=train_losses_dict
+                )
+                
+                # Log hierarchy scales
+                manifold_type = self.manifold_type
+                self.wandb_logger.log_hierarchy_scales(epoch, self.model, manifold_type)
+                
+                # Log system metrics
+                epoch_duration = time.time() - epoch_time
+                self.wandb_logger.log_system_metrics(
+                    epoch,
+                    gpu_memory_mb=max_memory if torch.cuda.is_available() else None,
+                    epoch_time=epoch_duration
+                )
 
             print("Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f}".format(
-                epoch + 1, train_steps, train_loss, vali_loss))
-            # TensorBoard: Log epoch metrics
-            if self.writer is not None:
-                self.writer.add_scalar('Loss/train_loss', train_loss, epoch)
-                self.writer.add_scalar('Loss/vali_loss', vali_loss, epoch)
-                self.writer.add_scalar('Learning_Rate/lr', model_geooptim.param_groups[0]['lr'], epoch)
-                self.writer.add_scalar('Time/epoch_seconds', time.time() - epoch_time, epoch)
-                
-                # Log GPU memory usage
-                if torch.cuda.is_available():
-                    memory_allocated = torch.cuda.memory_allocated() / 1024**2  # MB
-                    memory_reserved = torch.cuda.memory_reserved() / 1024**2  # MB
-                    self.writer.add_scalar('Memory/gpu_allocated_mb', memory_allocated, epoch)
-                    self.writer.add_scalar('Memory/gpu_reserved_mb', memory_reserved, epoch)
-                
-                # Log train vs vali loss comparison
-                self.writer.add_scalars('Loss/train_vs_vali', {
-                    'train': train_loss,
-                    'vali': vali_loss
-                }, epoch)
+                epoch + 1, train_steps, avg_train_loss, vali_loss))
 
             # Early stopping
             early_stopping(vali_loss, self.model, path)
@@ -337,6 +345,9 @@ class Exp_Main(Exp_Basic):
         best_model_path = path + '/' + 'checkpoint.pth'
         self.model.load_state_dict(torch.load(best_model_path))
 
+        # Log model checkpoint as artifact
+        if self.wandb_logger is not None:
+            self.wandb_logger.log_artifact(best_model_path, artifact_type='model', name='best_model')
         print(f"Final Max Memory (MB): {max_memory}")
         return self.model
 
@@ -433,24 +444,25 @@ class Exp_Main(Exp_Basic):
         f.write('mse:{}, mae:{}, rse:{}'.format(mse, mae, rse))
         f.write('\n\n')
         f.close()
-        if self.writer is not None:
-            self.writer.add_scalar('Test/MAE', mae, 0)
-            self.writer.add_scalar('Test/MSE', mse, 0)
-            self.writer.add_scalar('Test/RMSE', rmse, 0)
-            self.writer.add_scalar('Test/MAPE', mape, 0)
-            
-            # Log all test metrics together
-            self.writer.add_scalars('Test/all_metrics', {
+        if self.wandb_logger is not None:
+            test_metrics = {
                 'MAE': mae,
                 'MSE': mse,
                 'RMSE': rmse,
-                'MAPE': mape
-            }, 0)
+                'MAPE': mape,
+                'MSPE': mspe,
+                'RSE': rse,
+                'CORR': corr
+            }
+            self.wandb_logger.log_metrics(0, test_metrics, prefix='metrics')
             
-            # Close writer
-            self.writer.close()
-            print(f"TensorBoard logs saved. View with: tensorboard --logdir=./runs")
-        
+            # Log sample predictions
+            self.wandb_logger.log_predictions(0, preds, trues, num_samples=5)
+            
+            # Finish wandb run
+            self.wandb_logger.finish()
+            print("Wandb logging complete. View results at: https://wandb.ai")
+
 
         return
 

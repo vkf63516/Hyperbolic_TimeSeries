@@ -36,6 +36,8 @@ class Model(nn.Module):
         self.mstl_period = configs.mstl_period
         self.use_segments = configs.use_segments
         self.manifold_type = configs.manifold_type
+        self.use_attention_pooling = configs.use_attention_pooling
+        self.use_revin = configs.use_revin
         # Model dimensions
         # Number of input features
         self.enc_in = configs.enc_in
@@ -67,7 +69,9 @@ class Model(nn.Module):
                     embed_dim=self.embed_dim,
                     hidden_dim=self.hidden_dim,
                     use_hierarchy=self.use_hierarchy,
-                    hierarchy_scales=self.hierarchy_scales
+                    hierarchy_scales=self.hierarchy_scales,
+                    use_attention_pooling=self.use_attention_pooling,
+                    use_revin=self.use_revin
                 )
             else:
                 self.forecaster = HyperbolicPointForecaster(
@@ -79,7 +83,8 @@ class Model(nn.Module):
                     curvature=self.curvature,
                     manifold_type=self.manifold_type,
                     use_hierarchy=self.use_hierarchy,
-                    hierarchy_scales=self.hierarchy_scales
+                    hierarchy_scales=self.hierarchy_scales,
+                    use_attention_pooling=self.use_attention_pooling
                 )
 
             # Forecaster: Autoregressively predicts in hyperbolic space
