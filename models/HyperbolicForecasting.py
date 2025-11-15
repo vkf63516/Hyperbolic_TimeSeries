@@ -18,7 +18,7 @@ class Model(nn.Module):
     Hyperbolic Forecasting Model
     
     Architecture:
-    1. Decompose time series into trend, seasonal_daily, seasonal_weekly, residual
+    1. Decompose time series into trend, seasonal_fine, seasonal_coarse, residual
     2. Encode each component to hyperbolic space via encoders
     3. Combine components in tangent space
     4. Autoregressively forecast in hyperbolic space
@@ -71,7 +71,9 @@ class Model(nn.Module):
                     use_hierarchy=self.use_hierarchy,
                     hierarchy_scales=self.hierarchy_scales,
                     use_attention_pooling=self.use_attention_pooling,
-                    use_revin=self.use_revin
+                    use_revin=self.use_revin,
+                    use_truncated_bptt=True,
+                    truncate_every=16
                 )
             else:
                 self.forecaster = HyperbolicPointForecaster(
@@ -91,23 +93,23 @@ class Model(nn.Module):
 
    
     
-    def forward(self, trend, seasonal_weekly, seasonal_daily, residual):
+    def forward(self, trend, seasonal_coarse, seasonal_fine, residual):
         """
         Forward pass with explicit decomposed components.
         Use this when you have TimeBaseMSTL decomposition.
         
         Args:
             trend: [B, seq_len, C]
-            weekly: [B, seq_len, C]
-            daily: [B, seq_len, C]
+            coarse: [B, seq_len, C]
+            fine: [B, seq_len, C]
             resid: [B, seq_len, C]
             
         Returns:
             predictions: [B, pred_len, output_dim]
         """
 
-        forecasts = self.forecaster(trend, seasonal_weekly, seasonal_daily, residual)
-        x_hat = forecasts["predictions"]
+        forecasts = self.forecaster(trend, seasonal_coarse, seasonal_fine, residual)
+        x_hat = forecasts
         # Get individual and combined hyperbolic representations
         
         return x_hat

@@ -119,8 +119,8 @@ def time_features_from_frequency_str(freq_str: str) -> List[TimeFeature]:
         Y   - yearly
             alias: A
         M   - monthly
-        W   - weekly
-        D   - daily
+        W   - coarse
+        D   - fine
         B   - business days
         H   - hourly
         T   - minutely

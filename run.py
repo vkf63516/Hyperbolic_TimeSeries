@@ -79,7 +79,7 @@ parser.add_argument('--loss', type=str, default='mse', help='loss function')
 parser.add_argument('--lradj', type=str, default='type3', help='adjust learning rate')
 parser.add_argument('--pct_start', type=float, default=0.3, help='pct_start')
 parser.add_argument('--freq', type=str, default='h',
-                    help='freq for time features encoding, options:[s:secondly, t:minutely, h:hourly, d:daily, b:business days, w:weekly, m:monthly]')
+                    help='freq for time features encoding, options:[s:secondly, t:minutely, h:hourly, d:fine, b:business days, w:coarse, m:monthly]')
 
 # Replace the line with:
 parser.add_argument('--use_tensorboard', action='store_true', default=False, 

@@ -135,16 +135,16 @@ class Exp_Main(Exp_Basic):
                 # IDENTICAL to train loop up to forward pass
                 # ========================================
                 trend_x = X_dict['trend'].float().to(self.device)
-                weekly_x = X_dict['seasonal_weekly'].float().to(self.device)
-                daily_x = X_dict['seasonal_daily'].float().to(self.device)
+                coarse_x = X_dict['seasonal_coarse'].float().to(self.device)
+                fine_x = X_dict['seasonal_fine'].float().to(self.device)
                 resid_x = X_dict['residual'].float().to(self.device)
             
                 batch_y = batch_y.float().to(self.device)
             
                 outputs = self.model(
                     trend=trend_x,
-                    seasonal_weekly=weekly_x,
-                    seasonal_daily=daily_x,
+                    seasonal_coarse=coarse_x,
+                    seasonal_fine=fine_x,
                     residual=resid_x,
                 )
                 f_dim = -1 if self.args.features == 'MS' else 0
@@ -212,8 +212,8 @@ class Exp_Main(Exp_Basic):
             
                 # Load components
                 trend_x = X_dict['trend'].float().to(self.device)
-                weekly_x = X_dict['seasonal_weekly'].float().to(self.device)
-                daily_x = X_dict['seasonal_daily'].float().to(self.device)
+                coarse_x = X_dict['seasonal_coarse'].float().to(self.device)
+                fine_x = X_dict['seasonal_fine'].float().to(self.device)
                 resid_x = X_dict['residual'].float().to(self.device)
                 # Ground truth
                 batch_y = batch_y.float().to(self.device)
@@ -223,8 +223,8 @@ class Exp_Main(Exp_Basic):
                     with torch.cuda.amp.autocast():
                         outputs = self.model(
                             trend=trend_x,
-                            seasonal_weekly=weekly_x,
-                            seasonal_daily=daily_x,
+                            seasonal_coarse=coarse_x,
+                            seasonal_fine=fine_x,
                             residual=resid_x
                         )
                         f_dim = -1 if self.args.features == 'MS' else 0
@@ -235,8 +235,8 @@ class Exp_Main(Exp_Basic):
                 else:
                     outputs = self.model(
                         trend=trend_x,
-                        seasonal_weekly=weekly_x,
-                        seasonal_daily=daily_x,
+                        seasonal_coarse=coarse_x,
+                        seasonal_fine=fine_x,
                         residual=resid_x
                     )
                     f_dim = -1 if self.args.features == 'MS' else 0
@@ -374,8 +374,8 @@ class Exp_Main(Exp_Basic):
                 # Load Input Components (SAME AS TRAIN)
                 # ========================================
                 trend_x = X_dict['trend'].float().to(self.device)
-                weekly_x = X_dict['seasonal_weekly'].float().to(self.device)
-                daily_x = X_dict['seasonal_daily'].float().to(self.device)
+                coarse_x = X_dict['seasonal_coarse'].float().to(self.device)
+                fine_x = X_dict['seasonal_fine'].float().to(self.device)
                 resid_x = X_dict['residual'].float().to(self.device)
             
                 # ========================================
@@ -391,8 +391,8 @@ class Exp_Main(Exp_Basic):
                 # ========================================
                 outputs = self.model(
                     trend=trend_x,
-                    seasonal_weekly=weekly_x,
-                    seasonal_daily=daily_x,
+                    seasonal_coarse=coarse_x,
+                    seasonal_fine=fine_x,
                     residual=resid_x
                 )
                 f_dim = -1 if self.args.features == 'MS' else 0

@@ -33,10 +33,10 @@ def plot_frequency_spectrum(component_data, component_name, ax, sampling_rate=1.
     
     # Add markers for known periods
     if sampling_rate == 1.0:  # hourly data
-        daily_freq = 1/24
-        weekly_freq = 1/168
-        # ax.axvline(daily_freq, color='orange', linestyle='--', alpha=0.5, label='Daily (24h)')
-        # ax.axvline(weekly_freq, color='green', linestyle='--', alpha=0.5, label='Weekly (168h)')
+        fine_freq = 1/24
+        coarse_freq = 1/168
+        # ax.axvline(fine_freq, color='orange', linestyle='--', alpha=0.5, label='fine (24h)')
+        # ax.axvline(coarse_freq, color='green', linestyle='--', alpha=0.5, label='coarse (168h)')
         # ax.legend()
 
 
@@ -56,7 +56,7 @@ def plot_window_hierarchy(X_dict, Y_dict, window_idx=0, feature_idx=0, save_dir=
     
     # Extract data for the specified window and feature
     components = {}
-    for key in ['trend', 'seasonal_weekly', 'seasonal_daily', 'residual']:
+    for key in ['trend', 'seasonal_coarse', 'seasonal_fine', 'residual']:
         x_data = to_numpy(X_dict[key])
         
         # Handle batch dimension
@@ -93,41 +93,41 @@ def plot_window_hierarchy(X_dict, Y_dict, window_idx=0, feature_idx=0, save_dir=
     ax_trend_stats.set_title('Statistics')
     ax_trend_stats.axis('off')
     
-    # Row 2: SEASONAL WEEKLY
-    ax_weekly_time = fig.add_subplot(gs[1, 0])
-    ax_weekly_time.plot(time_steps, components['seasonal_weekly'], color='green', linewidth=2)
-    ax_weekly_time.set_ylabel('Value')
-    ax_weekly_time.set_title('SEASONAL WEEKLY (Medium - 7-day cycles)')
-    ax_weekly_time.grid(True, alpha=0.3)
+    # Row 2: SEASONAL coarse
+    ax_coarse_time = fig.add_subplot(gs[1, 0])
+    ax_coarse_time.plot(time_steps, components['seasonal_coarse'], color='green', linewidth=2)
+    ax_coarse_time.set_ylabel('Value')
+    ax_coarse_time.set_title('SEASONAL coarse (Medium - 7-day cycles)')
+    ax_coarse_time.grid(True, alpha=0.3)
     
-    ax_weekly_freq = fig.add_subplot(gs[1, 1])
-    plot_frequency_spectrum(components['seasonal_weekly'], 'Weekly', ax_weekly_freq)
+    ax_coarse_freq = fig.add_subplot(gs[1, 1])
+    plot_frequency_spectrum(components['seasonal_coarse'], 'coarse', ax_coarse_freq)
     
-    ax_weekly_stats = fig.add_subplot(gs[1, 2])
-    ax_weekly_stats.text(0.1, 0.7, f"Mean: {components['seasonal_weekly'].mean():.3f}", fontsize=12)
-    ax_weekly_stats.text(0.1, 0.5, f"Std: {components['seasonal_weekly'].std():.3f}", fontsize=12)
-    ax_weekly_stats.text(0.1, 0.3, f"Range: [{components['seasonal_weekly'].min():.3f}, {components['seasonal_weekly'].max():.3f}]", fontsize=12)
-    ax_weekly_stats.text(0.1, 0.1, f"Variation: {np.diff(components['seasonal_weekly']).std():.4f}", fontsize=12)
-    ax_weekly_stats.set_title('Statistics')
-    ax_weekly_stats.axis('off')
+    ax_coarse_stats = fig.add_subplot(gs[1, 2])
+    ax_coarse_stats.text(0.1, 0.7, f"Mean: {components['seasonal_coarse'].mean():.3f}", fontsize=12)
+    ax_coarse_stats.text(0.1, 0.5, f"Std: {components['seasonal_coarse'].std():.3f}", fontsize=12)
+    ax_coarse_stats.text(0.1, 0.3, f"Range: [{components['seasonal_coarse'].min():.3f}, {components['seasonal_coarse'].max():.3f}]", fontsize=12)
+    ax_coarse_stats.text(0.1, 0.1, f"Variation: {np.diff(components['seasonal_coarse']).std():.4f}", fontsize=12)
+    ax_coarse_stats.set_title('Statistics')
+    ax_coarse_stats.axis('off')
     
-    # Row 3: SEASONAL DAILY
-    ax_daily_time = fig.add_subplot(gs[2, 0])
-    ax_daily_time.plot(time_steps, components['seasonal_daily'], color='orange', linewidth=2)
-    ax_daily_time.set_ylabel('Value')
-    ax_daily_time.set_title('SEASONAL DAILY (Medium-Fast - 24h cycles)')
-    ax_daily_time.grid(True, alpha=0.3)
+    # Row 3: SEASONAL fine
+    ax_fine_time = fig.add_subplot(gs[2, 0])
+    ax_fine_time.plot(time_steps, components['seasonal_fine'], color='orange', linewidth=2)
+    ax_fine_time.set_ylabel('Value')
+    ax_fine_time.set_title('SEASONAL fine (Medium-Fast - 24h cycles)')
+    ax_fine_time.grid(True, alpha=0.3)
     
-    ax_daily_freq = fig.add_subplot(gs[2, 1])
-    plot_frequency_spectrum(components['seasonal_daily'], 'Daily', ax_daily_freq)
+    ax_fine_freq = fig.add_subplot(gs[2, 1])
+    plot_frequency_spectrum(components['seasonal_fine'], 'fine', ax_fine_freq)
     
-    ax_daily_stats = fig.add_subplot(gs[2, 2])
-    ax_daily_stats.text(0.1, 0.7, f"Mean: {components['seasonal_daily'].mean():.3f}", fontsize=12)
-    ax_daily_stats.text(0.1, 0.5, f"Std: {components['seasonal_daily'].std():.3f}", fontsize=12)
-    ax_daily_stats.text(0.1, 0.3, f"Range: [{components['seasonal_daily'].min():.3f}, {components['seasonal_daily'].max():.3f}]", fontsize=12)
-    ax_daily_stats.text(0.1, 0.1, f"Variation: {np.diff(components['seasonal_daily']).std():.4f}", fontsize=12)
-    ax_daily_stats.set_title('Statistics')
-    ax_daily_stats.axis('off')
+    ax_fine_stats = fig.add_subplot(gs[2, 2])
+    ax_fine_stats.text(0.1, 0.7, f"Mean: {components['seasonal_fine'].mean():.3f}", fontsize=12)
+    ax_fine_stats.text(0.1, 0.5, f"Std: {components['seasonal_fine'].std():.3f}", fontsize=12)
+    ax_fine_stats.text(0.1, 0.3, f"Range: [{components['seasonal_fine'].min():.3f}, {components['seasonal_fine'].max():.3f}]", fontsize=12)
+    ax_fine_stats.text(0.1, 0.1, f"Variation: {np.diff(components['seasonal_fine']).std():.4f}", fontsize=12)
+    ax_fine_stats.set_title('Statistics')
+    ax_fine_stats.axis('off')
     
     # Row 4: RESIDUAL
     ax_resid_time = fig.add_subplot(gs[3, 0])
@@ -173,7 +173,7 @@ def plot_stacked_components(X_dict, window_idx=0, feature_idx=0, save_dir='./plo
     
     # Extract data
     components = {}
-    for key in ['trend', 'seasonal_weekly', 'seasonal_daily', 'residual']:
+    for key in ['trend', 'seasonal_coarse', 'seasonal_fine', 'residual']:
         x_data = to_numpy(X_dict[key])
         if x_data.ndim == 3:
             x_data = x_data[window_idx]
@@ -188,20 +188,20 @@ def plot_stacked_components(X_dict, window_idx=0, feature_idx=0, save_dir='./plo
     fig.set_tight_layout(True)
     # Cumulative sums to show hierarchy
     cum_trend = components['trend']
-    cum_weekly = cum_trend + components['seasonal_weekly']
-    cum_daily = cum_weekly + components['seasonal_daily']
-    cum_all = cum_daily + components['residual']
+    cum_coarse = cum_trend + components['seasonal_coarse']
+    cum_fine = cum_coarse + components['seasonal_fine']
+    cum_all = cum_fine + components['residual']
     
     # Plot with fill between
     ax.fill_between(time_steps, 0, cum_trend, alpha=0.3, color='blue', label='Trend (Base)')
-    ax.fill_between(time_steps, cum_trend, cum_weekly, alpha=0.3, color='green', label='+ Weekly Seasonality')
-    ax.fill_between(time_steps, cum_weekly, cum_daily, alpha=0.3, color='orange', label='+ Daily Seasonality')
-    ax.fill_between(time_steps, cum_daily, cum_all, alpha=0.3, color='purple', label='+ Residual')
+    ax.fill_between(time_steps, cum_trend, cum_coarse, alpha=0.3, color='green', label='+ coarse Seasonality')
+    ax.fill_between(time_steps, cum_coarse, cum_fine, alpha=0.3, color='orange', label='+ fine Seasonality')
+    ax.fill_between(time_steps, cum_fine, cum_all, alpha=0.3, color='purple', label='+ Residual')
     
     # Plot lines
     ax.plot(time_steps, cum_trend, 'b-', linewidth=2, label='Trend')
-    ax.plot(time_steps, cum_weekly, 'g-', linewidth=2, label='Trend + Weekly')
-    ax.plot(time_steps, cum_daily, color='orange', linewidth=2, label='Trend + Weekly + Daily')
+    ax.plot(time_steps, cum_coarse, 'g-', linewidth=2, label='Trend + coarse')
+    ax.plot(time_steps, cum_fine, color='orange', linewidth=2, label='Trend + coarse + fine')
     ax.plot(time_steps, cum_all, 'k-', linewidth=2.5, label='Full Signal (All Components)')
     
     ax.set_xlabel('Time Steps', fontsize=12)
@@ -247,8 +247,8 @@ if __name__ == '__main__':
     for X_dict, Y_dict, _, _ in train_loader:
         print(f"\nData shapes:")
         print(f"  Trend: {X_dict['trend'].shape}")
-        print(f"  Weekly: {X_dict['seasonal_weekly'].shape}")
-        print(f"  Daily: {X_dict['seasonal_daily'].shape}")
+        print(f"  coarse: {X_dict['seasonal_coarse'].shape}")
+        print(f"  fine: {X_dict['seasonal_fine'].shape}")
         print(f"  Residual: {X_dict['residual'].shape}")
         
         print("\nGenerating hierarchy visualizations...")

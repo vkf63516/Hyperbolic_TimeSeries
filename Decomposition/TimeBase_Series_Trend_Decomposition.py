@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[0]))
 from statsmodels.tsa.seasonal import MSTL
+from Decomposition.Series_Trend_Decomposition import trend_seasonal_decomposition_parallel
 
 class TimeBaseMSTL:
     """
@@ -11,7 +12,7 @@ class TimeBaseMSTL:
     instead of .
     """
 
-    def __init__(self, n_basis_components=10, orthogonal_lr=1e-3, orthogonal_iters=500):
+    def __init__(self, n_basis_components=10, orthogonal_lr=1e-3, orthogonal_iters=500, seq_len=96):
         """
         Parameters
         ----------
@@ -25,28 +26,105 @@ class TimeBaseMSTL:
         self.n_basis_components = n_basis_components
         self.orthogonal_lr = orthogonal_lr
         self.orthogonal_iters = orthogonal_iters
+        self.seq_len = seq_len
         self.basis_components = {}
         self.series_coefficients = {}
         self.feature_names = None
 
+
+    def _should_use_original_mstl(self, df, threshold=15):
+        """
+        Decide whether to use original MSTL or TimeBase MSTL.
+    
+        Parameters
+        ----------
+        df : pd.DataFrame
+            Input data
+        threshold : int
+            Number of features below which to use original MSTL for accuracy
+    
+        Returns
+        -------
+        bool
+            True if should use original MSTL, False for TimeBase MSTL
+        """
+        n_features = df.shape[1]
+    
+        if n_features <= threshold:
+            print(f"Dataset has {n_features} features (≤ {threshold})")
+            print(f"Using original MSTL for accurate decomposition\n")
+            return True
+        else:
+            print(f"Dataset has {n_features} features (> {threshold})")
+            print(f"Using TimeBase MSTL (basis decomposition)\n")
+            return False
+
     # -------------------------------
     # Period Detection
     # -------------------------------
-    def timesteps_from_index(self, df):
-        """Compute seasonal periods (daily, weekly) in timesteps."""
-        index = df.index
-        freq = pd.infer_freq(index)
-        if freq is None:
-            step = index.to_series().diff().median()
-            step_seconds = step.total_seconds()
+    def detect_periods(self, df):
+        """
+        Data-driven period detection.
+    
+        Computes periods relative to seq_len (if provided) or dataset length.
+        Uses fixed ratios to extract fine and coarse temporal patterns.
+    
+        Parameters
+        ----------
+        df : pd.DataFrame
+            Input time series data
+    
+        Returns
+        -------
+        list of int
+            [fine_period, coarse_period] in timesteps
+        """
+        reference_length = self.seq_len 
+        n_points = len(df)
+    
+        print(f"\n{'='*70}")
+        print(f"PERIOD DETECTION")
+        print(f"{'='*70}")
+        print(f"Dataset length: {n_points} points")
+        print(f"Reference length (seq_len): {reference_length} points")
+    
+        # Compute periods as fractions of reference length
+        FINE_RATIO = 4      # Fine period: 25% of reference
+        COARSE_RATIO = 2    # Coarse period: 50% of reference
+    
+        period_fine = max(3, reference_length // FINE_RATIO)
+        period_coarse = max(5, reference_length // COARSE_RATIO)
+        # Ensure coarse > fine (at least 1.5x)
+        if period_coarse < period_fine * 2.5:
+            period_coarse = int(period_fine * 4)
+    
+        # Check how many segments we can extract from dataset
+        segment_len_fine = period_fine * 2
+        segment_len_coarse = period_coarse * 2
+        n_segments_fine = n_points // segment_len_fine
+        n_segments_coarse = n_points // segment_len_coarse
+    
+        print(f"\nDetected periods:")
+        print(f"  Fine:   {period_fine:5d} steps ({period_fine/reference_length*100:5.1f}% of reference)")
+        print(f"          → segment_len={segment_len_fine}, yields {n_segments_fine} segments")
+        print(f"  Coarse: {period_coarse:5d} steps ({period_coarse/reference_length*100:5.1f}% of reference)")
+        print(f"          → segment_len={segment_len_coarse}, yields {n_segments_coarse} segments")
+    
+        # Validate: need at least 3 segments
+        min_segments = 3
+        if n_segments_fine < min_segments or n_segments_coarse < min_segments:
+            print(f"\n  Insufficient segments, adjusting to use dataset length...")
+            period_fine = max(3, n_points // 20)
+            period_coarse = max(5, n_points // 8)
+            n_segments_fine = n_points // (period_fine * 2)
+            n_segments_coarse = n_points // (period_coarse * 2)
+            print(f"  Adjusted fine:   {period_fine} → {n_segments_fine} segments")
+            print(f"  Adjusted coarse: {period_coarse} → {n_segments_coarse} segments")
         else:
-            step_seconds = pd.Timedelta(pd.tseries.frequencies.to_offset(freq)).total_seconds()
-        if step_seconds == 0:
-            raise ValueError("Could not determine valid time step.")
-        periods_seconds = [24*3600, 7*24*3600]
-        steps = [max(1, int(round(p / step_seconds))) for p in periods_seconds]
-        return steps
-
+            print(f"\n Periods valid!")
+    
+        print(f"{'='*70}\n")
+        return [period_fine, period_coarse]
     # -------------------------------
     # Segment Extraction
     # -------------------------------
@@ -139,7 +217,7 @@ class TimeBaseMSTL:
     # MSTL Decomposition
     # -------------------------------
 
-    def decompose_basis_components(self, basis_components, periods, seasonal_type="seasonal_daily"):
+    def decompose_basis_components(self, basis_components, periods, seasonal_type="seasonal_fine"):
         """
         Decompose each orthogonal basis component individually using statsmodels MSTL.
         Each basis is treated as a 1D time series.
@@ -151,7 +229,7 @@ class TimeBaseMSTL:
         periods : list of int
             Seasonal periods for MSTL - e.g., [72]
         seasonal_type : str
-            Either "seasonal_daily" or "seasonal_weekly"
+            Either "seasonal_fine" or "seasonal_coarse"
     
         Returns
         -------
@@ -212,7 +290,6 @@ class TimeBaseMSTL:
 
         return decomposed_basis
 
-
     # -------------------------------
     # Reconstruct per-series signals
     # -------------------------------
@@ -244,8 +321,8 @@ class TimeBaseMSTL:
                 .values
             )
         
-            total_seasonal_daily = np.zeros(n_points)
-            total_seasonal_weekly = np.zeros(n_points)
+            total_seasonal_fine = np.zeros(n_points)
+            total_seasonal_coarse = np.zeros(n_points)
         
             for period, basis_decomp in decompositions.items():
                 # NEW: Use segment-level coefficients
@@ -265,7 +342,7 @@ class TimeBaseMSTL:
                     for j, (bname, comp) in enumerate(basis_decomp.items()):
                         coeff = seg_coeffs[j] if j < len(seg_coeffs) else 0
                     
-                        for key in ["seasonal_daily", "seasonal_weekly"]:
+                        for key in ["seasonal_fine", "seasonal_coarse"]:
                             if key not in comp or comp[key] is None:
                                 continue
                         
@@ -273,20 +350,20 @@ class TimeBaseMSTL:
                             idx = np.arange(seg_len) % len(pattern)
                             repeated = pattern[idx]
                         
-                            if key == "seasonal_daily":
-                                total_seasonal_daily[start_idx:end_idx] += coeff * repeated
-                            if key == "seasonal_weekly":
-                                total_seasonal_weekly[start_idx:end_idx] += coeff * repeated
+                            if key == "seasonal_fine":
+                                total_seasonal_fine[start_idx:end_idx] += coeff * repeated
+                            if key == "seasonal_coarse":
+                                total_seasonal_coarse[start_idx:end_idx] += coeff * repeated
         
         
             residual_actual = df[name].values - (trend_global + 
-                                                total_seasonal_weekly + 
-                                                total_seasonal_daily)
+                                                total_seasonal_coarse + 
+                                                total_seasonal_fine)
         
             series_decompositions[name] = {
                 "trend": trend_global,
-                "seasonal_weekly": total_seasonal_weekly,
-                "seasonal_daily": total_seasonal_daily,
+                "seasonal_coarse": total_seasonal_coarse,
+                "seasonal_fine": total_seasonal_fine,
                 "residual": residual_actual
             }
     
@@ -301,7 +378,7 @@ class TimeBaseMSTL:
         but don't reconstruct or return anything yet.
         """
         print(f"Learning orthogonal bases from {df.shape[1]} series...")
-        steps_per_period = self.timesteps_from_index(df)
+        steps_per_period = self.detect_periods(df)
         self.feature_names = list(df.columns)
         self.steps_per_period = steps_per_period
 
@@ -324,6 +401,27 @@ class TimeBaseMSTL:
         """
         if not self.basis_components or not self.series_coefficients:
             raise RuntimeError("Call fit(train_df) before transform().")
+        if self._should_use_original_mstl(df):
+            return self._transform_with_original_mstl(df)
+        else:
+            return self._transform_with_orthogonal_mstl(df)
+
+    def _transform_with_original_mstl(self, df):
+        """
+        Use original MSTL for decomposition (accurate, for low-dim data).
+        """
+        print(f"Reusing original MSTL to decompose {df.shape[1]} series...")
+    
+        # Call your original MSTL
+        decomposed_dict = trend_seasonal_decomposition_parallel(df, self.steps_per_period)
+        
+        return decomposed_dict
+
+    def _transform_with_orthogonal_mstl(self, df):
+        """
+        Use the learned bases and coefficients from `fit()`
+        to decompose and reconstruct new data (val/test sets).
+        """
 
         print(f"Reusing learned bases to decompose {df.shape[1]} series...")
         period_lst = list(self.basis_components.keys())
@@ -332,9 +430,9 @@ class TimeBaseMSTL:
         for period, basis in self.basis_components.items():
             sub_periods = [int(period/4), int(period/3), int(period/2)]
             if period == min(period_lst):
-                seasonal_type = "seasonal_daily"
+                seasonal_type = "seasonal_fine"
             else:
-                seasonal_type = "seasonal_weekly"
+                seasonal_type = "seasonal_coarse"
             decomposed_basis = self.decompose_basis_components(basis, sub_periods, seasonal_type)
             decompositions[period] = decomposed_basis
         return self.reconstruct_series_decomposition(df, decompositions, self._compute_new_coefficients(df))

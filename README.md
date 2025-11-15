@@ -19,7 +19,7 @@ spec.py
 
 Contains utility functions and implementations for hyperbolic geometry operations:
 
-    compute_hierarchical_loss_with_manifold_dist(): Enforces hierarchical relationships between time series components (trend < weekly < daily < residual) using hyperbolic distances from origin
+    compute_hierarchical_loss_with_manifold_dist(): Enforces hierarchical relationships between time series components (trend < coarse < fine < residual) using hyperbolic distances from origin
     segment_safe_expmap0(): Safe exponential mapping from tangent space to manifold for segmented data with norm clamping
     safe_expmap(): Safe exponential mapping for non-origin base points
     Implements margin-based hierarchy loss and entailment loss for parent-child relationships in hyperbolic space
@@ -74,7 +74,7 @@ Implements PyTorch Dataset classes for time series data:
         TimeBaseMSTL Integration:
             Fits decomposition on training data
             Auto-detects MSTL period from data frequency
-            Transforms data into trend, seasonal_weekly, seasonal_daily, and residual components
+            Transforms data into trend, seasonal_coarse, seasonal_fine, and residual components
             Stores decomposed components in [T, C] format for both point-level and segment-level modes
         Generates time features (month, day, weekday, hour) or uses time embeddings
         Returns sliding windows of decomposed components for forecasting
@@ -86,13 +86,13 @@ Decomposition/TimeBase_Series_Trend_Decomposition.py
 Implements TimeBaseMSTL - a TimeBase-inspired decomposition using learned orthogonal basis functions:
 
     TimeBaseMSTL Class:
-        Period Detection: timesteps_from_index() automatically infers daily and weekly periods from data frequency
+        Period Detection: detect_periods() automatically infers fine and coarse periods from data frequency
         Segment Extraction: extract_periodic_segments() extracts repeating patterns from time series
         Orthogonal Basis Learning: learn_orthogonal_basis() learns basis functions via gradient-based orthogonalization (alternative to PCA)
         Decomposition: Breaks time series into:
             Trend: Long-term patterns
-            Seasonal_weekly: Weekly cyclical patterns
-            Seasonal_daily: Daily cyclical patterns
+            seasonal_coarse: coarse cyclical patterns
+            Seasonal_fine: fine cyclical patterns
             Residual: Remaining noise/irregularities
         Workflow:
             fit(df): Learns basis functions from training data
@@ -103,7 +103,7 @@ Decomposition/visualization_utils.py
 
 Visualization tools for analyzing decomposition quality:
 
-    plot_component_grid(): Plots all components (trend, weekly, daily, residual) for a single feature
+    plot_component_grid(): Plots all components (trend, coarse, fine, residual) for a single feature
     plot_variance_contribution(): Bar chart showing variance explained by each component across features
     plot_component_correlation_maps(): Heatmaps showing cross-feature correlations within each component
 
@@ -111,7 +111,7 @@ Decomposition/Series_Trend_Decomposition.py
 
 Alternative MSTL decomposition using statsmodels:
 
-    mstl_decomposition_for_window(): Standard MSTL decomposition with hourly, daily, and weekly periods
+    mstl_decomposition_for_window(): Standard MSTL decomposition with hourly, fine, and coarse periods
     timesteps_based_on_frequency(): Computes period lengths based on data frequency
     Provides a baseline comparison to TimeBaseMSTL
 
@@ -125,7 +125,7 @@ Implements segment-level embeddings for Lorentzian (hyperbolic) manifold:
         Uses attention pooling over segments
         Supports both segmented and non-segmented inputs
     SegmentedParallelLorentz: Parallel embeddings for different time series components with hierarchical scaling
-        Configurable segment lengths for trend, weekly, daily, and residual components
+        Configurable segment lengths for trend, coarse, fine, and residual components
         Learnable hierarchy scales as parameters
 
 embed/mlp_embed_euclidean.py
@@ -135,7 +135,7 @@ Implements embeddings for Euclidean space:
     MLPEmbed: Basic MLP encoder with layer normalization and GELU activation
         Optional attention pooling or mean pooling across time
         Produces Euclidean latent vectors
-    ParallelEuclideanEmbed: Parallel encoders for different decomposed components (trend, daily, weekly, residual)
+    ParallelEuclideanEmbed: Parallel encoders for different decomposed components (trend, fine, coarse, residual)
         Optional learnable hierarchy scales
         Separate embedding networks for each component
 

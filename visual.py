@@ -55,17 +55,17 @@ print(f"Ratios -> train:{tr:.3f}, val:{va:.3f}, test:{te:.3f}")
 # -------------------------------------------------------------
 timebase = TimeBaseMSTL(n_basis_components=10, orthogonal_lr=1e-3, orthogonal_iters=300)
 
-# Automatically infers daily, weekly steps
-steps_per_period = timebase.timesteps_from_index(df)
-daily, weekly = steps_per_period
+# Automatically infers fine, coarse steps
+steps_per_period = timebase.detect_periods(df)
+fine, coarse = steps_per_period
 
-lookback = weekly
+lookback = coarse
 pred_len_96 = 96
 pred_len_192 = 192
 pred_len_336 = 336
 pred_len_720 = 720
 
-print(f"Timesteps per day/week: {daily}, {weekly}")
+print(f"Timesteps per day/week: {fine}, {coarse}")
 print(f"lookback window={lookback}, pred_len={pred_len_96}")
 
 # -------------------------------------------------------------

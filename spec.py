@@ -22,11 +22,11 @@ def compute_hierarchical_loss_with_manifold_dist(embeddings_dict, manifold, marg
     """
     Enforce hierarchy using actual hyperbolic distances from origin.
     
-    Hierarchy: trend < weekly < daily < residual (distance from origin)
+    Hierarchy: trend < coarse < fine < residual (distance from origin)
     """
     trend_h = embeddings_dict["trend_h"]
-    weekly_h = embeddings_dict["seasonal_weekly_h"]
-    daily_h = embeddings_dict["seasonal_daily_h"]
+    coarse_h = embeddings_dict["seasonal_coarse_h"]
+    fine_h = embeddings_dict["seasonal_fine_h"]
     residual_h = embeddings_dict["residual_h"]
     
     # Origin on Lorentz manifold
@@ -34,28 +34,28 @@ def compute_hierarchical_loss_with_manifold_dist(embeddings_dict, manifold, marg
     
     # Hyperbolic distances from origin (encodes depth)
     trend_dist_from_origin = manifold.dist(trend_h, origin)
-    weekly_dist_from_origin = manifold.dist(weekly_h, origin)
-    daily_dist_from_origin = manifold.dist(daily_h, origin)
+    coarse_dist_from_origin = manifold.dist(coarse_h, origin)
+    fine_dist_from_origin = manifold.dist(fine_h, origin)
     residual_dist_from_origin = manifold.dist(residual_h, origin)
     
     # Part 1: Distance-based hierarchy (norms)
-    # Enforce: trend_dist < weekly_dist < daily_dist < residual_dist
+    # Enforce: trend_dist < coarse_dist < fine_dist < residual_dist
     hierarchy_loss = (
-        torch.relu(trend_dist_from_origin + margin - weekly_dist_from_origin) +
-        torch.relu(weekly_dist_from_origin + margin - daily_dist_from_origin) +
-        torch.relu(daily_dist_from_origin + margin - residual_dist_from_origin)
+        torch.relu(trend_dist_from_origin + margin - coarse_dist_from_origin) +
+        torch.relu(coarse_dist_from_origin + margin - fine_dist_from_origin) +
+        torch.relu(fine_dist_from_origin + margin - residual_dist_from_origin)
     ).mean()
     
     # Part 2: Entailment (parent-child proximity)
     # Parents and children should be geodesically close
-    trend_to_weekly = manifold.dist(trend_h, weekly_h)
-    weekly_to_daily = manifold.dist(weekly_h, daily_h)
-    daily_to_residual = manifold.dist(daily_h, residual_h)
+    trend_to_coarse = manifold.dist(trend_h, coarse_h)
+    coarse_to_fine = manifold.dist(coarse_h, fine_h)
+    fine_to_residual = manifold.dist(fine_h, residual_h)
     
     entailment_loss = (
-        trend_to_weekly +
-        weekly_to_daily +
-        daily_to_residual
+        trend_to_coarse +
+        coarse_to_fine +
+        fine_to_residual
     ).mean()
     
     total_loss = hierarchy_loss + 0.5 * entailment_loss
@@ -108,34 +108,64 @@ def safe_expmap0(manifold, v, eps=1e-15, max_norm=0.99):
     return manifold.expmap0(v_safe)
 
 class RevIN(nn.Module):
-    def __init__(self, num_channels: int, affine: bool = True, eps: float = 1e-8):
-        super().__init__()
+    def __init__(self, num_features: int, eps=1e-5, affine=True, subtract_last=False):
+        """
+        :param num_features: the number of features or channels
+        :param eps: a value added for numerical stability
+        :param affine: if True, RevIN has learnable affine parameters
+        """
+        super(RevIN, self).__init__()
+        self.num_features = num_features
         self.eps = eps
         self.affine = affine
-        if affine:
-            self.gamma = nn.Parameter(torch.ones(1, 1, num_channels))
-            self.beta  = nn.Parameter(torch.zeros(1, 1, num_channels))
-
-    @torch.no_grad()
-    def _stats(self, x):
-        mu = x.mean(dim=1, keepdim=True)                  # [B,1,C]
-        var = x.var(dim=1, unbiased=False, keepdim=True)  # [B,1,C]
-        sigma = torch.sqrt(var + self.eps)
-        return mu, sigma
-
-    def normalize(self, x):
-        mu, sigma = self._stats(x)
-        x_n = (x - mu) / sigma
+        self.subtract_last = subtract_last
         if self.affine:
-            x_n = x_n * self.gamma + self.beta
-        return x_n, (mu, sigma)
+            self._init_params()
 
-    def denormalize(self, x, stats):
-        mu, sigma = stats
+    def forward(self, x, mode:str):
+        if mode == 'norm':
+            self._get_statistics(x)
+            x = self._normalize(x)
+        elif mode == 'denorm':
+            x = self._denormalize(x)
+        else: 
+            raise NotImplementedError
+        return x
+
+    def _init_params(self):
+        # initialize RevIN params: (C,)
+        self.affine_weight = nn.Parameter(torch.ones(self.num_features))
+        self.affine_bias = nn.Parameter(torch.zeros(self.num_features))
+
+    def _get_statistics(self, x):
+        dim2reduce = tuple(range(1, x.ndim-1))
+        if self.subtract_last:
+            self.last = x[:,-1,:].unsqueeze(1)
+        else:
+            self.mean = torch.mean(x, dim=dim2reduce, keepdim=True).detach()
+        self.stdev = torch.sqrt(torch.var(x, dim=dim2reduce, keepdim=True, unbiased=False) + self.eps).detach()
+
+    def _normalize(self, x):
+        if self.subtract_last:
+            x = x - self.last
+        else:
+            x = x - self.mean
+        x = x / self.stdev
         if self.affine:
-            gamma = torch.clamp(self.gamma, min=1e-6)
-            x = (x - self.beta) / gamma
-        return x * sigma + mu
+            x = x * self.affine_weight
+            x = x + self.affine_bias
+        return x
+
+    def _denormalize(self, x):
+        if self.affine:
+            x = x - self.affine_bias
+            x = x / (self.affine_weight + self.eps*self.eps)
+        x = x * self.stdev
+        if self.subtract_last:
+            x = x + self.last
+        else:
+            x = x + self.mean
+        return x
 
 class EarlyStopping:
     def __init__(self, patience=7, verbose=False, delta=0):

@@ -61,31 +61,31 @@ class SegmentParallelLorentzBlock(nn.Module):
         if use_hierarchy:
             self.hierarchy_scales = hierarchy_scales
             trend_scale = torch.exp(self.log_scales[0])
-            weekly_scale = torch.exp(self.log_scales[1])
-            daily_scale = torch.exp(self.log_scales[2])
+            coarse_scale = torch.exp(self.log_scales[1])
+            fine_scale = torch.exp(self.log_scales[2])
             residual_scale = torch.exp(self.log_scales[3])
 
         # Branch encoders
         lookback_segments = lookback_steps // seg_len if lookback_steps else None
         self.trend_embed = SegmentMambaEmbed(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=embed_dim, lookback_segment=lookback_segments)
-        self.seasonal_weekly_embed = SegmentMambaEmbed(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=embed_dim, lookback_segment=lookback_segments)  
-        self.seasonal_daily_embed = SegmentMambaEmbed(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=embed_dim, lookback_segment=lookback_segments)
+        self.seasonal_coarse_embed = SegmentMambaEmbed(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=embed_dim, lookback_segment=lookback_segments)  
+        self.seasonal_fine_embed = SegmentMambaEmbed(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=embed_dim, lookback_segment=lookback_segments)
         self.residual_embed = SegmentMambaEmbed(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=embed_dim, lookback_segment=lookback_segments)
 
         # Lorentz manifold (k controls scale; curvature = -1/k)
         # Passing k = curvature (1.0 gives standard curvature -1)
         self.manifold = geoopt.manifolds.Lorentz(k=curvature)
 
-    def forward(self, trend, seasonal_weekly, seasonal_daily, residual):
+    def forward(self, trend, seasonal_coarse, seasonal_fine, residual):
         """
         Inputs:
           trend:    [B, seq_len, 1]
-          seasonal_weekly: [B, seq_len, 1]  
-          seasonal_daily:  [B, seq_len, 1]
+          seasonal_coarse: [B, seq_len, 1]  
+          seasonal_fine:  [B, seq_len, 1]
           residual:    [B, seq_len, 1]
 
         Returns dict with:
-          - trend_h, seasonal_weekly_h, seasonal_daily_h, residual_h : points on Lorentz manifold
+          - trend_h, seasonal_coarse_h, seasonal_fine_h, residual_h : points on Lorentz manifold
           - combined_h : fused point on Lorentz manifold (via tangent-sum)
           - combined_tangent : the summed tangent vector 
         """
@@ -98,50 +98,50 @@ class SegmentParallelLorentzBlock(nn.Module):
         total_segs = B * num_seg
 
         trend_flat = trend.reshape(total_segs, seg_len, C)
-        seasonal_weekly_flat = seasonal_weekly.reshape(total_segs, seg_len, C)
-        seasonal_daily_flat = seasonal_daily.reshape(total_segs, seg_len, C)
+        seasonal_coarse_flat = seasonal_coarse.reshape(total_segs, seg_len, C)
+        seasonal_fine_flat = seasonal_fine.reshape(total_segs, seg_len, C)
         residual_flat = residual.reshape(total_segs, seg_len, C)
 
         z_trend_t = self.trend_embed(trend)       # [B, D]
-        z_seasonal_weekly_t = self.seasonal_weekly_embed(seasonal_weekly) # [B, D]
-        z_seasonal_daily_t = self.seasonal_daily_embed(seasonal_daily) # [B, D]
+        z_seasonal_coarse_t = self.seasonal_coarse_embed(seasonal_coarse) # [B, D]
+        z_seasonal_fine_t = self.seasonal_fine_embed(seasonal_fine) # [B, D]
         z_residual_t = self.residual_embed(residual)       # [B, D]
 
         z_trend_h = safe_expmap0(self.manifold, z_trend_t)    # manifold point
-        z_seasonal_weekly_h = safe_expmap0(self.manifold, z_seasonal_weekly_t)
-        z_seasonal_daily_h = safe_expmap0(self.manifold, z_seasonal_daily_t)
+        z_seasonal_coarse_h = safe_expmap0(self.manifold, z_seasonal_coarse_t)
+        z_seasonal_fine_h = safe_expmap0(self.manifold, z_seasonal_fine_t)
         z_residual_h = safe_expmap0(self.manifold, z_residual_t)
 
         # # (Optional) project to manifold numerically safely
         z_trend_h = self.manifold.projx(z_trend_h)
-        z_seasonal_weekly_h = self.manifold.projx(z_seasonal_weekly_h)
-        z_seasonal_daily_h = self.manifold.projx(z_seasonal_daily_h)
+        z_seasonal_coarse_h = self.manifold.projx(z_seasonal_coarse_h)
+        z_seasonal_fine_h = self.manifold.projx(z_seasonal_fine_h)
         z_residual_h = self.manifold.projx(z_residual_h)
         if self.use_hierarchy:
             z_trend_ = z_trend_h * self.trend_scale 
-            z_seasonal_weekly_h = z_seasonal_weekly_h * self.seasonal_weekly_scale
-            z_seasonal_daily_h = z_seasonal_daily_h * self.seasonal_daily_scale
+            z_seasonal_coarse_h = z_seasonal_coarse_h * self.seasonal_coarse_scale
+            z_seasonal_fine_h = z_seasonal_fine_h * self.seasonal_fine_scale
             z_residual_h = z_residual_h * self.residual_scale
 
         # 3) Fuse: logmap0(manifold) -> tangent vectors -> sum -> expmap back
         u_trend = self.manifold.logmap0(z_trend_h)    # [B, D]
-        u_seasonal_weekly = self.manifold.logmap0(z_seasonal_weekly_h)
-        u_seasonal_daily = self.manifold.logmap0(z_seasonal_daily_h)
+        u_seasonal_coarse = self.manifold.logmap0(z_seasonal_coarse_h)
+        u_seasonal_fine = self.manifold.logmap0(z_seasonal_fine_h)
         u_residual = self.manifold.logmap0(z_residual_h)
 
-        combined_tangent = u_trend + u_seasonal_weekly + u_seasonal_daily + u_residual  # tangent-space fusion (Euclidean sum)
+        combined_tangent = u_trend + u_seasonal_coarse + u_seasonal_fine + u_residual  # tangent-space fusion (Euclidean sum)
         combined_h = safe_expmap0(self.manifold,combined_tangent)
         # combined_h = self.manifold.expmap0(combined_tangent)
         combined_h = self.manifold.projx(combined_h)
 
         return {
             "trend_tangent": z_trend_t,
-            "seasonal_weekly_tangent": z_seasonal_weekly_t,
-            "seasonal_daily_tangent": z_seasonal_daily_t,
+            "seasonal_coarse_tangent": z_seasonal_coarse_t,
+            "seasonal_fine_tangent": z_seasonal_fine_t,
             "residual_tangent": z_residual_t,
             "trend_h": z_trend_h,
-            "seasonal_weekly_h": z_seasonal_weekly_h,
-            "seasonal_daily_h": z_seasonal_daily_h,
+            "seasonal_coarse_h": z_seasonal_coarse_h,
+            "seasonal_fine_h": z_seasonal_fine_h,
             "residual_h": z_residual_h,
             "combined_tangent": combined_tangent,
             "combined_h": combined_h

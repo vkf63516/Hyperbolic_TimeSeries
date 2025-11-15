@@ -12,7 +12,7 @@ python run.py \
   --pred_len 96 \
   --lradj "type3" \
   --embed_dim 32 \
-  --hidden_dim 64 \
+  --hidden_dim 128 \
   --batch_size 32 \
   --learning_rate 1e-3 \
   --train_epochs 30 \

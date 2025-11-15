@@ -11,11 +11,11 @@ class WandbLogger:
     Weights & Biases logger for hyperbolic time series forecasting.
     Replaces TensorBoard functionality with wandb.
     """
-    
+
     def __init__(self, project_name="Hyperbolic_TimeSeries", experiment_name=None, config=None):
         """
         Initialize wandb logger.
-        
+
         Args:
             project_name: str - wandb project name
             experiment_name: str - experiment/run name
@@ -23,7 +23,7 @@ class WandbLogger:
         """
         self.project_name = project_name
         self.experiment_name = experiment_name
-        
+
         # Initialize wandb
         wandb.init(
             project=project_name,
@@ -31,77 +31,126 @@ class WandbLogger:
             config=config,
             reinit=True
         )
-        
+
         print(f"Wandb initialized. Project: {project_name}, Run: {experiment_name}")
-        print(f"View results at: {wandb.run.get_url()}")
-    
+        try:
+            print(f"View results at: {wandb.run.get_url()}")
+        except Exception:
+            pass
+
     # ============================================
     # Loss Logging
     # ============================================
-    
-    def log_losses(self, step, train_loss=None, val_loss=None, test_loss=None, 
+
+    def log_losses(self, step, train_loss=None, val_loss=None, test_loss=None,
                    train_losses_dict=None, prefix=''):
         """
         Log training, validation, and test losses.
-        
+
         Args:
             step: int - current step/epoch
             train_loss: float - training loss
             val_loss: float - validation loss
             test_loss: float - test loss
-            train_losses_dict: dict - component losses {'trend': ..., 'weekly': ...}
+            train_losses_dict: dict - component losses {'trend': ..., 'coarse': ...}
             prefix: str - prefix for metric names
         """
         log_dict = {"step": step}
-        
+
         if train_loss is not None:
-            log_dict[f'{prefix}train_loss'] = train_loss
-        
+            log_dict[f'{prefix}train_loss'] = float(train_loss)
+
         if val_loss is not None:
-            log_dict[f'{prefix}val_loss'] = val_loss
-        
+            log_dict[f'{prefix}val_loss'] = float(val_loss)
+
         if test_loss is not None:
-            log_dict[f'{prefix}test_loss'] = test_loss
-        
+            log_dict[f'{prefix}test_loss'] = float(test_loss)
+
         # Log component losses
         if train_losses_dict is not None:
             for name, value in train_losses_dict.items():
-                log_dict[f'{prefix}loss/{name}'] = value
-        
+                # convert single-item arrays/tensors to float
+                log_dict[f'{prefix}loss/{name}'] = _safe_scalar_or_list(value)
+
         wandb.log(log_dict)
-    
+
     # ============================================
-    # Metrics Logging
+    # Metrics Logging (robust)
     # ============================================
-    
     def log_metrics(self, step, metrics_dict, prefix='metrics'):
         """
         Log evaluation metrics (MSE, MAE, etc.)
-        
+
+        Handles:
+        - Python scalars (int/float)
+        - numpy arrays (size 1 → cast to float; size >1 → log list + mean)
+        - torch tensors (converted to numpy)
+        - other objects → stringified
+
         Args:
             step: int - current step/epoch
             metrics_dict: dict - {'mse': ..., 'mae': ..., 'rmse': ...}
             prefix: str - prefix for metric names
         """
         log_dict = {"step": step}
-        
+
         for name, value in metrics_dict.items():
-            log_dict[f'{prefix}/{name}'] = value
-            
-            # Log on log scale for clarity
-            if value > 0:
-                log_dict[f'{prefix}/{name}_log'] = np.log10(value + 1e-10)
-        
+            # Normalize torch tensors to numpy
+            if isinstance(value, torch.Tensor):
+                try:
+                    value = value.detach().cpu().numpy()
+                except Exception:
+                    try:
+                        value = float(value)
+                    except Exception:
+                        value = str(value)
+
+            # Try to convert to numpy array
+            try:
+                arr = np.asarray(value)
+            except Exception:
+                # not array-convertible: log string form
+                log_dict[f'{prefix}/{name}'] = str(value)
+                continue
+
+            if arr.size == 1:
+                # Single scalar value -> cast to float and log
+                numeric = float(arr.item())
+                log_dict[f'{prefix}/{name}'] = numeric
+                # safe log-scale metric
+                if numeric > 0:
+                    log_dict[f'{prefix}/{name}_log'] = np.log10(numeric + 1e-10)
+            else:
+                # Multi-element array: log the list and a summary statistic (mean)
+                # Avoid logging massive arrays in wandb; keep size reasonable
+                max_list_len = 10000
+                list_val = arr.tolist()
+                if arr.size > max_list_len:
+                    # too large to log entirely; log only summary stats
+                    mean_val = float(arr.mean())
+                    min_val = float(arr.min())
+                    max_val = float(arr.max())
+                    log_dict[f'{prefix}/{name}_mean'] = mean_val
+                    log_dict[f'{prefix}/{name}_min'] = min_val
+                    log_dict[f'{prefix}/{name}_max'] = max_val
+                    if mean_val > 0:
+                        log_dict[f'{prefix}/{name}_mean_log'] = np.log10(mean_val + 1e-10)
+                else:
+                    log_dict[f'{prefix}/{name}'] = list_val
+                    mean_val = float(arr.mean())
+                    log_dict[f'{prefix}/{name}_mean'] = mean_val
+                    if mean_val > 0:
+                        log_dict[f'{prefix}/{name}_mean_log'] = np.log10(mean_val + 1e-10)
+
         wandb.log(log_dict)
-    
+
     # ============================================
     # Hierarchy Logging
     # ============================================
-    
     def log_hierarchy_scales(self, epoch, model, manifold_type='lorentz'):
         """
         Log learned hierarchy scales.
-        
+
         Args:
             epoch: int
             model: nn.Module - model with embed_hyperbolic or embed_euclidean
@@ -109,57 +158,63 @@ class WandbLogger:
         """
         # Get encoder
         if manifold_type in ['lorentz', 'poincare']:
-            encoder = model.forecater.embed if hasattr(model, 'forecater') else model.forecaster.embed
+            encoder = model.forecater.embed if hasattr(model, 'forecater') else getattr(model, 'forecaster', None).embed
         else:
             encoder = model.forecaster.embed
-        
+
+        if encoder is None:
+            return
+
         if not hasattr(encoder, 'use_hierarchy') or not encoder.use_hierarchy:
             return
-        
+
         if not hasattr(encoder, 'log_scales'):
             return
-        
+
         # Extract scales
-        component_names = ['Trend', 'Weekly', 'Daily', 'Residual']
+        component_names = ['Trend', 'coarse', 'fine', 'Residual']
         scales = {}
         log_dict = {"epoch": epoch}
-        
+
         for i, name in enumerate(component_names):
-            scale = torch.exp(encoder.log_scales[i]).item()
+            scale = float(torch.exp(encoder.log_scales[i]).item())
             scales[name] = scale
             log_dict[f'hierarchy/scale_{name}'] = scale
-        
+
         # Compute and log weights (for Euclidean)
         if manifold_type == 'euclidean':
             weights = {name: 1.0 / scale for name, scale in scales.items()}
             total_weight = sum(weights.values())
             normalized_weights = {name: w / total_weight for name, w in weights.items()}
-            
+
             for name, weight in normalized_weights.items():
                 log_dict[f'hierarchy/weight_{name}'] = weight
-        
+
         # Create bar chart
-        fig, ax = plt.subplots(figsize=(10, 6))
-        ax.bar(scales.keys(), scales.values())
-        ax.set_xlabel('Component')
-        ax.set_ylabel('Scale')
-        ax.set_title(f'Hierarchy Scales - Epoch {epoch}')
-        plt.xticks(rotation=45)
-        plt.tight_layout()
-        
-        log_dict['hierarchy/scales_chart'] = wandb.Image(fig)
-        plt.close(fig)
-        
+        try:
+            fig, ax = plt.subplots(figsize=(10, 6))
+            ax.bar(scales.keys(), scales.values())
+            ax.set_xlabel('Component')
+            ax.set_ylabel('Scale')
+            ax.set_title(f'Hierarchy Scales - Epoch {epoch}')
+            plt.xticks(rotation=45)
+            plt.tight_layout()
+
+            log_dict['hierarchy/scales_chart'] = wandb.Image(fig)
+            plt.close(fig)
+        except Exception:
+            # If plotting fails, still log numeric values
+            pass
+
         wandb.log(log_dict)
-    
+
     # ============================================
     # Predictions Logging
     # ============================================
-    
     def log_predictions(self, epoch, predictions, targets, num_samples=5):
         """
         Log sample predictions vs ground truth.
-        
+
         Args:
             epoch: int
             predictions: tensor or numpy array [B, T, D]
@@ -170,16 +225,19 @@ class WandbLogger:
             predictions = predictions.detach().cpu().numpy()
         if isinstance(targets, torch.Tensor):
             targets = targets.detach().cpu().numpy()
-        
+
         # Select random samples
+        if predictions.size == 0:
+            return
+
         num_samples = min(num_samples, predictions.shape[0])
         indices = np.random.choice(predictions.shape[0], num_samples, replace=False)
-        
+
         # Create plots
         fig, axes = plt.subplots(num_samples, 1, figsize=(12, 3 * num_samples))
         if num_samples == 1:
             axes = [axes]
-        
+
         for idx, ax in zip(indices, axes):
             # Plot first feature/dimension
             if predictions.ndim == 3:
@@ -188,7 +246,7 @@ class WandbLogger:
             else:
                 pred = predictions[idx, :]
                 target = targets[idx, :]
-            
+
             ax.plot(target, label='Ground Truth', linewidth=2)
             ax.plot(pred, label='Prediction', linewidth=2, linestyle='--')
             ax.set_xlabel('Time Step')
@@ -196,100 +254,104 @@ class WandbLogger:
             ax.set_title(f'Sample {idx}')
             ax.legend()
             ax.grid(True, alpha=0.3)
-        
+
         plt.tight_layout()
         wandb.log({
             "epoch": epoch,
             "predictions/samples": wandb.Image(fig)
         })
         plt.close(fig)
-    
+
     # ============================================
     # Geometry Logging
     # ============================================
-    
     def log_radial_distances(self, epoch, embeddings, component_names, manifold):
         """
         Log radial distances from origin (hierarchy visualization).
-        
+
         Args:
             epoch: int
-            embeddings: dict - {'trend': tensor, 'weekly': tensor, ...}
+            embeddings: dict - {'trend': tensor, 'coarse': tensor, ...}
             component_names: list - component names
             manifold: geoopt manifold
         """
         distances = {}
         log_dict = {"epoch": epoch}
-        
+
         for name, emb in embeddings.items():
             if emb is None:
                 continue
-            
+
             # Compute distance from origin
             if hasattr(manifold, 'dist0'):
                 dist = manifold.dist0(emb).mean().item()
             else:
                 # Euclidean distance
                 dist = torch.norm(emb, dim=-1).mean().item()
-            
+
             distances[name] = dist
             log_dict[f'geometry/radial_distance_{name}'] = dist
-        
+
         # Bar chart of distances
         if distances:
-            fig, ax = plt.subplots(figsize=(8, 5))
-            ax.bar(distances.keys(), distances.values())
-            ax.set_xlabel('Component')
-            ax.set_ylabel('Radial Distance from Origin')
-            ax.set_title(f'Radial Distances - Epoch {epoch}')
-            plt.xticks(rotation=45)
-            plt.tight_layout()
-            
-            log_dict['geometry/radial_distances_chart'] = wandb.Image(fig)
-            plt.close(fig)
-        
+            try:
+                fig, ax = plt.subplots(figsize=(8, 5))
+                ax.bar(distances.keys(), distances.values())
+                ax.set_xlabel('Component')
+                ax.set_ylabel('Radial Distance from Origin')
+                ax.set_title(f'Radial Distances - Epoch {epoch}')
+                plt.xticks(rotation=45)
+                plt.tight_layout()
+
+                log_dict['geometry/radial_distances_chart'] = wandb.Image(fig)
+                plt.close(fig)
+            except Exception:
+                pass
+
         wandb.log(log_dict)
-    
+
     # ============================================
     # Model Parameters
     # ============================================
-    
     def log_model_parameters(self, model):
         """
         Log model parameter statistics (gradients, weights).
-        
+
         Args:
             model: nn.Module
         """
         total_params = sum(p.numel() for p in model.parameters())
         trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-        
-        wandb.config.update({
-            "total_parameters": total_params,
-            "trainable_parameters": trainable_params
-        })
-        
+
+        # update config (non-destructive)
+        try:
+            wandb.config.update({
+                "total_parameters": total_params,
+                "trainable_parameters": trainable_params
+            }, allow_val_change=True)
+        except Exception:
+            pass
+
         print(f"Total parameters: {total_params:,}")
         print(f"Trainable parameters: {trainable_params:,}")
-    
+
     def log_learning_rate(self, step, optimizer):
         """Log current learning rate"""
         log_dict = {"step": step}
-        
+
         for i, param_group in enumerate(optimizer.param_groups):
             log_dict[f'learning_rate/group_{i}'] = param_group['lr']
-        
+
         wandb.log(log_dict)
-    
+
     # ============================================
     # System Metrics
     # ============================================
-    
-    def log_system_metrics(self, step, gpu_memory_mb=None, epoch_time=None, 
+    def log_system_metrics(self, step, gpu_memory_mb=None, epoch_time=None,
                           speed_per_iter=None, time_left=None):
         """
         Log system metrics like memory usage and speed.
-        
+
         Args:
             step: int
             gpu_memory_mb: float - GPU memory in MB
@@ -298,39 +360,42 @@ class WandbLogger:
             time_left: float - estimated time left in seconds
         """
         log_dict = {"step": step}
-        
+
         if gpu_memory_mb is not None:
-            log_dict['system/gpu_memory_mb'] = gpu_memory_mb
-        
+            log_dict['system/gpu_memory_mb'] = float(gpu_memory_mb)
+
         if epoch_time is not None:
-            log_dict['system/epoch_time_seconds'] = epoch_time
-        
+            log_dict['system/epoch_time_seconds'] = float(epoch_time)
+
         if speed_per_iter is not None:
-            log_dict['system/speed_seconds_per_iter'] = speed_per_iter
-        
+            log_dict['system/speed_seconds_per_iter'] = float(speed_per_iter)
+
         if time_left is not None:
-            log_dict['system/estimated_time_left_seconds'] = time_left
-        
+            log_dict['system/estimated_time_left_seconds'] = float(time_left)
+
         wandb.log(log_dict)
-    
+
     # ============================================
     # Utility
     # ============================================
-    
     def watch_model(self, model, log_freq=100):
         """
         Watch model gradients and parameters.
-        
+
         Args:
             model: nn.Module
             log_freq: int - logging frequency
         """
-        wandb.watch(model, log='all', log_freq=log_freq)
-    
+        try:
+            wandb.watch(model, log='all', log_freq=log_freq)
+        except Exception:
+            # fall back silently if wandb fails to watch (so training continues)
+            pass
+
     def log_artifact(self, file_path, artifact_type='model', name=None):
         """
         Log file as wandb artifact.
-        
+
         Args:
             file_path: str - path to file
             artifact_type: str - type of artifact
@@ -338,12 +403,44 @@ class WandbLogger:
         """
         if name is None:
             name = Path(file_path).stem
-        
-        artifact = wandb.Artifact(name, type=artifact_type)
-        artifact.add_file(file_path)
-        wandb.log_artifact(artifact)
-    
+
+        try:
+            artifact = wandb.Artifact(name, type=artifact_type)
+            artifact.add_file(file_path)
+            wandb.log_artifact(artifact)
+        except Exception:
+            pass
+
     def finish(self):
         """Finish the wandb run"""
-        wandb.finish()
+        try:
+            wandb.finish()
+        except Exception:
+            pass
         print("Wandb run finished")
+
+
+# helper used above
+def _safe_scalar_or_list(value):
+    """
+    Convert value to float if single-element, or to list if multi-element.
+    """
+    if isinstance(value, torch.Tensor):
+        try:
+            arr = value.detach().cpu().numpy()
+        except Exception:
+            try:
+                return float(value)
+            except Exception:
+                return str(value)
+    else:
+        try:
+            arr = np.asarray(value)
+        except Exception:
+            return str(value)
+
+    if arr.size == 1:
+        return float(arr.item())
+    else:
+        # cap size in caller if needed
+        return arr.tolist()

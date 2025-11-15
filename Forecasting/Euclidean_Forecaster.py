@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from embed.mlp_embed_euclidean import ParallelEuclideanEmbed
 from Lifting.euclidean_reconstructor import EuclideanReconstructor
+from spec import RevIN
 
 class ResidualDynamics(nn.Module):
     """
@@ -65,11 +66,7 @@ class PointForecastEuclidean(nn.Module):
         self.use_truncated_bptt = use_truncated_bptt
         self.truncate_every = truncate_every
         if self.use_revin:
-            self.revin_trend = RevIN(num_channels=n_features, affine=True)
-            self.revin_weekly = RevIN(num_channels=n_features, affine=True)
-            self.revin_daily = RevIN(num_channels=n_features, affine=True)
-            self.revin_residual = RevIN(num_channels=n_features, affine=True)
-        # Encoder: 4 parallel Mamba blocks
+            self.revin = RevIN(num_features=n_features, eps=1e-5, affine=True)        # Encoder: 4 parallel Mamba blocks
         self.embed = ParallelEuclideanEmbed(
             lookback=lookback,
             input_dim=n_features,
@@ -86,7 +83,7 @@ class PointForecastEuclidean(nn.Module):
             dropout=0.3,
             n_layers=2
         )
-        self.step_size = nn.Parameter(torch.tensor(0.1))
+        self.step_size = nn.Parameter(torch.tensor(-2.0))
         # Reconstructor: simple MLP (no logmap/expmap needed!)
         self.reconstructor = EuclideanReconstructor(
             embed_dim=embed_dim,
@@ -94,65 +91,49 @@ class PointForecastEuclidean(nn.Module):
             hidden_dim=hidden_dim,
             dropout=0.2
         )
-    
-    def forward(self, trend, weekly, daily, residual):
+
+
+    def forward(self, trend, coarse, fine, residual):
         """
-        Args:
-            trend, weekly, daily, residual: [B, lookback, input_dim]
-            horizon: number of steps to forecast
+        Forecast each component separately, combine at the end.
+        """
+        # Step 1: Normalize each component SEPARATELY
+        x_combined = trend + coarse + fine + residual  # [B, lookback, n_features]
         
-        Returns:
-            forecast: [B, horizon, input_dim]
-            euclidean_trajectory: [B, horizon, embed_dim]
-        """
-        # Initial encoding
+        # Step 2: Store RevIN stats from combined signal (NO transformation applied!)
         if self.use_revin:
-            trend_norm, trend_stats = self.revin_trend.normalize(trend)
-            weekly_norm, weekly_stats = self.revin_weekly.normalize(weekly)
-            daily_norm, daily_stats = self.revin_daily.normalize(daily)
-            residual_norm, residual_stats = self.revin_residual.normalize(residual)
-        else:
-            trend_norm, weekly_norm, daily_norm, residual_norm = trend, weekly, daily, residual
-            trend_stats = weekly_stats = daily_stats = residual_stats = None
+            # This ONLY stores mean and std, doesn't transform the data
+            # We pass mode='norm' but it's just to compute and store stats
+            self.revin(x_combined, mode='norm')
         
-        # Step 2: Initial encoding
-        embed_output = self.embed(trend_norm, weekly_norm, daily_norm, residual_norm)
+        # Step 3: Encode RAW components (they're already normalized by StandardScaler!)
+        # We DON'T normalize them again!
+        embed_output = self.embed(trend, coarse, fine, residual)
         z_current = embed_output['combined_e']  # [B, embed_dim]
         
-        predictions = []
-        euclidean_trajectory = []
+        # Step 4: Autoregressive forecasting (in normalized space)
+        predictions_norm = []
         
-        # Step 3: Autoregressive forecasting with residual dynamics
         for step in range(self.pred_len):
-            # Store current state
-            euclidean_trajectory.append(z_current)
-            
-            # Reconstruct to observation space (normalized)
+            # Reconstruct in normalized space
             x_pred_norm = self.reconstructor(z_current)  # [B, n_features]
+            predictions_norm.append(x_pred_norm)
             
-            # Denormalize prediction (use trend stats as representative)
-            if self.use_revin:
-                x_pred = self.revin_trend.denormalize(
-                    x_pred_norm.unsqueeze(1), 
-                    trend_stats
-                ).squeeze(1)
-            else:
-                x_pred = x_pred_norm
-            
-            predictions.append(x_pred)
-            
-            # Predict next state with residual connection
-            z_next = self.dynamics(z_current)  # [B, embed_dim]
-            
-            # Interpolate between current and next state
-            step_size = torch.sigmoid(self.step_size)  # ∈ [0, 1]
+            # Update latent state
+            z_next = self.dynamics(z_current)
+            step_size = torch.sigmoid(self.step_size)
             z_current = z_current + step_size * (z_next - z_current)
             
-            # Truncated BPTT: Detach gradients every N steps
+            # Optional: truncated BPTT
             if self.use_truncated_bptt and (step + 1) % self.truncate_every == 0 and step < self.pred_len - 1:
                 z_current = z_current.detach()
         
-        return {
-            'predictions': torch.stack(predictions, dim=1),          # [B, pred_len, n_features]
-            'euclidean_trajectory': torch.stack(euclidean_trajectory, dim=1),  # [B, pred_len, embed_dim]
-        }
+        predictions_norm = torch.stack(predictions_norm, dim=1)  # [B, pred_len, n_features]
+        
+        # Step 5: Denormalize predictions using stored stats
+        if self.use_revin:
+            predictions = self.revin(predictions_norm, mode='denorm')
+        else:
+            predictions = predictions_norm
+        
+        return predictions

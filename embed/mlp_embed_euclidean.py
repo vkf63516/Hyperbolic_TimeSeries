@@ -56,8 +56,8 @@ class ParallelEuclideanEmbed(nn.Module):
         if self.use_hierarchy:
             self.log_scales = nn.ParameterList([
                 nn.Parameter(torch.log(torch.tensor(hierarchy_scales[0]))),  # trend
-                nn.Parameter(torch.log(torch.tensor(hierarchy_scales[1]))),  # weekly
-                nn.Parameter(torch.log(torch.tensor(hierarchy_scales[2]))),  # daily
+                nn.Parameter(torch.log(torch.tensor(hierarchy_scales[1]))),  # coarse
+                nn.Parameter(torch.log(torch.tensor(hierarchy_scales[2]))),  # fine
                 nn.Parameter(torch.log(torch.tensor(hierarchy_scales[3])))   # residual
             ])
         self.trend_embed = MLPEmbed(
@@ -67,14 +67,14 @@ class ParallelEuclideanEmbed(nn.Module):
             lookback=lookback, 
             n_layer=n_layer,
             use_attention_pooling=use_attention_pooling)
-        self.daily_embed = MLPEmbed(
+        self.fine_embed = MLPEmbed(
             input_dim=input_dim,
             hidden_dim=hidden_dim, 
             output_dim=embed_dim, 
             lookback=lookback, 
             n_layer=n_layer,
             use_attention_pooling=use_attention_pooling)
-        self.weekly_embed = MLPEmbed(
+        self.coarse_embed = MLPEmbed(
             input_dim=input_dim, 
             hidden_dim=hidden_dim, 
             output_dim=embed_dim, 
@@ -89,77 +89,75 @@ class ParallelEuclideanEmbed(nn.Module):
             n_layer=n_layer,
             use_attention_pooling=use_attention_pooling)
 
-    def hierarchical_weighted_combine(self, e_trend, e_weekly, e_daily, e_residual):
+    def hierarchical_weighted_combine(self, e_trend, e_coarse, e_fine, e_residual):
         """
         Weighted combination in Euclidean space.
         Inverse weighting: trend (general) gets higher weight than residual (specific).
         
         Args:
-            e_trend, e_weekly, e_daily, e_residual: [B, embed_dim]
+            e_trend, e_coarse, e_fine, e_residual: [B, embed_dim]
         
         Returns:
             combined_e: [B, embed_dim] - weighted combination
         """
         # Get scales (learned during training)
         trend_scale = torch.exp(self.log_scales[0])      # e.g., 0.5
-        weekly_scale = torch.exp(self.log_scales[1])     # e.g., 1.0
-        daily_scale = torch.exp(self.log_scales[2])      # e.g., 1.5
+        coarse_scale = torch.exp(self.log_scales[1])     # e.g., 1.0
+        fine_scale = torch.exp(self.log_scales[2])      # e.g., 1.5
         residual_scale = torch.exp(self.log_scales[3])   # e.g., 2.0
         
         # Inverse weights (trend = most important, residual = least)
         # Smaller scale → higher weight (trend is more general, gets more weight)
         trend_weight = 1.0 / trend_scale
-        weekly_weight = 1.0 / weekly_scale
-        daily_weight = 1.0 / daily_scale
+        coarse_weight = 1.0 / coarse_scale
+        fine_weight = 1.0 / fine_scale
         residual_weight = 1.0 / residual_scale
         
         # Normalize weights to sum to 1
-        total_weight = trend_weight + weekly_weight + daily_weight + residual_weight
-        
+        total_weight = trend_weight + coarse_weight + fine_weight + residual_weight
+        e_trend_hierarchy = (trend_weight / total_weight) * e_trend 
+        e_coarse_hierarchy = (coarse_weight / total_weight) * e_coarse
+        e_fine_hierarchy = (fine_weight / total_weight) * e_fine
+        e_residual_hierarchy = (residual_weight / total_weight) * e_residual
         # Weighted sum
-        combined_e = (
-            (trend_weight / total_weight) * e_trend +
-            (weekly_weight / total_weight) * e_weekly +
-            (daily_weight / total_weight) * e_daily +
-            (residual_weight / total_weight) * e_residual
-        )
+        combined_e = e_trend_hierarchy + e_coarse_hierarchy + e_fine_hierarchy + e_residual_hierarchy
         
-        return combined_e
+        return combined_e, e_trend_hierarchy, e_coarse_hierarchy, e_fine_hierarchy, e_residual_hierarchy
 
-    def forward(self, trend, daily, weekly, residual):
+    def forward(self, trend, fine, coarse, residual):
         """
         Encode decomposed time series components to Euclidean space.
         
         Args:
             trend: [B, seq_len, input_dim] 
-            daily: [B, seq_len, input_dim] 
-            weekly: [B, seq_len, input_dim]
+            fine: [B, seq_len, input_dim] 
+            coarse: [B, seq_len, input_dim]
             residual: [B, seq_len, input_dim]
         
         Returns:
             dict with:
-                - trend_e, seasonal_daily_e, seasonal_weekly_e, residual_e: [B, embed_dim]
+                - trend_e, seasonal_fine_e, seasonal_coarse_e, residual_e: [B, embed_dim]
                 - combined_e: [B, embed_dim]
         """
         # Embed each branch to Euclidean latent vector
         e_trend = self.trend_embed(trend)
-        e_daily = self.daily_embed(daily)
-        e_weekly = self.weekly_embed(weekly)
+        e_fine = self.fine_embed(fine)
+        e_coarse = self.coarse_embed(coarse)
         e_residual = self.residual_embed(residual)
         
         if self.use_hierarchy:
             # Hierarchical weighted combination
             # Trend gets highest weight (most general)
             # Residual gets lowest weight (most specific)
-            combined_e = self.hierarchical_weighted_combine(e_trend, e_weekly, e_daily, e_residual)
+            combined_e, e_trend, e_coarse, e_fine, e_residual = self.hierarchical_weighted_combine(e_trend, e_coarse, e_fine, e_residual)
         else:
             # Simple sum (no hierarchy, all components equally weighted)
-            combined_e = e_trend + e_daily + e_weekly + e_residual
+            combined_e = e_trend + e_fine + e_coarse + e_residual
 
         return {
             "trend_e": e_trend,
-            "seasonal_daily_e": e_daily,
-            "seasonal_weekly_e": e_weekly,
+            "seasonal_fine_e": e_fine,
+            "seasonal_coarse_e": e_coarse,
             "residual_e": e_residual,
             "combined_e": combined_e
         }

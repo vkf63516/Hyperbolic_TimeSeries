@@ -65,8 +65,8 @@ class ParallelLorentz(nn.Module):
 
         # Branch encoders
         self.trend_embed = MambaEmbed(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=embed_dim, lookback=lookback)
-        self.seasonal_weekly_embed = MambaEmbed(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=embed_dim, lookback=lookback)  
-        self.seasonal_daily_embed = MambaEmbed(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=embed_dim, lookback=lookback)
+        self.seasonal_coarse_embed = MambaEmbed(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=embed_dim, lookback=lookback)  
+        self.seasonal_fine_embed = MambaEmbed(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=embed_dim, lookback=lookback)
         self.residual_embed = MambaEmbed(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=embed_dim, lookback=lookback)
         # Lorentz manifold (k controls scale; curvature = -1/k)
         # Passing k = curvature (1.0 gives standard curvature -1)
@@ -80,7 +80,7 @@ class ParallelLorentz(nn.Module):
         scaled_point = safe_expmap0(self.manifold, scaled_tangent)
         return self.manifold.projx(scaled_point)
 
-    def hierarchical_combine(self, z_trend_h, z_weekly_h, z_daily_h, z_residual_h):
+    def hierarchical_combine(self, z_trend_h, z_coarse_h, z_fine_h, z_residual_h):
         """
         Build up from general (trend) to specific (residual)
         Each component modifies the previous state
@@ -88,14 +88,14 @@ class ParallelLorentz(nn.Module):
         # Start from trend (root of hierarchy)
         z_current = z_trend_h
 
-        # Incorporate weekly (moves from trend toward weekly)
-        v_to_weekly = self.manifold.logmap(z_current, z_weekly_h)
-        z_current = safe_expmap(self.manifold, z_current, 0.25 * v_to_weekly)
+        # Incorporate coarse (moves from trend toward coarse)
+        v_to_coarse = self.manifold.logmap(z_current, z_coarse_h)
+        z_current = safe_expmap(self.manifold, z_current, 0.25 * v_to_coarse)
         z_current = self.manifold.projx(z_current)
     
-        # Incorporate daily
-        v_to_daily = self.manifold.logmap(z_current, z_daily_h)
-        z_current = safe_expmap(self.manifold, z_current, 0.25 * v_to_daily)
+        # Incorporate fine
+        v_to_fine = self.manifold.logmap(z_current, z_fine_h)
+        z_current = safe_expmap(self.manifold, z_current, 0.25 * v_to_fine)
         z_current = self.manifold.projx(z_current)
     
         # Incorporate residual
@@ -105,61 +105,61 @@ class ParallelLorentz(nn.Module):
     
         return z_current
         
-    def forward(self, trend, seasonal_weekly, seasonal_daily, residual):
+    def forward(self, trend, seasonal_coarse, seasonal_fine, residual):
         """
         Inputs:
           trend
-          seasonal_weekly
-          seasonal_daily
+          seasonal_coarse
+          seasonal_fine
           residual
 
         Returns dict with:
-          - trend_h, seasonal_weekly_h, seasonal_daily_h, residual_h : points on Lorentz manifold
+          - trend_h, seasonal_coarse_h, seasonal_fine_h, residual_h : points on Lorentz manifold
           - combined_h : fused point on Lorentz manifold (via tangent-sum)
           - combined_tangent : the summed tangent vector 
         """
         # 1) encode to Euclidean latent (interpreted as tangent vectors at origin)
         z_trend_t = self.trend_embed(trend)       # [B, D]
-        z_seasonal_weekly_t = self.seasonal_weekly_embed(seasonal_weekly) # [B, D]
-        z_seasonal_daily_t = self.seasonal_daily_embed(seasonal_daily) # [B, D]
+        z_seasonal_coarse_t = self.seasonal_coarse_embed(seasonal_coarse) # [B, D]
+        z_seasonal_fine_t = self.seasonal_fine_embed(seasonal_fine) # [B, D]
         z_residual_t = self.residual_embed(residual)       # [B, D]
         
         # Scaling to prevent numerical instability
         effective_scale = torch.tanh(self.effective_scale)
         scaled_trend_embed = z_trend_t * effective_scale
-        scaled_weekly_embed = z_seasonal_weekly_t * effective_scale
-        scaled_daily_embed = z_seasonal_daily_t * effective_scale
+        scaled_coarse_embed = z_seasonal_coarse_t * effective_scale
+        scaled_fine_embed = z_seasonal_fine_t * effective_scale
         scaled_residual_embed = z_residual_t * effective_scale
 
         z_trend_h = safe_expmap0(self.manifold, scaled_trend_embed)    # manifold point
-        z_seasonal_weekly_h = safe_expmap0(self.manifold, scaled_weekly_embed)
-        z_seasonal_daily_h = safe_expmap0(self.manifold, scaled_daily_embed)
+        z_seasonal_coarse_h = safe_expmap0(self.manifold, scaled_coarse_embed)
+        z_seasonal_fine_h = safe_expmap0(self.manifold, scaled_fine_embed)
         z_residual_h = safe_expmap0(self.manifold, scaled_residual_embed)
 
         # # (Optional) project to manifold numerically safely
         z_trend_h = self.manifold.projx(z_trend_h)
-        z_seasonal_weekly_h = self.manifold.projx(z_seasonal_weekly_h)
-        z_seasonal_daily_h = self.manifold.projx(z_seasonal_daily_h)
+        z_seasonal_coarse_h = self.manifold.projx(z_seasonal_coarse_h)
+        z_seasonal_fine_h = self.manifold.projx(z_seasonal_fine_h)
         z_residual_h = self.manifold.projx(z_residual_h)
 
         if self.use_hierarchy:
             trend_scale = torch.exp(self.log_scales[0])
-            weekly_scale = torch.exp(self.log_scales[1])
-            daily_scale = torch.exp(self.log_scales[2])
+            coarse_scale = torch.exp(self.log_scales[1])
+            fine_scale = torch.exp(self.log_scales[2])
             residual_scale = torch.exp(self.log_scales[3])
     
             z_trend_h = self.apply_hierarchy_scaling(z_trend_h, trend_scale)
-            z_seasonal_weekly_h = self.apply_hierarchy_scaling(z_seasonal_weekly_h, weekly_scale)
-            z_seasonal_daily_h = self.apply_hierarchy_scaling(z_seasonal_daily_h, daily_scale)
+            z_seasonal_coarse_h = self.apply_hierarchy_scaling(z_seasonal_coarse_h, coarse_scale)
+            z_seasonal_fine_h = self.apply_hierarchy_scaling(z_seasonal_fine_h, fine_scale)
             z_residual_h = self.apply_hierarchy_scaling(z_residual_h, residual_scale)
 
         # 3) Fuse: logmap0(manifold) -> tangent vectors -> sum -> expmap back
         u_trend = self.manifold.logmap0(z_trend_h)    # [B, D]
-        u_seasonal_weekly = self.manifold.logmap0(z_seasonal_weekly_h)
-        u_seasonal_daily = self.manifold.logmap0(z_seasonal_daily_h)
+        u_seasonal_coarse = self.manifold.logmap0(z_seasonal_coarse_h)
+        u_seasonal_fine = self.manifold.logmap0(z_seasonal_fine_h)
         u_residual = self.manifold.logmap0(z_residual_h)
 
-        combined_tangent = u_trend + u_seasonal_weekly + u_seasonal_daily + u_residual  # tangent-space fusion (Euclidean sum)
+        combined_tangent = u_trend + u_seasonal_coarse + u_seasonal_fine + u_residual  # tangent-space fusion (Euclidean sum)
         scaled_tangent = combined_tangent * effective_scale
         combined_h = safe_expmap0(self.manifold, scaled_tangent)
         # combined_h = self.manifold.expmap0(combined_tangent)
@@ -167,12 +167,12 @@ class ParallelLorentz(nn.Module):
 
         return {
             "trend_tangent": z_trend_t,
-            "seasonal_weekly_tangent": z_seasonal_weekly_t,
-            "seasonal_daily_tangent": z_seasonal_daily_t,
+            "seasonal_coarse_tangent": z_seasonal_coarse_t,
+            "seasonal_fine_tangent": z_seasonal_fine_t,
             "residual_tangent": z_residual_t,
             "trend_h": z_trend_h,
-            "seasonal_weekly_h": z_seasonal_weekly_h,
-            "seasonal_daily_h": z_seasonal_daily_h,
+            "seasonal_coarse_h": z_seasonal_coarse_h,
+            "seasonal_fine_h": z_seasonal_fine_h,
             "residual_h": z_residual_h,
             "combined_tangent": combined_tangent,
             "combined_h": combined_h

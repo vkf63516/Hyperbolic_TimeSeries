@@ -1,4 +1,4 @@
-from data_provider.data_loader import Dataset_ETT_hour, Dataset_ETT_minute, Dataset_Custom, Dataset_Custom_Decomposition, Dataset_Pred
+from data_provider.data_loader import Dataset_ETT_hour, Dataset_ETT_hour_Decomposition, Dataset_ETT_minute, Dataset_ETT_minute_Decomposition, Dataset_Custom, Dataset_Custom_Decomposition, Dataset_Pred
 from torch.utils.data import DataLoader
 
 data_dict = {
@@ -6,6 +6,10 @@ data_dict = {
     'ETTh2': Dataset_ETT_hour,
     'ETTm1': Dataset_ETT_minute,
     'ETTm2': Dataset_ETT_minute,
+    'ETTh1_decomposition': Dataset_ETT_hour_Decomposition,
+    'ETTh2_decomposition': Dataset_ETT_hour_Decomposition,
+    'ETTm1_decomposition': Dataset_ETT_minute_Decomposition,
+    'ETTm2_decomposition': Dataset_ETT_minute_Decomposition,
     'custom': Dataset_Custom,
     'custom_decomposition': Dataset_Custom_Decomposition,
 }

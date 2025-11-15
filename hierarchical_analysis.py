@@ -61,8 +61,8 @@ def extract_mstl_components_from_dataset(dataset):
     # Direct access to stored components
     data_dict = {
         'trend': dataset.decomposed_components['trend'],
-        'weekly': dataset.decomposed_components['seasonal_weekly'],
-        'daily': dataset.decomposed_components['seasonal_daily'],
+        'coarse': dataset.decomposed_components['seasonal_coarse'],
+        'fine': dataset.decomposed_components['seasonal_fine'],
         'residual': dataset.decomposed_components['residual']
     }
     
@@ -100,8 +100,8 @@ def visualize_component_characteristics(data_dict, save_dir='./plots/hierarchy')
     
     components = [
         ('trend', 'blue', 'TREND'),
-        ('weekly', 'green', 'WEEKLY'),
-        ('daily', 'orange', 'DAILY'),
+        ('coarse', 'green', 'coarse'),
+        ('fine', 'orange', 'fine'),
         ('residual', 'purple', 'RESIDUAL')
     ]
     
@@ -132,7 +132,7 @@ def visualize_component_characteristics(data_dict, save_dir='./plots/hierarchy')
     print(f"✓ Saved component overview to {save_dir}/component_overview.png")
 
 
-def test_spherical_structure(patterns_normalized, component='daily'):
+def test_spherical_structure(patterns_normalized, component='fine'):
     """Minimal spherical structure test."""
     
     # Project to unit sphere
@@ -292,7 +292,7 @@ def compute_euclidean_score(hierarchy_score, spherical_score,
 def experiment_2_hierarchical_structure(
     data_dict,
     window_size, 
-    component='daily',
+    component='fine',
     max_patterns=5000,
     save_dir='./plots/hierarchy'
 ):
@@ -752,8 +752,8 @@ if __name__ == '__main__':
     # Analysis parameters
     parser.add_argument('--save_dir', type=str, default='./plots/hierarchy')
     parser.add_argument('--max_patterns', type=int, default=5000)
-    parser.add_argument('--window_daily', type=int, default=144)
-    parser.add_argument('--window_weekly', type=int, default=1008)
+    parser.add_argument('--window_fine', type=int, default=144)
+    parser.add_argument('--window_coarse', type=int, default=1008)
     parser.add_argument('--window_trend', type=int, default=4320)
     
     # Seed parameter
@@ -788,14 +788,14 @@ if __name__ == '__main__':
     # Analyze each component
     results = {}
     window_sizes = {
-        'daily': args.window_daily,
-        'weekly': args.window_weekly,
+        'fine': args.window_fine,
+        'coarse': args.window_coarse,
         'trend': args.window_trend,
-        'residual': args.window_daily
+        'residual': args.window_fine
     }
     
     # Run complete analysis on all components
-    for component in ['trend', 'weekly', 'daily', 'residual']:
+    for component in ['trend', 'coarse', 'fine', 'residual']:
         results[component] = experiment_2_hierarchical_structure(
             data_dict,
             component=component,

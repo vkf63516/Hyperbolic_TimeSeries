@@ -19,26 +19,26 @@ class HyperbolicSegmentForecaster(nn.Module):
         # Reconstruct segment from hyperbolic point
         self.recon = HyperbolicReconstructionHead(embed_dim, seg_len, manifold)
 
-    def combine_branches(self, trend_z, seasonal_weekly_z, seasonal_daily_z, residual_z):
+    def combine_branches(self, trend_z, seasonal_coarse_z, seasonal_fine_z, residual_z):
         """Combine individual component embeddings."""
         u_trend = self.manifold.logmap0(trend_z)
-        u_weekly = self.manifold.logmap0(seasonal_weekly_z)
-        u_daily = self.manifold.logmap0(seasonal_daily_z)
+        u_coarse = self.manifold.logmap0(seasonal_coarse_z)
+        u_fine = self.manifold.logmap0(seasonal_fine_z)
         u_resid = self.manifold.logmap0(residual_z)
         
-        combined_tangent = u_trend + u_weekly + u_daily + u_resid
+        combined_tangent = u_trend + u_coarse + u_fine + u_resid
         combined_h = segment_safe_expmap0(self.manifold, combined_tangent)
         combined_h = self.manifold.projx(combined_h)
         
         return combined_h
 
-    def forward(self, pred_len, trend_z=None, seasonal_weekly_z=None, 
-                seasonal_daily_z=None, residual_z=None, z0=None,
+    def forward(self, pred_len, trend_z=None, seasonal_coarse_z=None, 
+                seasonal_fine_z=None, residual_z=None, z0=None,
                 teacher_forcing=False, z_true_seq=None, K=6):
         """
         Args:
             pred_len: Number of timesteps to forecast
-            trend_z, weekly_z, daily_z, resid_z: [B, num_seg, D+1]
+            trend_z, coarse_z, fine_z, resid_z: [B, num_seg, D+1]
             z0: [B, num_seg, D+1] or [B, D+1] (pre-combined from encoder)
             teacher_forcing: bool - if True, always use ground truth when available
             z_true_seq: [B, num_pred_segments, D+1] - ground truth hyperbolic states
@@ -55,7 +55,7 @@ class HyperbolicSegmentForecaster(nn.Module):
         if z0 is None:
             if trend_z is None:
                 raise ValueError("Must provide either z0 or individual components")
-            combined = self.combine_branches(trend_z, seasonal_weekly_z, seasonal_daily_z, residual_z)
+            combined = self.combine_branches(trend_z, seasonal_coarse_z, seasonal_fine_z, residual_z)
             z_cur = combined[:, -1, :]
         else:
             if z0.dim() == 3:

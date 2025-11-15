@@ -42,36 +42,36 @@ class ParallelEuclideanEmbed(nn.Module):
         if self.use_hierarchy:
             self.hierarchy_scales = hierarchy_scales
             self.trend_scale = nn.Parameter(torch.tensor(hierarchy_scales[0]))
-            self.seasonal_weekly_scale = nn.Parameter(torch.tensor(hierarchy_scales[1]))
-            self.seasonal_daily_scale = nn.Parameter(torch.tensor(hierarchy_scales[2]))
+            self.seasonal_coarse_scale = nn.Parameter(torch.tensor(hierarchy_scales[1]))
+            self.seasonal_fine_scale = nn.Parameter(torch.tensor(hierarchy_scales[2]))
             self.residual_scale = nn.Parameter(torch.tensor(hierarchy_scales[-1]))
         self.trend_embed = MambaEmbed(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=embed_dim, lookback=lookback, n_layer=n_layer)
-        self.daily_embed = MambaEmbed(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=embed_dim, lookback=lookback, n_layer=n_layer)
-        self.weekly_embed = MambaEmbed(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=embed_dim, lookback=lookback, n_layer=n_layer)
+        self.fine_embed = MambaEmbed(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=embed_dim, lookback=lookback, n_layer=n_layer)
+        self.coarse_embed = MambaEmbed(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=embed_dim, lookback=lookback, n_layer=n_layer)
         self.residual_embed = MambaEmbed(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=embed_dim, lookback=lookback, n_layer=n_layer)
 
-    def forward(self, trend, daily, weekly, residual):
+    def forward(self, trend, fine, coarse, residual):
         # Embed each branch to Euclidean latent vector
         e_trend = self.trend_embed(trend)
-        e_daily = self.daily_embed(daily)
-        e_weekly = self.weekly_embed(weekly)
+        e_fine = self.fine_embed(fine)
+        e_coarse = self.coarse_embed(coarse)
         e_residual = self.residual_embed(residual)
         if self.use_hierarchy:
             e_trend *= self.trend_scale
-            e_weekly *= self.seasonal_weekly_scale
-            e_daily *= self.seasonal_daily_scale
+            e_coarse *= self.seasonal_coarse_scale
+            e_fine *= self.seasonal_fine_scale
             e_residual *= self.residual_scale
         # Simple Euclidean fusion: sum or concatenation
         # Option 1: sum
-        combined_e = e_trend + e_daily + e_weekly + e_residual
+        combined_e = e_trend + e_fine + e_coarse + e_residual
 
         # Option 2: concatenation (preserves branches separately)
-        # combined = torch.cat([z_trend, z_daily, z_weekly, z_monthly, z_resid], dim=-1)
+        # combined = torch.cat([z_trend, z_fine, z_coarse, z_monthly, z_resid], dim=-1)
 
         return {
             "trend_e": e_trend,
-            "seasonal_daily_e": e_daily,
-            "seasonal_weekly_e": e_weekly,
+            "seasonal_fine_e": e_fine,
+            "seasonal_coarse_e": e_coarse,
             "residual_e": e_residual,
             "combined_e": combined_e
         }
