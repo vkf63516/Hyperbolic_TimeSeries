@@ -1,0 +1,58 @@
+Wandb initialized. Project: Hyperbolic_TimeSeries, Run: HyperbolicForecasting_custom_decomposition_sl96_pl192_Euclidean
+[34m[1mwandb[0m: [33mWARNING[0m The get_url method is deprecated and will be removed in a future release. Please use `run.url` instead.
+View results at: https://wandb.ai/vkf-new-jersey-institute-of-technology/Hyperbolic_TimeSeries/runs/2eq0t9ej
+Wandb logging enabled. Experiment: HyperbolicForecasting_custom_decomposition_sl96_pl192_Euclidean
+>>>>>>>start training : Weather_96_192_exp1_HScales_HyperbolicForecasting_custom_decomposition_ftM_sl96_pl192_exp_ebfixed_Euclidean_0_seed2023>>>>>>>>>>>>>>>>>>>>>>>>>>
+[train] Fitting TimeBaseMSTL on training data...
+Learning orthogonal bases from 21 series...
+
+======================================================================
+PERIOD DETECTION
+======================================================================
+Dataset length: 36887 points
+Reference length (seq_len): 96 points
+
+Detected periods:
+  Fine:      24 steps ( 25.0% of reference)
+          → segment_len=48, yields 768 segments
+  Coarse:    96 steps (100.0% of reference)
+          → segment_len=192, yields 192 segments
+
+ Periods valid!
+======================================================================
+
+Extracted 768 segments (period=24, length=48, total_features=21)
+Extracted 192 segments (period=96, length=192, total_features=21)
+Learning from 21 series with 768 segments each
+Traceback (most recent call last):
+  File "/home/vishalfenn/Documents/Research/Hyperbolic_TimeSeries/run.py", line 135, in <module>
+    exp.train(setting)
+    ~~~~~~~~~^^^^^^^^^
+  File "/home/vishalfenn/Documents/Research/Hyperbolic_TimeSeries/exp/exp_main.py", line 173, in train
+    train_data, train_loader = self._get_data(flag='train')
+                               ~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "/home/vishalfenn/Documents/Research/Hyperbolic_TimeSeries/exp/exp_main.py", line 98, in _get_data
+    data_set, data_loader = data_provider(self.args, flag)
+                            ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/home/vishalfenn/Documents/Research/Hyperbolic_TimeSeries/data_provider/data_factory.py", line 39, in data_provider
+    data_set = Data(
+        root_path=args.root_path,
+    ...<9 lines>...
+        mstl_period=args.mstl_period
+    )
+  File "/home/vishalfenn/Documents/Research/Hyperbolic_TimeSeries/data_provider/data_loader.py", line 899, in __init__
+    self.__read_data__()
+    ~~~~~~~~~~~~~~~~~~^^
+  File "/home/vishalfenn/Documents/Research/Hyperbolic_TimeSeries/data_provider/data_loader.py", line 944, in __read_data__
+    self.timebase_mstl.fit(train_df)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/home/vishalfenn/Documents/Research/Hyperbolic_TimeSeries/Decomposition/TimeBase_Series_Trend_Decomposition.py", line 390, in fit
+    basis, all_coeffs = self.learn_orthogonal_basis(segments)
+                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/home/vishalfenn/Documents/Research/Hyperbolic_TimeSeries/Decomposition/TimeBase_Series_Trend_Decomposition.py", line 190, in learn_orthogonal_basis
+    off_diag = gram - np.diag(np.diag(gram))
+                              ~~~~~~~^^^^^^
+  File "/home/vishalfenn/base/lib/python3.13/site-packages/numpy/lib/_twodim_base_impl.py", line 254, in _diag_dispatcher
+    def _diag_dispatcher(v, k=None):
+
+KeyboardInterrupt

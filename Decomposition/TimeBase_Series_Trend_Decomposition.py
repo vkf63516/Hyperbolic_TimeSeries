@@ -62,6 +62,26 @@ class TimeBaseMSTL:
     # -------------------------------
     # Period Detection
     # -------------------------------
+    def timesteps_from_index(self, df):
+        """Compute seasonal periods (daily, weekly) in timesteps."""
+        index = df.index
+        freq = pd.infer_freq(index)
+        if freq is None:
+            step = index.to_series().diff().median()
+            step_seconds = step.total_seconds()
+        else:
+            step_seconds = pd.Timedelta(pd.tseries.frequencies.to_offset(freq)).total_seconds()
+        if step_seconds == 0:
+            raise ValueError("Could not determine valid time step.")
+        periods_seconds = [24*3600, 7*24*3600]
+        steps = [max(1, int(round(p / step_seconds))) for p in periods_seconds]
+        print(f"\nDetected periods:")
+        print(f"  Fine:   {period_fine:5d} steps ({period_fine/reference_length*100:5.1f}% of reference)")
+        print(f"          → segment_len={segment_len_fine}, yields {n_segments_fine} segments")
+        print(f"  Coarse: {period_coarse:5d} steps ({period_coarse/reference_length*100:5.1f}% of reference)")
+        print(f"          → segment_len={segment_len_coarse}, yields {n_segments_coarse}")
+        return steps
+
     def detect_periods(self, df):
         """
         Data-driven period detection.
@@ -84,9 +104,6 @@ class TimeBaseMSTL:
     
         print(f"\n{'='*70}")
         print(f"PERIOD DETECTION")
-        print(f"{'='*70}")
-        print(f"Dataset length: {n_points} points")
-        print(f"Reference length (seq_len): {reference_length} points")
     
         # Compute periods as fractions of reference length
         FINE_RATIO = 4      # Fine period: 25% of reference
@@ -103,13 +120,6 @@ class TimeBaseMSTL:
         segment_len_coarse = period_coarse * 2
         n_segments_fine = n_points // segment_len_fine
         n_segments_coarse = n_points // segment_len_coarse
-    
-        print(f"\nDetected periods:")
-        print(f"  Fine:   {period_fine:5d} steps ({period_fine/reference_length*100:5.1f}% of reference)")
-        print(f"          → segment_len={segment_len_fine}, yields {n_segments_fine} segments")
-        print(f"  Coarse: {period_coarse:5d} steps ({period_coarse/reference_length*100:5.1f}% of reference)")
-        print(f"          → segment_len={segment_len_coarse}, yields {n_segments_coarse} segments")
-    
         # Validate: need at least 3 segments
         min_segments = 3
         if n_segments_fine < min_segments or n_segments_coarse < min_segments:

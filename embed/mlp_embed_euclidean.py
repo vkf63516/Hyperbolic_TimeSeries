@@ -7,7 +7,7 @@ sys.path.append(str(Path(__file__).resolve().parents[0]))
 from spec import safe_expmap, safe_expmap0
 
 class MLPEmbed(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim, n_layer=3, lookback=None, use_attention_pooling=False):
+    def __init__(self, input_dim, hidden_dim, output_dim, n_layer=3, lookback=None, embed_dropout=0.1, use_attention_pooling=False):
         super().__init__()
         self.lookback = lookback
         self.use_attention_pooling = use_attention_pooling
@@ -17,7 +17,7 @@ class MLPEmbed(nn.Module):
                 nn.Linear(hidden_dim, hidden_dim),
                 nn.LayerNorm(hidden_dim),
                 nn.GELU(),
-                nn.Dropout(0.5)
+                nn.Dropout(embed_dropout)
             ) for _ in range(n_layer)
         ])
         self.output_proj = nn.Linear(hidden_dim, output_dim)
@@ -49,7 +49,7 @@ class MLPEmbed(nn.Module):
 class ParallelEuclideanEmbed(nn.Module):
     def __init__(self, lookback, input_dim, embed_dim=32, hidden_dim=64,
                 use_hierarchy=False, hierarchy_scales=[0.5,1.0,1.5,2.0], 
-                n_layer=2, use_attention_pooling=False):
+                n_layer=2, embed_dropout=0.1, use_attention_pooling=False):
         super().__init__()
         # 5 parallel Mamba encoder blocks
         self.use_hierarchy = use_hierarchy
@@ -66,6 +66,7 @@ class ParallelEuclideanEmbed(nn.Module):
             output_dim=embed_dim, 
             lookback=lookback, 
             n_layer=n_layer,
+            embed_dropout=embed_dropout,
             use_attention_pooling=use_attention_pooling)
         self.fine_embed = MLPEmbed(
             input_dim=input_dim,
@@ -73,6 +74,7 @@ class ParallelEuclideanEmbed(nn.Module):
             output_dim=embed_dim, 
             lookback=lookback, 
             n_layer=n_layer,
+            embed_dropout=embed_dropout,
             use_attention_pooling=use_attention_pooling)
         self.coarse_embed = MLPEmbed(
             input_dim=input_dim, 
@@ -80,6 +82,7 @@ class ParallelEuclideanEmbed(nn.Module):
             output_dim=embed_dim, 
             lookback=lookback, 
             n_layer=n_layer,
+            embed_dropout=embed_dropout,
             use_attention_pooling=use_attention_pooling)
         self.residual_embed = MLPEmbed(
             input_dim=input_dim, 

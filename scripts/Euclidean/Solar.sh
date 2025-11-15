@@ -15,8 +15,8 @@ python run.py \
   --seq_len $seq_len \
   --pred_len 96 \
   --lradj "type3" \
-  --embed_dim 64 \
-  --hidden_dim 256 \
+  --embed_dim 32 \
+  --hidden_dim 64 \
   --batch_size 32 \
   --use_wandb \
   --learning_rate 1e-4 \
@@ -41,8 +41,8 @@ python run.py \
   --seq_len $seq_len \
   --pred_len 192 \
   --lradj "type3" \
-  --embed_dim 64 \
-  --hidden_dim 256 \
+  --embed_dim 32 \
+  --hidden_dim 64 \
   --batch_size 32 \
   --use_wandb \
   --learning_rate 1e-4 \
@@ -66,8 +66,8 @@ python run.py \
   --seq_len $seq_len \
   --pred_len 336 \
   --lradj "type3" \
-  --embed_dim 64 \
-  --hidden_dim 256 \
+  --embed_dim 32 \
+  --hidden_dim 64 \
   --batch_size 32 \
   --use_wandb \
   --learning_rate 1e-4 \
@@ -93,8 +93,8 @@ python run.py \
   --seq_len $seq_len \
   --pred_len 720 \
   --lradj "type3" \
-  --embed_dim 64 \
-  --hidden_dim 256 \
+  --embed_dim 32 \
+  --hidden_dim 64 \
   --batch_size 32 \
   --use_wandb \
   --learning_rate 1e-4 \

@@ -117,10 +117,11 @@ if args.is_training:
         torch.manual_seed(fix_seed_list[ii])
         np.random.seed(fix_seed_list[ii])
         # setting record of experiments
-        setting = '{}_{}_{}_ft{}_sl{}_pl{}_{}_eb{}_{}_{}_seed{}'.format(
+        setting = '{}_{}_{}_{}_ft{}_sl{}_pl{}_{}_eb{}_{}_{}_seed{}'.format(
             args.model_id,
             args.model,
             args.data,
+            args.data_path,
             args.features,
             args.seq_len,
             args.pred_len,
@@ -144,10 +145,11 @@ if args.is_training:
         torch.cuda.empty_cache()
 else:
     ii = 0
-    setting = '{}_{}_{}_ft{}_sl{}_pl{}_{}_eb{}_{}_{}_seed{}'.format(
+    setting = '{}_{}_{}_{}_ft{}_sl{}_pl{}_{}_eb{}_{}_{}_seed{}'.format(
         args.model_id,
         args.model,
         args.data,
+        args.data_path,
         args.features,
         args.seq_len,
         args.pred_len,

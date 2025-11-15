@@ -1,0 +1,53 @@
+2025-11-15 00:25:47,801 INFO    MainThread:40636 [wandb_setup.py:_flush():80] Current SDK version is 0.23.0
+2025-11-15 00:25:47,801 INFO    MainThread:40636 [wandb_setup.py:_flush():80] Configure stats pid to 40636
+2025-11-15 00:25:47,801 INFO    MainThread:40636 [wandb_setup.py:_flush():80] Loading settings from /home/vishalfenn/.config/wandb/settings
+2025-11-15 00:25:47,801 INFO    MainThread:40636 [wandb_setup.py:_flush():80] Loading settings from /home/vishalfenn/Documents/Research/Hyperbolic_TimeSeries/wandb/settings
+2025-11-15 00:25:47,802 INFO    MainThread:40636 [wandb_setup.py:_flush():80] Loading settings from environment variables
+2025-11-15 00:25:47,802 INFO    MainThread:40636 [wandb_init.py:setup_run_log_directory():713] Logging user logs to /home/vishalfenn/Documents/Research/Hyperbolic_TimeSeries/wandb/run-20251115_002547-szu3p2vp/logs/debug.log
+2025-11-15 00:25:47,802 INFO    MainThread:40636 [wandb_init.py:setup_run_log_directory():714] Logging internal logs to /home/vishalfenn/Documents/Research/Hyperbolic_TimeSeries/wandb/run-20251115_002547-szu3p2vp/logs/debug-internal.log
+2025-11-15 00:25:47,802 INFO    MainThread:40636 [wandb_init.py:init():840] calling init triggers
+2025-11-15 00:25:47,802 INFO    MainThread:40636 [wandb_init.py:init():845] wandb.init called with sweep_config: {}
+config: {'model': 'HyperbolicForecasting', 'data': 'custom_decomposition', 'seq_len': 96, 'pred_len': 336, 'learning_rate': 0.001, 'batch_size': 32, 'train_epochs': 30, 'embed_dim': 32, 'hidden_dim': 64, 'manifold_type': 'Euclidean', 'use_segments': False, 'use_hierarchy': True, 'use_decomposition': True, 'use_attention_pooling': False, 'loss': 'mse', 'patience': 5, '_wandb': {}}
+2025-11-15 00:25:47,802 INFO    MainThread:40636 [wandb_init.py:init():888] starting backend
+2025-11-15 00:25:48,077 INFO    MainThread:40636 [wandb_init.py:init():891] sending inform_init request
+2025-11-15 00:25:48,088 INFO    MainThread:40636 [wandb_init.py:init():899] backend started and connected
+2025-11-15 00:25:48,133 INFO    MainThread:40636 [wandb_init.py:init():969] updated telemetry
+2025-11-15 00:25:48,139 INFO    MainThread:40636 [wandb_init.py:init():993] communicating run to backend with 90.0 second timeout
+2025-11-15 00:25:48,762 INFO    MainThread:40636 [wandb_init.py:init():1040] starting run threads in backend
+2025-11-15 00:25:48,909 WARNING MainThread:40636 [wandb_init.py:init():1595] [no run ID] interrupted
+Traceback (most recent call last):
+  File "/home/vishalfenn/base/lib/python3.13/site-packages/wandb/sdk/wandb_init.py", line 1586, in init
+    run = wi.init(run_settings, run_config, run_printer)
+  File "/home/vishalfenn/base/lib/python3.13/site-packages/wandb/sdk/wandb_init.py", line 1079, in init
+    run._on_start()
+    ~~~~~~~~~~~~~^^
+  File "/home/vishalfenn/base/lib/python3.13/site-packages/wandb/sdk/wandb_run.py", line 2528, in _on_start
+    self._backend.interface.publish_python_packages(working_set())
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/home/vishalfenn/base/lib/python3.13/site-packages/wandb/sdk/interface/interface.py", line 355, in publish_python_packages
+    for pkg in working_set:
+               ^^^^^^^^^^^
+  File "/home/vishalfenn/base/lib/python3.13/site-packages/wandb/util.py", line 1969, in working_set
+    yield InstalledDistribution(key=d.metadata["Name"], version=d.version)
+                                                                ^^^^^^^^^
+  File "/usr/lib/python3.13/importlib/metadata/__init__.py", line 486, in version
+    return self.metadata['Version']
+           ^^^^^^^^^^^^^
+  File "/usr/lib/python3.13/importlib/metadata/__init__.py", line 471, in metadata
+    return _adapters.Message(email.message_from_string(text))
+           ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.13/importlib/metadata/_adapters.py", line 47, in __init__
+    self._headers = self._repair_headers()
+                    ~~~~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.13/importlib/metadata/_adapters.py", line 72, in _repair_headers
+    headers.append(('Description', self.get_payload()))
+                                   ~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.13/email/message.py", line 297, in get_payload
+    if isinstance(payload, str) and utils._has_surrogates(payload):
+                                    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "/usr/lib/python3.13/email/utils.py", line 53, in _has_surrogates
+    s.encode()
+    ~~~~~~~~^^
+KeyboardInterrupt
+2025-11-15 00:25:48,924 INFO    wandb-AsyncioManager-main:40636 [service_client.py:_forward_responses():80] Reached EOF.
+2025-11-15 00:25:48,924 INFO    wandb-AsyncioManager-main:40636 [mailbox.py:close():137] Closing mailbox, abandoning 0 handles.

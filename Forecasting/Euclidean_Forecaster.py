@@ -57,7 +57,8 @@ class PointForecastEuclidean(nn.Module):
     def __init__(self, lookback, n_features, pred_len, embed_dim=32, hidden_dim=64,
                  use_hierarchy=False, hierarchy_scales=[0.5, 1.0, 1.0, 1.5], 
                  use_attention_pooling=False, use_revin=False, 
-                 use_truncated_bptt=False, truncate_every=16):
+                 use_truncated_bptt=False, truncate_every=16,
+                 dynamic_dropout=0.3, embed_dropout=0.5, recon_dropout=0.2, num_layers=2):
         super().__init__()
         self.lookback = lookback
         self.embed_dim = embed_dim
@@ -73,23 +74,24 @@ class PointForecastEuclidean(nn.Module):
             embed_dim=embed_dim,
             hidden_dim=hidden_dim,
             use_hierarchy=use_hierarchy,
-            n_layer=3,
+            n_layer=num_layers,
+            embed_dropout=embed_dropout,
             hierarchy_scales=hierarchy_scales,
             use_attention_pooling=use_attention_pooling
         )
         self.dynamics = ResidualDynamics(
             embed_dim=embed_dim,
             hidden_dim=hidden_dim,
-            dropout=0.3,
-            n_layers=2
+            dropout=dynamic_dropout,
+            n_layers=num_layers
         )
-        self.step_size = nn.Parameter(torch.tensor(-2.0))
+        self.step_size = nn.Parameter(torch.tensor(0.1))
         # Reconstructor: simple MLP (no logmap/expmap needed!)
         self.reconstructor = EuclideanReconstructor(
             embed_dim=embed_dim,
             output_dim=n_features,
             hidden_dim=hidden_dim,
-            dropout=0.2
+            dropout=recon_dropout
         )
 
 

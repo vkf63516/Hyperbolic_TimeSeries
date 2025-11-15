@@ -1,0 +1,127 @@
+_wandb:
+    value:
+        cli_version: 0.23.0
+        e:
+            35k3ku31meibv2n9qv7h29sxdwo54yp1:
+                args:
+                    - --is_training
+                    - "1"
+                    - --model_id
+                    - Solar_96_96_exp1_HScales
+                    - --model
+                    - HyperbolicForecasting
+                    - --data
+                    - custom_decomposition
+                    - --root_path
+                    - ./time-series-dataset/dataset/
+                    - --data_path
+                    - Solar.csv
+                    - --features
+                    - M
+                    - --num_basis
+                    - "10"
+                    - --label_len
+                    - "0"
+                    - --seq_len
+                    - "96"
+                    - --pred_len
+                    - "96"
+                    - --lradj
+                    - type3
+                    - --embed_dim
+                    - "32"
+                    - --hidden_dim
+                    - "64"
+                    - --batch_size
+                    - "32"
+                    - --use_wandb
+                    - --learning_rate
+                    - "1e-4"
+                    - --train_epochs
+                    - "30"
+                    - --use_decomposition
+                    - --enc_in
+                    - "137"
+                    - --patience
+                    - "6"
+                    - --manifold_type
+                    - Euclidean
+                    - --use_revin
+                codePath: run.py
+                codePathLocal: run.py
+                cpu_count: 2
+                cpu_count_logical: 4
+                disk:
+                    /:
+                        total: "248983322624"
+                        used: "33880502272"
+                email: vkf@njit.edu
+                executable: /home/vishalfenn/base/bin/python
+                git:
+                    commit: 0612e942a8493b83f0b17ee941562f7a1bccd7e3
+                    remote: https://github.com/vkf63516/Hyperbolic_TimeSeries.git
+                host: archlinux
+                memory:
+                    total: "12431794176"
+                os: Linux-6.17.7-arch1-2-x86_64-with-glibc2.42
+                program: /home/vishalfenn/Documents/Research/Hyperbolic_TimeSeries/run.py
+                python: CPython 3.13.7
+                root: /home/vishalfenn/Documents/Research/Hyperbolic_TimeSeries
+                startedAt: "2025-11-15T15:02:45.672965Z"
+                writerId: 35k3ku31meibv2n9qv7h29sxdwo54yp1
+        m: []
+        python_version: 3.13.7
+        t:
+            "1":
+                - 1
+                - 5
+                - 53
+                - 105
+            "2":
+                - 1
+                - 5
+                - 53
+                - 105
+            "3":
+                - 2
+                - 13
+                - 16
+            "4": 3.13.7
+            "5": 0.23.0
+            "10":
+                - 20
+                - 21
+            "12": 0.23.0
+            "13": linux-x86_64
+batch_size:
+    value: 32
+data:
+    value: custom_decomposition
+embed_dim:
+    value: 32
+hidden_dim:
+    value: 64
+learning_rate:
+    value: 0.0001
+loss:
+    value: mse
+manifold_type:
+    value: Euclidean
+model:
+    value: HyperbolicForecasting
+patience:
+    value: 6
+pred_len:
+    value: 96
+seq_len:
+    value: 96
+train_epochs:
+    value: 30
+use_attention_pooling:
+    value: false
+use_decomposition:
+    value: true
+use_hierarchy:
+    value: false
+use_segments:
+    value: false

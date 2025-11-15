@@ -134,12 +134,12 @@ class Exp_Main(Exp_Basic):
                 # ========================================
                 # IDENTICAL to train loop up to forward pass
                 # ========================================
-                trend_x = X_dict['trend'].float().to(self.device)
-                coarse_x = X_dict['seasonal_coarse'].float().to(self.device)
-                fine_x = X_dict['seasonal_fine'].float().to(self.device)
-                resid_x = X_dict['residual'].float().to(self.device)
+                trend_x = X_dict['trend'].float().to(self.device, non_blocking=True)
+                coarse_x = X_dict['seasonal_coarse'].float().to(self.device, non_blocking=True)
+                fine_x = X_dict['seasonal_fine'].float().to(self.device, non_blocking=True)
+                resid_x = X_dict['residual'].float().to(self.device, non_blocking=True)
             
-                batch_y = batch_y.float().to(self.device)
+                batch_y = batch_y.float().to(self.device, non_blocking=True)
             
                 outputs = self.model(
                     trend=trend_x,
@@ -211,12 +211,12 @@ class Exp_Main(Exp_Basic):
                 model_geooptim.zero_grad()
             
                 # Load components
-                trend_x = X_dict['trend'].float().to(self.device)
-                coarse_x = X_dict['seasonal_coarse'].float().to(self.device)
-                fine_x = X_dict['seasonal_fine'].float().to(self.device)
-                resid_x = X_dict['residual'].float().to(self.device)
+                trend_x = X_dict['trend'].float().to(self.device, non_blocking=True)
+                coarse_x = X_dict['seasonal_coarse'].float().to(self.device, non_blocking=True)
+                fine_x = X_dict['seasonal_fine'].float().to(self.device, non_blocking=True)
+                resid_x = X_dict['residual'].float().to(self.device, non_blocking=True)
                 # Ground truth
-                batch_y = batch_y.float().to(self.device)
+                batch_y = batch_y.float().to(self.device, non_blocking=True)
             
                 # Forward pass
                 if self.args.use_amp:
@@ -373,15 +373,15 @@ class Exp_Main(Exp_Basic):
                 # ========================================
                 # Load Input Components (SAME AS TRAIN)
                 # ========================================
-                trend_x = X_dict['trend'].float().to(self.device)
-                coarse_x = X_dict['seasonal_coarse'].float().to(self.device)
-                fine_x = X_dict['seasonal_fine'].float().to(self.device)
-                resid_x = X_dict['residual'].float().to(self.device)
+                trend_x = X_dict['trend'].float().to(self.device, non_blocking=True)
+                coarse_x = X_dict['seasonal_coarse'].float().to(self.device, non_blocking=True)
+                fine_x = X_dict['seasonal_fine'].float().to(self.device, non_blocking=True)
+                resid_x = X_dict['residual'].float().to(self.device, non_blocking=True)
             
                 # ========================================
                 # Load Ground Truth (SAME AS TRAIN)
                 # ========================================
-                batch_y = batch_y.float().to(self.device)
+                batch_y = batch_y.float().to(self.device, non_blocking=True)
             
                 # For point-level, extract only prediction part
             

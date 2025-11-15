@@ -1,0 +1,339 @@
+Wandb initialized. Project: Hyperbolic_TimeSeries, Run: HyperbolicForecasting_custom_decomposition_sl96_pl96_Euclidean
+[34m[1mwandb[0m: [33mWARNING[0m The get_url method is deprecated and will be removed in a future release. Please use `run.url` instead.
+View results at: https://wandb.ai/vkf-new-jersey-institute-of-technology/Hyperbolic_TimeSeries/runs/kj8im234
+Wandb logging enabled. Experiment: HyperbolicForecasting_custom_decomposition_sl96_pl96_Euclidean
+>>>>>>>start training : Weather_96_96_exp1_HScales_HyperbolicForecasting_custom_decomposition_ftM_sl96_pl96_exp_ebfixed_Euclidean_0_seed2023>>>>>>>>>>>>>>>>>>>>>>>>>>
+[train] Fitting TimeBaseMSTL on training data...
+Learning orthogonal bases from 21 series...
+
+======================================================================
+PERIOD DETECTION
+======================================================================
+Dataset length: 36887 points
+Reference length (seq_len): 96 points
+
+Detected periods:
+  Fine:      24 steps ( 25.0% of reference)
+          → segment_len=48, yields 768 segments
+  Coarse:    96 steps (100.0% of reference)
+          → segment_len=192, yields 192 segments
+
+ Periods valid!
+======================================================================
+
+Extracted 768 segments (period=24, length=48, total_features=21)
+Extracted 192 segments (period=96, length=192, total_features=21)
+Learning from 21 series with 768 segments each
+Learned basis for period 24: basis shape (10, 48), coeffs shape (21, 768, 10)
+Learning from 21 series with 192 segments each
+Learned basis for period 96: basis shape (10, 192), coeffs shape (21, 192, 10)
+[train] Transforming data with TimeBaseMSTL...
+Dataset has 21 features (> 15)
+Using TimeBase MSTL (basis decomposition)
+
+Reusing learned bases to decompose 21 series...
+⏱ Decomposing 10 basis components using statsmodels MSTL...
+  Basis 0: length=48, periods=[6, 8, 12]
+  Basis 1: length=48, periods=[6, 8, 12]
+  Basis 2: length=48, periods=[6, 8, 12]
+  Basis 3: length=48, periods=[6, 8, 12]
+  Basis 4: length=48, periods=[6, 8, 12]
+  Basis 5: length=48, periods=[6, 8, 12]
+  Basis 6: length=48, periods=[6, 8, 12]
+  Basis 7: length=48, periods=[6, 8, 12]
+  Basis 8: length=48, periods=[6, 8, 12]
+  Basis 9: length=48, periods=[6, 8, 12]
+⏱ Decomposing 10 basis components using statsmodels MSTL...
+  Basis 0: length=192, periods=[24, 32, 48]
+  Basis 1: length=192, periods=[24, 32, 48]
+  Basis 2: length=192, periods=[24, 32, 48]
+  Basis 3: length=192, periods=[24, 32, 48]
+  Basis 4: length=192, periods=[24, 32, 48]
+  Basis 5: length=192, periods=[24, 32, 48]
+  Basis 6: length=192, periods=[24, 32, 48]
+  Basis 7: length=192, periods=[24, 32, 48]
+  Basis 8: length=192, periods=[24, 32, 48]
+  Basis 9: length=192, periods=[24, 32, 48]
+Extracted 768 segments (period=24, length=48, total_features=21)
+Extracted 192 segments (period=96, length=192, total_features=21)
+
+============================================================
+[train] DECOMPOSITION DIAGNOSTICS FOR Weather
+============================================================
+Data shape: (36887, 21)
+Temporal length: 36887
+
+Original data stats:
+  Mean: -0.000000, Std: 1.000000
+  Range: [-191.958926, 91.123372]
+
+Decomposed components stats:
+  trend               : mean=-0.029951, std=0.596550, range=[ -1.8951,   2.2005]
+  seasonal_coarse     : mean=0.000488, std=0.244925, range=[-116.7002,  46.2703]
+  seasonal_fine       : mean=-0.000108, std=0.212696, range=[-95.5096,  30.1592]
+  residual            : mean=0.029571, std=0.832390, range=[-31.7248,  50.0008]
+
+Reconstruction error: 0.00000000
+✅ Reconstruction looks good.
+============================================================
+
+[train] Data preparation complete (point-level). Temporal length: 36887
+train 36696
+[val] Fitting TimeBaseMSTL on training data...
+Learning orthogonal bases from 21 series...
+
+======================================================================
+PERIOD DETECTION
+======================================================================
+Dataset length: 36887 points
+Reference length (seq_len): 96 points
+
+Detected periods:
+  Fine:      24 steps ( 25.0% of reference)
+          → segment_len=48, yields 768 segments
+  Coarse:    96 steps (100.0% of reference)
+          → segment_len=192, yields 192 segments
+
+ Periods valid!
+======================================================================
+
+Extracted 768 segments (period=24, length=48, total_features=21)
+Extracted 192 segments (period=96, length=192, total_features=21)
+Learning from 21 series with 768 segments each
+Learned basis for period 24: basis shape (10, 48), coeffs shape (21, 768, 10)
+Learning from 21 series with 192 segments each
+Learned basis for period 96: basis shape (10, 192), coeffs shape (21, 192, 10)
+[val] Transforming data with TimeBaseMSTL...
+Dataset has 21 features (> 15)
+Using TimeBase MSTL (basis decomposition)
+
+Reusing learned bases to decompose 21 series...
+⏱ Decomposing 10 basis components using statsmodels MSTL...
+  Basis 0: length=48, periods=[6, 8, 12]
+  Basis 1: length=48, periods=[6, 8, 12]
+  Basis 2: length=48, periods=[6, 8, 12]
+  Basis 3: length=48, periods=[6, 8, 12]
+  Basis 4: length=48, periods=[6, 8, 12]
+  Basis 5: length=48, periods=[6, 8, 12]
+  Basis 6: length=48, periods=[6, 8, 12]
+  Basis 7: length=48, periods=[6, 8, 12]
+  Basis 8: length=48, periods=[6, 8, 12]
+  Basis 9: length=48, periods=[6, 8, 12]
+⏱ Decomposing 10 basis components using statsmodels MSTL...
+  Basis 0: length=192, periods=[24, 32, 48]
+  Basis 1: length=192, periods=[24, 32, 48]
+  Basis 2: length=192, periods=[24, 32, 48]
+  Basis 3: length=192, periods=[24, 32, 48]
+  Basis 4: length=192, periods=[24, 32, 48]
+  Basis 5: length=192, periods=[24, 32, 48]
+  Basis 6: length=192, periods=[24, 32, 48]
+  Basis 7: length=192, periods=[24, 32, 48]
+  Basis 8: length=192, periods=[24, 32, 48]
+  Basis 9: length=192, periods=[24, 32, 48]
+Extracted 111 segments (period=24, length=48, total_features=21)
+Extracted 27 segments (period=96, length=192, total_features=21)
+
+============================================================
+[val] DECOMPOSITION DIAGNOSTICS FOR Weather
+============================================================
+Data shape: (5366, 21)
+Temporal length: 5366
+
+Original data stats:
+  Mean: 0.048517, Std: 0.885797
+  Range: [-3.027846, 67.504716]
+
+Decomposed components stats:
+  trend               : mean=0.075018, std=0.546706, range=[ -2.1750,   2.3839]
+  seasonal_coarse     : mean=0.000913, std=0.142441, range=[ -3.0232,   5.3466]
+  seasonal_fine       : mean=-0.000430, std=0.171497, range=[-12.2902,  14.5533]
+  residual            : mean=-0.026985, std=0.795661, range=[-15.6895,  61.1262]
+
+Reconstruction error: 0.00000000
+✅ Reconstruction looks good.
+============================================================
+
+[val] Data preparation complete (point-level). Temporal length: 5366
+val 5175
+[test] Fitting TimeBaseMSTL on training data...
+Learning orthogonal bases from 21 series...
+
+======================================================================
+PERIOD DETECTION
+======================================================================
+Dataset length: 36887 points
+Reference length (seq_len): 96 points
+
+Detected periods:
+  Fine:      24 steps ( 25.0% of reference)
+          → segment_len=48, yields 768 segments
+  Coarse:    96 steps (100.0% of reference)
+          → segment_len=192, yields 192 segments
+
+ Periods valid!
+======================================================================
+
+Extracted 768 segments (period=24, length=48, total_features=21)
+Extracted 192 segments (period=96, length=192, total_features=21)
+Learning from 21 series with 768 segments each
+Learned basis for period 24: basis shape (10, 48), coeffs shape (21, 768, 10)
+Learning from 21 series with 192 segments each
+Learned basis for period 96: basis shape (10, 192), coeffs shape (21, 192, 10)
+[test] Transforming data with TimeBaseMSTL...
+Dataset has 21 features (> 15)
+Using TimeBase MSTL (basis decomposition)
+
+Reusing learned bases to decompose 21 series...
+⏱ Decomposing 10 basis components using statsmodels MSTL...
+  Basis 0: length=48, periods=[6, 8, 12]
+  Basis 1: length=48, periods=[6, 8, 12]
+  Basis 2: length=48, periods=[6, 8, 12]
+  Basis 3: length=48, periods=[6, 8, 12]
+  Basis 4: length=48, periods=[6, 8, 12]
+  Basis 5: length=48, periods=[6, 8, 12]
+  Basis 6: length=48, periods=[6, 8, 12]
+  Basis 7: length=48, periods=[6, 8, 12]
+  Basis 8: length=48, periods=[6, 8, 12]
+  Basis 9: length=48, periods=[6, 8, 12]
+⏱ Decomposing 10 basis components using statsmodels MSTL...
+  Basis 0: length=192, periods=[24, 32, 48]
+  Basis 1: length=192, periods=[24, 32, 48]
+  Basis 2: length=192, periods=[24, 32, 48]
+  Basis 3: length=192, periods=[24, 32, 48]
+  Basis 4: length=192, periods=[24, 32, 48]
+  Basis 5: length=192, periods=[24, 32, 48]
+  Basis 6: length=192, periods=[24, 32, 48]
+  Basis 7: length=192, periods=[24, 32, 48]
+  Basis 8: length=192, periods=[24, 32, 48]
+  Basis 9: length=192, periods=[24, 32, 48]
+Extracted 221 segments (period=24, length=48, total_features=21)
+Extracted 55 segments (period=96, length=192, total_features=21)
+
+============================================================
+[test] DECOMPOSITION DIAGNOSTICS FOR Weather
+============================================================
+Data shape: (10635, 21)
+Temporal length: 10635
+
+Original data stats:
+  Mean: -0.247209, Std: 0.755976
+  Range: [-4.062524, 6.421986]
+
+Decomposed components stats:
+  trend               : mean=-0.226487, std=0.569820, range=[ -1.7792,   1.4671]
+  seasonal_coarse     : mean=0.000586, std=0.083502, range=[ -1.5925,   3.8325]
+  seasonal_fine       : mean=0.000910, std=0.093033, range=[ -3.2573,   3.6388]
+  residual            : mean=-0.022218, std=0.532815, range=[ -3.9815,   7.4743]
+
+Reconstruction error: 0.00000000
+✅ Reconstruction looks good.
+============================================================
+
+[test] Data preparation complete (point-level). Temporal length: 10635
+test 10444
+	iters: 100, epoch: 1 | loss: 0.6094409
+	speed: 0.7143s/iter; left time: 24508.0452s
+	iters: 200, epoch: 1 | loss: 0.7162257
+	speed: 0.7046s/iter; left time: 24105.8593s
+	iters: 300, epoch: 1 | loss: 0.5663446
+	speed: 0.6950s/iter; left time: 23706.3849s
+	iters: 400, epoch: 1 | loss: 0.5431869
+	speed: 0.6965s/iter; left time: 23686.7622s
+	iters: 500, epoch: 1 | loss: 0.6824499
+	speed: 0.6976s/iter; left time: 23654.9456s
+	iters: 600, epoch: 1 | loss: 0.6467151
+	speed: 0.6930s/iter; left time: 23431.4731s
+	iters: 700, epoch: 1 | loss: 1.6400623
+	speed: 0.6931s/iter; left time: 23365.7836s
+	iters: 800, epoch: 1 | loss: 0.9985769
+	speed: 0.6901s/iter; left time: 23193.0926s
+	iters: 900, epoch: 1 | loss: 0.5667713
+	speed: 0.6882s/iter; left time: 23062.7942s
+	iters: 1000, epoch: 1 | loss: 0.6184519
+	speed: 0.6901s/iter; left time: 23055.8066s
+	iters: 1100, epoch: 1 | loss: 0.7076415
+	speed: 0.6923s/iter; left time: 23059.5513s
+Epoch 1 Max Memory (MB): -1
+Epoch: 1 cost time: 794.5091271400452
+[DIAGNOSTIC] Val loss (avg of batches): 0.601670
+[DIAGNOSTIC] Val loss (global): 0.601344
+[DIAGNOSTIC] Num batches: 162
+[DIAGNOSTIC] Total samples: 5175
+Epoch: 1, Steps: 1147 | Train Loss: 0.6986098 Vali Loss: 0.6016701
+Validation loss decreased (inf --> 0.601670).  Saving model ...
+Updating learning rate to 0.001
+	iters: 100, epoch: 2 | loss: 0.4575820
+	speed: 8.9663s/iter; left time: 297349.8945s
+	iters: 200, epoch: 2 | loss: 0.4256426
+	speed: 4.8418s/iter; left time: 160083.3638s
+	iters: 300, epoch: 2 | loss: 1.1564559
+	speed: 3.4675s/iter; left time: 114300.3296s
+	iters: 400, epoch: 2 | loss: 1.2491299
+	speed: 2.7797s/iter; left time: 91348.3645s
+	iters: 500, epoch: 2 | loss: 0.5133085
+	speed: 2.3664s/iter; left time: 77531.9327s
+	iters: 600, epoch: 2 | loss: 0.3508627
+	speed: 2.0913s/iter; left time: 68308.0807s
+	iters: 700, epoch: 2 | loss: 0.3241718
+	speed: 1.8949s/iter; left time: 61703.9057s
+	iters: 800, epoch: 2 | loss: 0.3979655
+	speed: 1.7476s/iter; left time: 56733.8193s
+	iters: 900, epoch: 2 | loss: 0.3962008
+	speed: 1.6329s/iter; left time: 52843.9816s
+	iters: 1000, epoch: 2 | loss: 0.3427006
+	speed: 1.5414s/iter; left time: 49728.7623s
+	iters: 1100, epoch: 2 | loss: 0.4912916
+	speed: 1.4663s/iter; left time: 47161.0243s
+Epoch 2 Max Memory (MB): -1
+Epoch: 2 cost time: 821.6158373355865
+[DIAGNOSTIC] Val loss (avg of batches): 1.489556
+[DIAGNOSTIC] Val loss (global): 1.488222
+[DIAGNOSTIC] Num batches: 162
+[DIAGNOSTIC] Total samples: 5175
+Epoch: 2, Steps: 1147 | Train Loss: 0.5101226 Vali Loss: 1.4895556
+EarlyStopping counter: 1 out of 5
+Updating learning rate to 0.001
+	iters: 100, epoch: 3 | loss: 1.2356969
+	speed: 17.6266s/iter; left time: 564331.9636s
+	iters: 200, epoch: 3 | loss: 0.3721998
+	speed: 9.2347s/iter; left time: 294733.7251s
+	iters: 300, epoch: 3 | loss: 0.3105299
+	speed: 6.4531s/iter; left time: 205311.5488s
+	iters: 400, epoch: 3 | loss: 0.2739286
+	speed: 5.0595s/iter; left time: 160465.6092s
+	iters: 500, epoch: 3 | loss: 0.5725403
+	speed: 4.2196s/iter; left time: 133406.1197s
+	iters: 600, epoch: 3 | loss: 1.0369540
+	speed: 3.6631s/iter; left time: 115447.2045s
+Traceback (most recent call last):
+  File "/home/vishalfenn/Documents/Research/Hyperbolic_TimeSeries/run.py", line 135, in <module>
+    exp.train(setting)
+    ~~~~~~~~~^^^^^^^^^
+  File "/home/vishalfenn/Documents/Research/Hyperbolic_TimeSeries/exp/exp_main.py", line 282, in train
+    loss.backward()
+    ~~~~~~~~~~~~~^^
+  File "/home/vishalfenn/base/lib/python3.13/site-packages/torch/_tensor.py", line 625, in backward
+    torch.autograd.backward(
+    ~~~~~~~~~~~~~~~~~~~~~~~^
+        self, gradient, retain_graph, create_graph, inputs=inputs
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/vishalfenn/base/lib/python3.13/site-packages/torch/autograd/__init__.py", line 354, in backward
+    _engine_run_backward(
+    ~~~~~~~~~~~~~~~~~~~~^
+        tensors,
+        ^^^^^^^^
+    ...<5 lines>...
+        accumulate_grad=True,
+        ^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/vishalfenn/base/lib/python3.13/site-packages/torch/autograd/graph.py", line 841, in _engine_run_backward
+    return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        t_outputs, *args, **kwargs
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )  # Calls into the C++ engine to run the backward pass
+    ^
+KeyboardInterrupt

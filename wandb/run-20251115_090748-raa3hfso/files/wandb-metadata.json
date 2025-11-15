@@ -1,0 +1,73 @@
+{
+  "os": "Linux-6.17.7-arch1-2-x86_64-with-glibc2.42",
+  "python": "CPython 3.13.7",
+  "startedAt": "2025-11-15T14:07:48.516442Z",
+  "args": [
+    "--is_training",
+    "1",
+    "--model_id",
+    "Solar_96_192_exp1_HScales",
+    "--model",
+    "HyperbolicForecasting",
+    "--data",
+    "custom_decomposition",
+    "--root_path",
+    "./time-series-dataset/dataset/",
+    "--data_path",
+    "Solar.csv",
+    "--features",
+    "M",
+    "--num_basis",
+    "10",
+    "--label_len",
+    "0",
+    "--seq_len",
+    "96",
+    "--pred_len",
+    "192",
+    "--lradj",
+    "type3",
+    "--embed_dim",
+    "64",
+    "--hidden_dim",
+    "256",
+    "--batch_size",
+    "32",
+    "--use_wandb",
+    "--learning_rate",
+    "1e-4",
+    "--train_epochs",
+    "30",
+    "--use_decomposition",
+    "--enc_in",
+    "137",
+    "--patience",
+    "6",
+    "--manifold_type",
+    "Euclidean",
+    "--use_revin"
+  ],
+  "program": "/home/vishalfenn/Documents/Research/Hyperbolic_TimeSeries/run.py",
+  "codePath": "run.py",
+  "codePathLocal": "run.py",
+  "git": {
+    "remote": "https://github.com/vkf63516/Hyperbolic_TimeSeries.git",
+    "commit": "0612e942a8493b83f0b17ee941562f7a1bccd7e3"
+  },
+  "email": "vkf@njit.edu",
+  "root": "/home/vishalfenn/Documents/Research/Hyperbolic_TimeSeries",
+  "host": "archlinux",
+  "executable": "/home/vishalfenn/base/bin/python",
+  "cpu_count": 2,
+  "cpu_count_logical": 4,
+  "disk": {
+    "/": {
+      "total": "248983322624",
+      "used": "33872871424"
+    }
+  },
+  "memory": {
+    "total": "12431794176"
+  },
+  "writerId": "kqat290mb5d8zpzrgxoakuz15wwbfsl9"
+}

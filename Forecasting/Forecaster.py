@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import geoopt
 from embed.mlp_embed_lorentz import ParallelLorentz, HybridLorentz
-#from embed.mlp_embed_poincare import ParallelPoincare
+from embed.mlp_embed_poincare import ParallelPoincare, HybridPoincare
 from Lifting.hyperbolic_reconstructor import HyperbolicReconstructionHead
 from spec import RevIN
 
@@ -62,7 +62,8 @@ class HyperbolicPointForecaster(nn.Module):
     def __init__(self, lookback, pred_len, n_features, embed_dim, hidden_dim, 
                  curvature, manifold_type, use_hierarchy=False, 
                  hierarchy_scales=[0.5,1.0,1.5,2.0], use_attention_pooling=False, 
-                 use_revin=False, use_truncated_bptt=False, truncate_every=16):
+                 use_revin=False, use_truncated_bptt=False, truncate_every=16,
+                 dynamic_dropout=0.3, embed_dropout=0.5, recon_dropout=0.2, num_layers=2):
         super().__init__()
         self.lookback = lookback
         self.embed_dim = embed_dim
@@ -172,22 +173,34 @@ class HybridComponentForecaster(nn.Module):
     One component in hyperbolic, others in Euclidean.
     """
     def __init__(self, lookback, pred_len, n_features, embed_dim, hidden_dim, 
-                 curvature, hyperbolic_component='seasonal_coarse'):
+                 curvature, manifold_type='Lorentz', 
+                 hyperbolic_component='seasonal_coarse'):
         super().__init__()
         self.pred_len = pred_len
         self.embed_dim = embed_dim
         
-        # Hybrid encoder (import from mlp_embed_lorentz)
-        
-        self.embed_hybrid = HybridLorentz(
-            lookback=lookback,
-            input_dim=n_features,
-            embed_dim=embed_dim,
-            hidden_dim=hidden_dim,
-            curvature=curvature,
-            hyperbolic_component=hyperbolic_component,
-            use_attention_pooling=True
-        )
+        # Hybrid encoder
+        if manifold_type == 'Lorentz':
+            from embed.mlp_embed_lorentz import HybridLorentz
+            self.embed_hybrid = HybridLorentz(
+                lookback=lookback,
+                input_dim=n_features,
+                embed_dim=embed_dim,
+                hidden_dim=hidden_dim,
+                curvature=curvature,
+                hyperbolic_component=hyperbolic_component,
+                use_attention_pooling=True
+            )
+        else:  # Poincare
+            self.embed_hybrid = HybridPoincare(
+                lookback=lookback,
+                input_dim=n_features,
+                embed_dim=embed_dim,
+                hidden_dim=hidden_dim,
+                curvature=curvature,
+                hyperbolic_component=hyperbolic_component,
+                use_attention_pooling=True
+            )
         
         # Dynamics in tangent space
         self.dynamics = nn.Sequential(

@@ -7,7 +7,7 @@ sys.path.append(str(Path(__file__).resolve().parents[0]))
 from spec import safe_expmap, safe_expmap0
 
 class MLPEmbed(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim, n_layer=3, lookback=None, use_attention_pooling=False):
+    def __init__(self, input_dim, hidden_dim, output_dim, n_layer=3, dropout=0.5, lookback=None, use_attention_pooling=False):
         super().__init__()
         self.lookback = lookback
         self.use_attention_pooling = use_attention_pooling
@@ -17,7 +17,7 @@ class MLPEmbed(nn.Module):
                 nn.Linear(hidden_dim, hidden_dim),
                 nn.LayerNorm(hidden_dim),
                 nn.GELU(),
-                nn.Dropout(0.5)
+                nn.Dropout(dropout)
             ) for _ in range(n_layer)
         ])
         self.output_proj = nn.Linear(hidden_dim, output_dim)
@@ -36,31 +36,32 @@ class MLPEmbed(nn.Module):
         x = self.input_proj(x)
         for layer in self.layers:
             x = layer(x)
-        #Compresses a series to a vector.
-        # STEP 5: Pool across time (attention or mean)
+        # Compresses a series to a vector.
+        # Pool across time (attention or mean)
         if self.use_attention_pooling:
-            attn_scores = self.attention(x)  # [32, 336, 1]
-            attn_weights = torch.softmax(attn_scores, dim=1)  # [32, 336, 1]
-            x_pooled = (x * attn_weights).sum(dim=1)  # [32, 64]
+            attn_scores = self.attention(x)  # [B, seqlen, 1]
+            attn_weights = torch.softmax(attn_scores, dim=1)  # [B, seqlen, 1]
+            x_pooled = (x * attn_weights).sum(dim=1)  # [B, hidden_dim]
         else:
-            x_pooled = x.mean(dim=1)   # mean pooling would be good for point level forecasting
+            x_pooled = x.mean(dim=1)   # mean pooling
         return self.output_proj(x_pooled)
 
 # --------------------------
-# Parallel Lorentz Encoder
+# Parallel Lorentz Encoder with Proper Hyperbolic Operations
 # --------------------------
 class ParallelLorentz(nn.Module):
     """
-    Hyperbolic encoder using Lorentz model (hyperboloid).
+    Hyperbolic encoder using Lorentz model (hyperboloid) with proper hyperbolic operations.
     
     Encodes decomposed time series components (trend, coarse, fine, residual)
     into hyperbolic space with hierarchical structure.
     
     Uses MLP encoders (memory efficient, no Mamba overhead).
+    All operations use proper Lorentz geometry (Einstein midpoint, weighted combinations).
     """
     def __init__(self, lookback, input_dim, embed_dim=32, hidden_dim=64, 
                  curvature=1.0, use_hierarchy=False, hierarchy_scales=[0.5, 1.0, 1.5, 2.0],
-                 n_layer=2, use_attention_pooling=False):
+                 n_layer=2, embed_dropout=0.1, use_attention_pooling=False):
         """
         Args:
             lookback: int - lookback window size
@@ -72,6 +73,7 @@ class ParallelLorentz(nn.Module):
             hierarchy_scales: list - radial scales for [trend, coarse, fine, residual]
                                      Smaller = closer to origin = more general
             n_layer: int - number of MLP layers
+            embed_dropout: float - dropout rate in embedders
             use_attention_pooling: bool - use attention pooling (True) or mean pooling (False)
         """
         super().__init__()
@@ -92,6 +94,7 @@ class ParallelLorentz(nn.Module):
             hidden_dim=hidden_dim, 
             output_dim=embed_dim, 
             n_layer=n_layer,
+            dropout=embed_dropout,
             lookback=lookback,
             use_attention_pooling=use_attention_pooling
         )
@@ -100,6 +103,7 @@ class ParallelLorentz(nn.Module):
             hidden_dim=hidden_dim, 
             output_dim=embed_dim, 
             n_layer=n_layer,
+            dropout=embed_dropout,
             lookback=lookback,
             use_attention_pooling=use_attention_pooling
         )
@@ -108,6 +112,7 @@ class ParallelLorentz(nn.Module):
             hidden_dim=hidden_dim, 
             output_dim=embed_dim, 
             n_layer=n_layer,
+            dropout=embed_dropout,
             lookback=lookback,
             use_attention_pooling=use_attention_pooling
         )
@@ -116,6 +121,7 @@ class ParallelLorentz(nn.Module):
             hidden_dim=hidden_dim, 
             output_dim=embed_dim, 
             n_layer=n_layer,
+            dropout=embed_dropout,
             lookback=lookback,
             use_attention_pooling=use_attention_pooling
         )
@@ -126,11 +132,16 @@ class ParallelLorentz(nn.Module):
         
         # Scaling parameter for mapping to hyperbolic space
         self.effective_scale = nn.Parameter(torch.tensor(0.1))
+        
+        # Learnable weights for weighted Einstein midpoint (non-hierarchical)
+        self.lorentz_weights = nn.Parameter(torch.ones(4) * 0.25)
 
     def apply_hierarchy_scaling(self, manifold_point, scale):
         """
-        Scale manifold point radially from origin.
+        Scale manifold point radially from origin using tangent space scaling.
         Larger scale = further from origin = more specific in hierarchy.
+        
+        For Lorentz model, we scale in tangent space at origin.
         
         Args:
             manifold_point: [B, embed_dim+1] - point on Lorentz manifold
@@ -153,7 +164,7 @@ class ParallelLorentz(nn.Module):
 
     def hierarchical_combine(self, z_trend_h, z_coarse_h, z_fine_h, z_residual_h):
         """
-        Sequential hierarchical composition in hyperbolic space.
+        Sequential hierarchical composition in Lorentz hyperbolic space.
         Builds from general (trend) to specific (residual) along geodesics.
         
         Each step moves 25% along the geodesic from current state toward the component,
@@ -168,7 +179,7 @@ class ParallelLorentz(nn.Module):
         # Start from trend (root of hierarchy - most general pattern)
         z_current = z_trend_h
 
-        # Incorporate coarse (second level)
+        # Incorporate coarse (second level) - geodesic interpolation
         v_to_coarse = self.manifold.logmap(z_current, z_coarse_h)  # Tangent vector from current to coarse
         z_current = safe_expmap(self.manifold, 0.25 * v_to_coarse, z_current)  # Move 25% along geodesic
         z_current = self.manifold.projx(z_current)
@@ -185,46 +196,80 @@ class ParallelLorentz(nn.Module):
 
         return z_current
 
-    def tangent_fusion(self, z_trend_h, z_coarse_h, z_fine_h, z_residual_h):
+    def weighted_lorentz_mean(self, points, weights):
         """
-        Non-hierarchical tangent space fusion.
-        Maps all points to origin's tangent space, sums them, maps back.
+        Compute weighted Einstein midpoint (Fréchet mean) in Lorentz manifold.
+        This is the proper way to combine multiple points in hyperbolic space.
+        
+        Uses iterative algorithm to find the point that minimizes weighted distances.
+        
+        Args:
+            points: list of [B, embed_dim+1] - points on Lorentz manifold
+            weights: [num_points] - normalized weights
+        
+        Returns:
+            mean_point: [B, embed_dim+1] - weighted mean on manifold
+        """
+        # Initialize at weighted tangent space mean
+        tangents = [self.manifold.logmap0(p) for p in points]
+        weighted_tangent = sum(w * t for w, t in zip(weights, tangents))
+        current_mean = safe_expmap0(self.manifold, weighted_tangent)
+        current_mean = self.manifold.projx(current_mean)
+        
+        # Iterative refinement (Karcher flow)
+        # Usually converges in 5-10 iterations
+        for _ in range(10):
+            # Compute tangent vectors from current mean to each point
+            tangent_vecs = [self.manifold.logmap(current_mean, p) for p in points]
+            
+            # Weighted sum in tangent space at current mean
+            weighted_vec = sum(w * v for w, v in zip(weights, tangent_vecs))
+            
+            # Check convergence
+            if torch.norm(weighted_vec, dim=-1).max() < 1e-5:
+                break
+            
+            # Move along weighted direction
+            current_mean = safe_expmap(self.manifold, 0.5 * weighted_vec, current_mean)
+            current_mean = self.manifold.projx(current_mean)
+        
+        return current_mean
+
+    def lorentz_fusion(self, z_trend_h, z_coarse_h, z_fine_h, z_residual_h):
+        """
+        Non-hierarchical fusion using weighted Einstein midpoint in Lorentz space.
+        This is the geometrically correct way to combine points in hyperbolic space.
         
         Args:
             z_trend_h, z_coarse_h, z_fine_h, z_residual_h: [B, embed_dim+1]
         
         Returns:
             combined_h: [B, embed_dim+1] - combined point on manifold
-            combined_tangent: [B, embed_dim] - tangent vector representation
+            combined_tangent: [B, embed_dim] - tangent vector representation at origin
         """
-        # Map to tangent space at origin
-        u_trend = self.manifold.logmap0(z_trend_h)
-        u_seasonal_coarse = self.manifold.logmap0(z_coarse_h)
-        u_seasonal_fine = self.manifold.logmap0(z_fine_h)
-        u_residual = self.manifold.logmap0(z_residual_h)
-
-        # Sum in tangent space (Euclidean addition)
-        combined_tangent = u_trend + u_seasonal_coarse + u_seasonal_fine + u_residual
+        # Normalize weights to sum to 1
+        weights = torch.softmax(self.lorentz_weights, dim=0)
         
-        # Apply scaling
-        effective_scale = torch.tanh(self.effective_scale)  # Keep in (-1, 1)
-        scaled_tangent = combined_tangent * effective_scale
+        # Collect all points
+        points = [z_trend_h, z_coarse_h, z_fine_h, z_residual_h]
         
-        # Map back to manifold
-        combined_h = safe_expmap0(self.manifold, scaled_tangent)
-        combined_h = self.manifold.projx(combined_h)
+        # Compute weighted Einstein midpoint
+        combined_h = self.weighted_lorentz_mean(points, weights)
+        
+        # Get tangent representation for downstream tasks
+        combined_tangent = self.manifold.logmap0(combined_h)
         
         return combined_h, combined_tangent
 
     def forward(self, trend, seasonal_coarse, seasonal_fine, residual):
         """
-        Encode decomposed time series components to hyperbolic space.
+        Encode decomposed time series components to Lorentz hyperbolic space.
         
         Args:
-            trend: [B, seq_len, input_dim] or [B, N_seg, seg_len, input_dim]
-            seasonal_coarse: [B, seq_len, input_dim] or [B, N_seg, seg_len, input_dim]
-            seasonal_fine: [B, seq_len, input_dim] or [B, N_seg, seg_len, input_dim]
-            residual: [B, seq_len, input_dim] or [B, N_seg, seg_len, input_dim]
+            trend: [B, seq_len, input_dim] 
+            seasonal_coarse: [B, seq_len, input_dim] 
+            seasonal_fine: [B, seq_len, input_dim] 
+            residual: [B, seq_len, input_dim] 
         
         Returns:
             dict with:
@@ -261,7 +306,7 @@ class ParallelLorentz(nn.Module):
         z_seasonal_fine_h = self.manifold.projx(z_seasonal_fine_h)
         z_residual_h = self.manifold.projx(z_residual_h)
 
-        # 5) Apply hierarchy: radial scaling + sequential aggregation
+        # 5) Apply hierarchy or hyperbolic fusion
         if self.use_hierarchy:
             # STEP 1: Radial hierarchy scaling
             # Position each component at different distances from origin
@@ -282,8 +327,8 @@ class ParallelLorentz(nn.Module):
             )
             combined_tangent = self.manifold.logmap0(combined_h)
         else:
-            # Non-hierarchical tangent space fusion
-            combined_h, combined_tangent = self.tangent_fusion(
+            # Non-hierarchical: Use weighted Einstein midpoint (Fréchet mean)
+            combined_h, combined_tangent = self.lorentz_fusion(
                 z_trend_h, z_seasonal_coarse_h, z_seasonal_fine_h, z_residual_h
             )
 
@@ -300,75 +345,11 @@ class ParallelLorentz(nn.Module):
             "combined_h": combined_h
         }
 
-# Add this class to the end of your existing mlp_embed_lorentz.py file
-
-class SingleLorentz(nn.Module):
-    """
-    Encodes a single component to hyperbolic space.
-    Used for testing individual components in isolation.
-    """
-    def __init__(self, lookback, input_dim, embed_dim=32, hidden_dim=64, 
-                 curvature=1.0, n_layer=2, use_attention_pooling=False):
-        """
-        Args:
-            lookback: int - lookback window size
-            input_dim: int - number of input features
-            embed_dim: int - dimension of hyperbolic embeddings
-            hidden_dim: int - hidden dimension for MLP
-            curvature: float - curvature of Lorentz manifold
-            n_layer: int - number of MLP layers
-            use_attention_pooling: bool - use attention pooling
-        """
-        super().__init__()
-        
-        # Single MLP encoder
-        self.embed = MLPEmbed(
-            input_dim=input_dim,
-            hidden_dim=hidden_dim,
-            output_dim=embed_dim,
-            n_layer=n_layer,
-            lookback=lookback,
-            use_attention_pooling=use_attention_pooling
-        )
-        
-        # Lorentz manifold
-        self.manifold = geoopt.manifolds.Lorentz(k=curvature)
-        
-        # Scaling parameter
-        self.effective_scale = nn.Parameter(torch.tensor(0.1))
-    
-    def forward(self, x):
-        """
-        Encode single component to hyperbolic space.
-        
-        Args:
-            x: [B, seq_len, input_dim] - single time series component
-        
-        Returns:
-            dict with:
-                - tangent: [B, embed_dim] - tangent space representation
-                - hyperbolic: [B, embed_dim+1] - point on Lorentz manifold
-        """
-        # 1) Encode to Euclidean latent (tangent vector)
-        z_tangent = self.embed(x)  # [B, embed_dim]
-        
-        # 2) Scale
-        effective_scale = torch.tanh(self.effective_scale)
-        scaled_tangent = z_tangent * effective_scale
-        
-        # 3) Map to hyperbolic space
-        z_h = safe_expmap0(self.manifold, scaled_tangent)
-        z_h = self.manifold.projx(z_h)
-        
-        return {
-            "tangent": z_tangent,
-            "lorentz": z_h
-        }
 
 
 class HybridLorentz(nn.Module):
     """
-    Hybrid encoder: One component in hyperbolic, others in Euclidean.
+    Hybrid encoder: One component in Lorentz hyperbolic, others in Euclidean.
     Perfect for ablation studies.
     """
     def __init__(self, lookback, input_dim, embed_dim=32, hidden_dim=64, 
