@@ -45,22 +45,13 @@ class MambaEmbed(nn.Module):
 # --------------------------
 class ParallelLorentz(nn.Module):
     def __init__(self, lookback, input_dim, embed_dim=32, hidden_dim=64, 
-                curvature=1.0, use_hierarchy=False, hierarchy_scales=[0.5,1.0,1.0,1.5]):
+                curvature=1.0):
         """
         embed_dim: dimensionality of tangent-space vectors (intrinsic manifold dimension)
         For Lorentz model geoopt expects expmap/logmap shapes [B, embed_dim].
         Internally manifold points live in R^{embed_dim + 1}, but geoopt APIs hide that.
         """
         super().__init__()
-        
-        self.use_hierarchy = use_hierarchy
-        if self.use_hierarchy:
-            self.log_scales = nn.ParameterList([
-                nn.Parameter(torch.log(torch.tensor(hierarchy_scales[0]))),
-                nn.Parameter(torch.log(torch.tensor(hierarchy_scales[1]))),
-                nn.Parameter(torch.log(torch.tensor(hierarchy_scales[2]))),
-                nn.Parameter(torch.log(torch.tensor(hierarchy_scales[3])))
-            ])
 
 
         # Branch encoders
@@ -73,37 +64,6 @@ class ParallelLorentz(nn.Module):
         self.manifold = geoopt.manifolds.Lorentz(k=curvature)
         self.effective_scale = nn.Parameter(torch.tensor(0.1))
 
-    def apply_hierarchy_scaling(self, manifold_point, scale):
-        """Scale manifold point radially from origin"""
-        tangent = self.manifold.logmap0(manifold_point)
-        scaled_tangent = tangent * scale
-        scaled_point = safe_expmap0(self.manifold, scaled_tangent)
-        return self.manifold.projx(scaled_point)
-
-    def hierarchical_combine(self, z_trend_h, z_coarse_h, z_fine_h, z_residual_h):
-        """
-        Build up from general (trend) to specific (residual)
-        Each component modifies the previous state
-        """
-        # Start from trend (root of hierarchy)
-        z_current = z_trend_h
-
-        # Incorporate coarse (moves from trend toward coarse)
-        v_to_coarse = self.manifold.logmap(z_current, z_coarse_h)
-        z_current = safe_expmap(self.manifold, z_current, 0.25 * v_to_coarse)
-        z_current = self.manifold.projx(z_current)
-    
-        # Incorporate fine
-        v_to_fine = self.manifold.logmap(z_current, z_fine_h)
-        z_current = safe_expmap(self.manifold, z_current, 0.25 * v_to_fine)
-        z_current = self.manifold.projx(z_current)
-    
-        # Incorporate residual
-        v_to_residual = self.manifold.logmap(z_current, z_residual_h)
-        z_current = safe_expmap(self.manifold, z_current, 0.25 * v_to_residual)
-        z_current = self.manifold.projx(z_current)
-    
-        return z_current
         
     def forward(self, trend, seasonal_coarse, seasonal_fine, residual):
         """
@@ -141,17 +101,6 @@ class ParallelLorentz(nn.Module):
         z_seasonal_coarse_h = self.manifold.projx(z_seasonal_coarse_h)
         z_seasonal_fine_h = self.manifold.projx(z_seasonal_fine_h)
         z_residual_h = self.manifold.projx(z_residual_h)
-
-        if self.use_hierarchy:
-            trend_scale = torch.exp(self.log_scales[0])
-            coarse_scale = torch.exp(self.log_scales[1])
-            fine_scale = torch.exp(self.log_scales[2])
-            residual_scale = torch.exp(self.log_scales[3])
-    
-            z_trend_h = self.apply_hierarchy_scaling(z_trend_h, trend_scale)
-            z_seasonal_coarse_h = self.apply_hierarchy_scaling(z_seasonal_coarse_h, coarse_scale)
-            z_seasonal_fine_h = self.apply_hierarchy_scaling(z_seasonal_fine_h, fine_scale)
-            z_residual_h = self.apply_hierarchy_scaling(z_residual_h, residual_scale)
 
         # 3) Fuse: logmap0(manifold) -> tangent vectors -> sum -> expmap back
         u_trend = self.manifold.logmap0(z_trend_h)    # [B, D]

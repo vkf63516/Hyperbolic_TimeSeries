@@ -52,14 +52,7 @@ class ParallelEuclideanEmbed(nn.Module):
                 n_layer=2, embed_dropout=0.1, use_attention_pooling=False):
         super().__init__()
         # 5 parallel Mamba encoder blocks
-        self.use_hierarchy = use_hierarchy
-        if self.use_hierarchy:
-            self.log_scales = nn.ParameterList([
-                nn.Parameter(torch.log(torch.tensor(hierarchy_scales[0]))),  # trend
-                nn.Parameter(torch.log(torch.tensor(hierarchy_scales[1]))),  # coarse
-                nn.Parameter(torch.log(torch.tensor(hierarchy_scales[2]))),  # fine
-                nn.Parameter(torch.log(torch.tensor(hierarchy_scales[3])))   # residual
-            ])
+        
         self.trend_embed = MLPEmbed(
             input_dim=input_dim, 
             hidden_dim=hidden_dim, 
@@ -92,41 +85,7 @@ class ParallelEuclideanEmbed(nn.Module):
             n_layer=n_layer,
             use_attention_pooling=use_attention_pooling)
 
-    def hierarchical_weighted_combine(self, e_trend, e_coarse, e_fine, e_residual):
-        """
-        Weighted combination in Euclidean space.
-        Inverse weighting: trend (general) gets higher weight than residual (specific).
-        
-        Args:
-            e_trend, e_coarse, e_fine, e_residual: [B, embed_dim]
-        
-        Returns:
-            combined_e: [B, embed_dim] - weighted combination
-        """
-        # Get scales (learned during training)
-        trend_scale = torch.exp(self.log_scales[0])      # e.g., 0.5
-        coarse_scale = torch.exp(self.log_scales[1])     # e.g., 1.0
-        fine_scale = torch.exp(self.log_scales[2])      # e.g., 1.5
-        residual_scale = torch.exp(self.log_scales[3])   # e.g., 2.0
-        
-        # Inverse weights (trend = most important, residual = least)
-        # Smaller scale → higher weight (trend is more general, gets more weight)
-        trend_weight = 1.0 / trend_scale
-        coarse_weight = 1.0 / coarse_scale
-        fine_weight = 1.0 / fine_scale
-        residual_weight = 1.0 / residual_scale
-        
-        # Normalize weights to sum to 1
-        total_weight = trend_weight + coarse_weight + fine_weight + residual_weight
-        e_trend_hierarchy = (trend_weight / total_weight) * e_trend 
-        e_coarse_hierarchy = (coarse_weight / total_weight) * e_coarse
-        e_fine_hierarchy = (fine_weight / total_weight) * e_fine
-        e_residual_hierarchy = (residual_weight / total_weight) * e_residual
-        # Weighted sum
-        combined_e = e_trend_hierarchy + e_coarse_hierarchy + e_fine_hierarchy + e_residual_hierarchy
-        
-        return combined_e, e_trend_hierarchy, e_coarse_hierarchy, e_fine_hierarchy, e_residual_hierarchy
-
+    
     def forward(self, trend, fine, coarse, residual):
         """
         Encode decomposed time series components to Euclidean space.
@@ -148,14 +107,8 @@ class ParallelEuclideanEmbed(nn.Module):
         e_coarse = self.coarse_embed(coarse)
         e_residual = self.residual_embed(residual)
         
-        if self.use_hierarchy:
-            # Hierarchical weighted combination
-            # Trend gets highest weight (most general)
-            # Residual gets lowest weight (most specific)
-            combined_e, e_trend, e_coarse, e_fine, e_residual = self.hierarchical_weighted_combine(e_trend, e_coarse, e_fine, e_residual)
-        else:
-            # Simple sum (no hierarchy, all components equally weighted)
-            combined_e = e_trend + e_fine + e_coarse + e_residual
+        # Simple sum (no hierarchy, all components equally weighted)
+        combined_e = e_trend + e_fine + e_coarse + e_residual
 
         return {
             "trend_e": e_trend,

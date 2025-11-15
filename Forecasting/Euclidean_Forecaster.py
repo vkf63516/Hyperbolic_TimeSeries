@@ -55,7 +55,6 @@ class PointForecastEuclidean(nn.Module):
     NO manifold operations - pure Euclidean arithmetic
     """
     def __init__(self, lookback, n_features, pred_len, embed_dim=32, hidden_dim=64,
-                 use_hierarchy=False, hierarchy_scales=[0.5, 1.0, 1.0, 1.5], 
                  use_attention_pooling=False, use_revin=False, 
                  use_truncated_bptt=False, truncate_every=16,
                  dynamic_dropout=0.3, embed_dropout=0.5, recon_dropout=0.2, num_layers=2):
@@ -73,10 +72,8 @@ class PointForecastEuclidean(nn.Module):
             input_dim=n_features,
             embed_dim=embed_dim,
             hidden_dim=hidden_dim,
-            use_hierarchy=use_hierarchy,
             n_layer=num_layers,
             embed_dropout=embed_dropout,
-            hierarchy_scales=hierarchy_scales,
             use_attention_pooling=use_attention_pooling
         )
         self.dynamics = ResidualDynamics(

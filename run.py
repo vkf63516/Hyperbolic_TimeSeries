@@ -48,9 +48,7 @@ parser.add_argument('--save_freq', type=int, default=10,
 parser.add_argument('--embed_dim', type=int, default=32, help='hyperbolic embedding dimension')
 parser.add_argument('--hidden_dim', type=int, default=128, help='mamba hidden dimension')
 parser.add_argument('--curvature', type=float, default=1.0, help='negative number for hyperbolic curvature')
-parser.add_argument('--use_hierarchy', action='store_true', default=False, help='use hierarchy scaling')
-parser.add_argument('--hierarchy_scales', type=float, nargs=4, default=[0.5,1.0,1.0,2.0], help='hierarchy scaling factors')
-
+parser.add_argument('--hyperbolic_component')
 # Data loader
 parser.add_argument('--data', type=str, required=True, default='ETTm1', help='dataset type')
 parser.add_argument('--root_path', type=str, default='./data/ETT/', help='root path of the data file')
@@ -86,7 +84,7 @@ parser.add_argument('--use_tensorboard', action='store_true', default=False,
                     help='use TensorBoard for logging')
 # GPU
 parser.add_argument('--use_amp', action='store_true', help='use AMP', default=False)
-parser.add_argument('--use_gpu', action='store_true', default=False, help='use gpu')
+parser.add_argument('--use_gpu', action='store_true', default=True, help='use gpu')
 parser.add_argument('--gpu', type=int, default=0, help='gpu id')
 parser.add_argument('--use_multi_gpu', type=int, default=0, help='use multiple gpus')
 parser.add_argument('--devices', type=str, default='0,1', help='multi-gpu device ids')

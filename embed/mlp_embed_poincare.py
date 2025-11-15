@@ -31,7 +31,7 @@ class MLPEmbed(nn.Module):
     def forward(self, x):
         """
         x: [B, seqlen, input_dim]
-        returns: [B, output_dim]  (Euclidean latent, tangent vectors)
+        returns: [B, output_dim]  (Poincare latent, tangent vectors)
         """
         x = self.input_proj(x)
         for layer in self.layers:
@@ -62,8 +62,7 @@ class ParallelPoincare(nn.Module):
     All operations use proper Möbius gyrovector space arithmetic.
     """
     def __init__(self, lookback, input_dim, embed_dim=32, hidden_dim=64, 
-                 curvature=1.0, use_hierarchy=False, hierarchy_scales=[0.5, 1.0, 1.5, 2.0],
-                 n_layer=2, use_attention_pooling=False):
+                 curvature=1.0, n_layer=2, use_attention_pooling=False):
         """
         Args:
             lookback: int - lookback window size
@@ -71,23 +70,11 @@ class ParallelPoincare(nn.Module):
             embed_dim: int - dimension of hyperbolic embeddings (Poincaré ball in R^embed_dim)
             hidden_dim: int - hidden dimension for MLP
             curvature: float - curvature of Poincaré ball (c parameter)
-            use_hierarchy: bool - whether to use hierarchical scaling
-            hierarchy_scales: list - radial scales for [trend, coarse, fine, residual]
-                                     Smaller = closer to origin = more general
             n_layer: int - number of MLP layers
             use_attention_pooling: bool - use attention pooling (True) or mean pooling (False)
         """
         super().__init__()
-        
-        self.use_hierarchy = use_hierarchy
-        if self.use_hierarchy:
-            # Store log of scales (ensures always positive via exp)
-            self.log_scales = nn.ParameterList([
-                nn.Parameter(torch.log(torch.tensor(hierarchy_scales[0]))),  # trend (closest to root)
-                nn.Parameter(torch.log(torch.tensor(hierarchy_scales[1]))),  # coarse
-                nn.Parameter(torch.log(torch.tensor(hierarchy_scales[2]))),  # fine
-                nn.Parameter(torch.log(torch.tensor(hierarchy_scales[3])))   # residual (furthest from root)
-            ])
+
 
         # MLP encoders for each component
         self.trend_embed = MLPEmbed(
@@ -130,60 +117,8 @@ class ParallelPoincare(nn.Module):
         # Scaling parameter for mapping to hyperbolic space
         self.effective_scale = nn.Parameter(torch.tensor(0.1))
         
-        # Learnable weights for Möbius combination (non-hierarchical)
+        # Learnable weights for Möbius combination 
         self.mobius_weights = nn.Parameter(torch.ones(4) * 0.25)
-
-    def apply_hierarchy_scaling(self, manifold_point, scale):
-        """
-        Scale manifold point radially from origin using Möbius scalar multiplication.
-        Larger scale = further from origin = more specific in hierarchy.
-        
-        Args:
-            manifold_point: [B, embed_dim] - point in Poincaré ball
-            scale: float - scaling factor
-        
-        Returns:
-            scaled_point: [B, embed_dim] - scaled point on manifold
-        """
-        # Use Möbius scalar multiplication: r ⊗_c x
-        scaled_point = self.manifold.mobius_scalar_mul(scale, manifold_point)
-        
-        # Ensure point is in the ball (numerical stability)
-        return self.manifold.projx(scaled_point)
-
-    def hierarchical_combine(self, z_trend_h, z_coarse_h, z_fine_h, z_residual_h):
-        """
-        Sequential hierarchical composition using geodesic interpolation in Poincaré ball.
-        Builds from general (trend) to specific (residual) along geodesics.
-        
-        Each step moves 25% along the geodesic from current state toward the component,
-        creating a hierarchical composition: trend → coarse → fine → residual
-        
-        Args:
-            z_trend_h, z_coarse_h, z_fine_h, z_residual_h: [B, embed_dim]
-        
-        Returns:
-            z_combined: [B, embed_dim] - hierarchically combined point
-        """
-        # Start from trend (root of hierarchy - most general pattern)
-        z_current = z_trend_h
-
-        # Incorporate coarse (second level) - geodesic interpolation
-        v_to_coarse = self.manifold.logmap(z_current, z_coarse_h)  # Tangent vector from current to coarse
-        z_current = safe_expmap(self.manifold, 0.25 * v_to_coarse, z_current)  # Move 25% along geodesic
-        z_current = self.manifold.projx(z_current)
-
-        # Incorporate fine (third level)
-        v_to_fine = self.manifold.logmap(z_current, z_fine_h)
-        z_current = safe_expmap(self.manifold, 0.25 * v_to_fine, z_current)
-        z_current = self.manifold.projx(z_current)
-
-        # Incorporate residual (deepest level - most specific)
-        v_to_residual = self.manifold.logmap(z_current, z_residual_h)
-        z_current = safe_expmap(self.manifold, 0.25 * v_to_residual, z_current)
-        z_current = self.manifold.projx(z_current)
-
-        return z_current
 
     def mobius_fusion(self, z_trend_h, z_coarse_h, z_fine_h, z_residual_h):
         """
@@ -272,32 +207,10 @@ class ParallelPoincare(nn.Module):
         z_seasonal_coarse_h = self.manifold.projx(z_seasonal_coarse_h)
         z_seasonal_fine_h = self.manifold.projx(z_seasonal_fine_h)
         z_residual_h = self.manifold.projx(z_residual_h)
-
-        # 5) Apply hierarchy: radial scaling + sequential aggregation
-        if self.use_hierarchy:
-            # STEP 1: Radial hierarchy scaling using Möbius scalar multiplication
-            # Position each component at different distances from origin
-            trend_scale = torch.exp(self.log_scales[0])      # e.g., 0.5 (close to origin - general)
-            coarse_scale = torch.exp(self.log_scales[1])     # e.g., 1.0
-            fine_scale = torch.exp(self.log_scales[2])      # e.g., 1.5
-            residual_scale = torch.exp(self.log_scales[3])   # e.g., 2.0 (far from origin - specific)
-    
-            z_trend_h = self.apply_hierarchy_scaling(z_trend_h, trend_scale)
-            z_seasonal_coarse_h = self.apply_hierarchy_scaling(z_seasonal_coarse_h, coarse_scale)
-            z_seasonal_fine_h = self.apply_hierarchy_scaling(z_seasonal_fine_h, fine_scale)
-            z_residual_h = self.apply_hierarchy_scaling(z_residual_h, residual_scale)
-            
-            # STEP 2: Sequential geodesic aggregation
-            # Combine the radially-positioned components sequentially along geodesics
-            combined_h = self.hierarchical_combine(
-                z_trend_h, z_seasonal_coarse_h, z_seasonal_fine_h, z_residual_h
-            )
-            combined_tangent = self.manifold.logmap0(combined_h)
-        else:
-            # Non-hierarchical Möbius fusion
-            combined_h, combined_tangent = self.mobius_fusion(
-                z_trend_h, z_seasonal_coarse_h, z_seasonal_fine_h, z_residual_h
-            )
+           # Möbius fusion
+        combined_h, combined_tangent = self.mobius_fusion(
+            z_trend_h, z_seasonal_coarse_h, z_seasonal_fine_h, z_residual_h
+        )
 
         return {
             "trend_tangent": z_trend_t,
@@ -310,70 +223,6 @@ class ParallelPoincare(nn.Module):
             "residual_h": z_residual_h,
             "combined_tangent": combined_tangent,
             "combined_h": combined_h
-        }
-
-
-class SinglePoincare(nn.Module):
-    """
-    Encodes a single component to Poincaré ball.
-    Used for testing individual components in isolation.
-    """
-    def __init__(self, lookback, input_dim, embed_dim=32, hidden_dim=64, 
-                 curvature=1.0, n_layer=2, use_attention_pooling=False):
-        """
-        Args:
-            lookback: int - lookback window size
-            input_dim: int - number of input features
-            embed_dim: int - dimension of hyperbolic embeddings
-            hidden_dim: int - hidden dimension for MLP
-            curvature: float - curvature of Poincaré ball
-            n_layer: int - number of MLP layers
-            use_attention_pooling: bool - use attention pooling
-        """
-        super().__init__()
-        
-        # Single MLP encoder
-        self.embed = MLPEmbed(
-            input_dim=input_dim,
-            hidden_dim=hidden_dim,
-            output_dim=embed_dim,
-            n_layer=n_layer,
-            lookback=lookback,
-            use_attention_pooling=use_attention_pooling
-        )
-        
-        # Poincaré ball manifold
-        self.manifold = geoopt.manifolds.PoincareBall(c=curvature)
-        
-        # Scaling parameter
-        self.effective_scale = nn.Parameter(torch.tensor(0.1))
-    
-    def forward(self, x):
-        """
-        Encode single component to Poincaré ball.
-        
-        Args:
-            x: [B, seq_len, input_dim] - single time series component
-        
-        Returns:
-            dict with:
-                - tangent: [B, embed_dim] - tangent space representation
-                - poincare: [B, embed_dim] - point in Poincaré ball
-        """
-        # 1) Encode to Euclidean latent (tangent vector)
-        z_tangent = self.embed(x)  # [B, embed_dim]
-        
-        # 2) Scale
-        effective_scale = torch.tanh(self.effective_scale)
-        scaled_tangent = z_tangent * effective_scale
-        
-        # 3) Map to hyperbolic space (Poincaré ball)
-        z_h = safe_expmap0(self.manifold, scaled_tangent)
-        z_h = self.manifold.projx(z_h)
-        
-        return {
-            "tangent": z_tangent,
-            "poincare": z_h
         }
 
 
@@ -467,7 +316,7 @@ class HybridPoincare(nn.Module):
             "combined_tangent": combined_tangent,
             "hyperbolic_component": self.hyperbolic_component,
             "component_types": {
-                comp: ('hyperbolic' if comp == self.hyperbolic_component else 'euclidean')
+                comp: ('Poincare' if comp == self.hyperbolic_component else 'Euclidean')
                 for comp in self.components
             }
         }

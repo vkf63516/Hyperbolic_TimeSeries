@@ -128,3 +128,6 @@ mse:0.40392231941223145, mae:0.37714147567749023, rse:0.7393147349357605
 Solar_96_96_exp1_HScales_HyperbolicForecasting_custom_decomposition_ftM_sl96_pl96_exp_ebfixed_Euclidean_0_seed2023  
 mse:0.5125131011009216, mae:0.47668126225471497, rse:0.8327850699424744
 
+Weather_96_96_exp1_HScales_HyperbolicForecasting_custom_decomposition_weather.csv_ftM_sl96_pl96_exp_ebfixed_Euclidean_0_seed2023  
+mse:0.20819614827632904, mae:0.26167845726013184, rse:0.6012964844703674
+

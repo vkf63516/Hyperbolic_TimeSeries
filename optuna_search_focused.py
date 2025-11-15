@@ -44,8 +44,6 @@ def objective(trial, pred_len, manifold_type='Euclidean'):
     Focused optimization - only core hyperparameters.
     
     FIXED settings (not searched):
-    - use_hierarchy: True
-    - hierarchy_scales: [0.5, 1.0, 1.5, 2.0] (geometric progression)
     - use_attention_pooling: True
     """
     
@@ -73,7 +71,6 @@ def objective(trial, pred_len, manifold_type='Euclidean'):
         'curvature': curvature,
         # FIXED (not searched)
         'use_hierarchy': True,
-        'hierarchy_scales': [0.5, 1.0, 1.5, 2.0],
         'manifold_type': manifold_type,
     }
     
@@ -99,10 +96,8 @@ def objective(trial, pred_len, manifold_type='Euclidean'):
         '--patience', '5',
         '--use_decomposition',
         '--enc_in', '21',
-        '--num_basis', '10',
+        '--num_basis', '10'
         # FIXED settings
-        '--use_hierarchy',
-        '--hierarchy_scales', '0.5', '1.0', '1.5', '2.0',
     ]
     
     print("\n" + "="*80)
@@ -178,8 +173,6 @@ def main():
     print(f"  - learning_rate: [1e-5, 1e-3] (log uniform)")
     print(f"  - batch_size: [16, 32, 64]")
     print(f"\nFIXED:")
-    print(f"  - use_hierarchy: True")
-    print(f"  - hierarchy_scales: [0.5, 1.0, 1.5, 2.0]")
     print(f"\nManifold types: {args.manifold_types}")
     print(f"Storage: {args.storage}")
     print(f"Resume mode: {args.resume}")
@@ -250,8 +243,6 @@ def main():
                         'duration_seconds': trial.user_attrs.get('duration_seconds', None),
                         **trial.params,
                         # Add fixed params for reference
-                        'use_hierarchy': True,
-                        'hierarchy_scales': '[0.5, 1.0, 1.5, 2.0]'
                     }
                     all_results.append(result_entry)
             

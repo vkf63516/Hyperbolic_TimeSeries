@@ -20,9 +20,7 @@ python run.py \
   --enc_in 862 \
   --patience 10 \
   --manifold_type "Euclidean" \
-  --use_hierarchy \
   --use_attention_pooling \
-  --use_gpu \
   --use_amp
 
 python run.py \
@@ -46,9 +44,7 @@ python run.py \
   --enc_in 862 \
   --patience 6 \
   --manifold_type "Euclidean" \
-  --use_hierarchy \
   --use_attention_pooling \
-  --use_gpu \
   --use_amp
 
 
@@ -73,9 +69,7 @@ python run.py \
   --use_tensorboard \
   --patience 6 \
   --manifold_type "Euclidean" \
-  --use_hierarchy \
   --use_attention_pooling \
-  --use_gpu \
   --use_amp
 
 
@@ -100,7 +94,5 @@ python run.py \
   --enc_in 862 \
   --patience 6 \
   --manifold_type "Euclidean" \
-  --use_hierarchy \
   --use_attention_pooling \
-  --use_amp \
-  --use_gpu 
+  --use_amp 

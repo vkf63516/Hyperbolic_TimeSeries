@@ -44,17 +44,10 @@ class MambaEmbed(nn.Module):
 # ---------------------------------------------------
 class ParallelPoincare(nn.Module):
     def __init__(self, lookback, input_dim, embed_dim=32, hidden_dim=64, 
-                curvature=1.0, n_layer=3, use_hierarchy=False, hierarchy_scales=[0.5,1.0,1.0,1.5]):
+                curvature=1.0, n_layer=3):
         super().__init__()
         
         # Three parallel Mamba encoder branches
-        self.use_hierarchy = use_hierarchy
-        if use_hierarchy:
-            self.hierarchy_scales = hierarchy_scales
-            trend_scale = torch.exp(self.log_scales[0])
-            coarse_scale = torch.exp(self.log_scales[1])
-            fine_scale = torch.exp(self.log_scales[2])
-            residual_scale = torch.exp(self.log_scales[3])
 
         self.trend_embed = MambaEmbed(input_dim, hidden_dim, embed_dim, lookback=lookback, n_layer=n_layer)
         self.coarse_embed = MambaEmbed(input_dim, hidden_dim, embed_dim, lookback=lookback, n_layer=n_layer)  # hourly, fine, coarse

@@ -34,17 +34,9 @@ class MambaEmbed(nn.Module):
         return self.output_proj(x)
 
 class ParallelEuclideanEmbed(nn.Module):
-    def __init__(self, lookback, input_dim, embed_dim=32, hidden_dim=64,
-                use_hierarchy=False, hierarchy_scales=[0.5,1.0,1.5,2.0], n_layer=3):
+    def __init__(self, lookback, input_dim, embed_dim=32, hidden_dim=64, n_layer=3):
         super().__init__()
         # 5 parallel Mamba encoder blocks
-        self.use_hierarchy = use_hierarchy
-        if self.use_hierarchy:
-            self.hierarchy_scales = hierarchy_scales
-            self.trend_scale = nn.Parameter(torch.tensor(hierarchy_scales[0]))
-            self.seasonal_coarse_scale = nn.Parameter(torch.tensor(hierarchy_scales[1]))
-            self.seasonal_fine_scale = nn.Parameter(torch.tensor(hierarchy_scales[2]))
-            self.residual_scale = nn.Parameter(torch.tensor(hierarchy_scales[-1]))
         self.trend_embed = MambaEmbed(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=embed_dim, lookback=lookback, n_layer=n_layer)
         self.fine_embed = MambaEmbed(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=embed_dim, lookback=lookback, n_layer=n_layer)
         self.coarse_embed = MambaEmbed(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=embed_dim, lookback=lookback, n_layer=n_layer)
@@ -56,11 +48,7 @@ class ParallelEuclideanEmbed(nn.Module):
         e_fine = self.fine_embed(fine)
         e_coarse = self.coarse_embed(coarse)
         e_residual = self.residual_embed(residual)
-        if self.use_hierarchy:
-            e_trend *= self.trend_scale
-            e_coarse *= self.seasonal_coarse_scale
-            e_fine *= self.seasonal_fine_scale
-            e_residual *= self.residual_scale
+ 
         # Simple Euclidean fusion: sum or concatenation
         # Option 1: sum
         combined_e = e_trend + e_fine + e_coarse + e_residual

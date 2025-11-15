@@ -63,7 +63,8 @@ class HyperbolicPointForecaster(nn.Module):
                  curvature, manifold_type, use_hierarchy=False, 
                  hierarchy_scales=[0.5,1.0,1.5,2.0], use_attention_pooling=False, 
                  use_revin=False, use_truncated_bptt=False, truncate_every=16,
-                 dynamic_dropout=0.3, embed_dropout=0.5, recon_dropout=0.2, num_layers=2):
+                 dynamic_dropout=0.3, embed_dropout=0.5, recon_dropout=0.2, 
+                 num_layers=2):
         super().__init__()
         self.lookback = lookback
         self.embed_dim = embed_dim
@@ -78,6 +79,7 @@ class HyperbolicPointForecaster(nn.Module):
         
         # Encoder (works with MLP, Mamba, or Transformer backend)
         if manifold_type == "Poincare":
+
             self.embed_hyperbolic = ParallelPoincare(
                 lookback=lookback,
                 input_dim=n_features,
@@ -173,11 +175,21 @@ class HybridComponentForecaster(nn.Module):
     One component in hyperbolic, others in Euclidean.
     """
     def __init__(self, lookback, pred_len, n_features, embed_dim, hidden_dim, 
-                 curvature, manifold_type='Lorentz', 
+                 curvature, manifold_type, use_hierarchy=False, hierarchy_scales=[0.5,1.0,1.5,2.0],
+                 use_attention_pooling=False, use_revin=False, 
+                 use_truncated_bptt=False, truncate_every=16,
+                 dynamic_dropout=0.3, embed_dropout=0.5, recon_dropout=0.2, 
                  hyperbolic_component='seasonal_coarse'):
         super().__init__()
-        self.pred_len = pred_len
+        self.lookback = lookback
         self.embed_dim = embed_dim
+        self.pred_len = pred_len
+        self.n_features = n_features
+        self.use_revin = use_revin
+        self.use_truncated_bptt = use_truncated_bptt
+        self.truncate_every = truncate_every
+        if self.use_revin:
+            self.revin = RevIN(num_features=n_features, eps=1e-5, affine=True)
         
         # Hybrid encoder
         if manifold_type == 'Lorentz':

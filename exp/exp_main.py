@@ -2,8 +2,7 @@
 Unified exp_main.py supporting both segment-level and point-level hyperbolic embeddings
 
 Controlled by args.use_segments flag:
-- use_segments=True: Segment-level hyperbolic space (SegmentParallelLorentzBlock)
-- use_segments=False: Point-level hyperbolic space (ParallelLorentzBlock)
+- Point-level hyperbolic space (ParallelLorentzBlock)
 """
 from wandb_logger import WandbLogger
 from data_provider.data_factory import data_provider
@@ -62,7 +61,6 @@ class Exp_Main(Exp_Basic):
                 'hidden_dim': args.hidden_dim,
                 'manifold_type': args.manifold_type,
                 'use_segments': args.use_segments,
-                'use_hierarchy': args.use_hierarchy,
                 'use_decomposition': args.use_decomposition,
                 'use_attention_pooling': args.use_attention_pooling,
                 'loss': args.loss,
@@ -311,9 +309,7 @@ class Exp_Main(Exp_Basic):
                 )
                 
                 # Log hierarchy scales
-                manifold_type = self.manifold_type
-                self.wandb_logger.log_hierarchy_scales(epoch, self.model, manifold_type)
-                
+                manifold_type = self.manifold_type                
                 # Log system metrics
                 epoch_duration = time.time() - epoch_time
                 self.wandb_logger.log_system_metrics(
@@ -377,7 +373,6 @@ class Exp_Main(Exp_Basic):
                 coarse_x = X_dict['seasonal_coarse'].float().to(self.device, non_blocking=True)
                 fine_x = X_dict['seasonal_fine'].float().to(self.device, non_blocking=True)
                 resid_x = X_dict['residual'].float().to(self.device, non_blocking=True)
-            
                 # ========================================
                 # Load Ground Truth (SAME AS TRAIN)
                 # ========================================

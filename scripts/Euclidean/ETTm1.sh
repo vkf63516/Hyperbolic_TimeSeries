@@ -26,7 +26,6 @@ python run.py \
   --enc_in 7 \
   --patience $patience \
   --manifold_type "Euclidean" \
-  --use_hierarchy \
   --use_revin \
   --use_attention_pooling
 
@@ -53,7 +52,6 @@ python run.py \
   --enc_in 7 \
   --patience $patience \
   --manifold_type "Euclidean" \
-  --use_hierarchy \
   --use_revin \
   --use_attention_pooling
 
@@ -81,7 +79,6 @@ python run.py \
   --enc_in 7 \
   --patience $patience \
   --manifold_type "Euclidean" \
-  --use_hierarchy \
   --use_revin
 
 
@@ -108,5 +105,4 @@ python run.py \
   --enc_in 7 \
   --patience 6 \
   --manifold_type "Euclidean" \
-  --use_hierarchy \
   --use_revin 

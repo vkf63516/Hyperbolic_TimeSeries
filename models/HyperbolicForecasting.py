@@ -31,8 +31,6 @@ class Model(nn.Module):
         self.embed_dim = configs.embed_dim
         self.hidden_dim = configs.hidden_dim
         self.curvature = configs.curvature
-        self.use_hierarchy = configs.use_hierarchy
-        self.hierarchy_scales = configs.hierarchy_scales
         self.mstl_period = configs.mstl_period
         self.use_segments = configs.use_segments
         self.manifold_type = configs.manifold_type
@@ -68,14 +66,13 @@ class Model(nn.Module):
                     n_features=self.enc_in,
                     embed_dim=self.embed_dim,
                     hidden_dim=self.hidden_dim,
-                    use_hierarchy=self.use_hierarchy,
-                    hierarchy_scales=self.hierarchy_scales,
                     use_attention_pooling=self.use_attention_pooling,
                     use_revin=self.use_revin,
                     use_truncated_bptt=True,
                     truncate_every=16
                 )
             else:
+
                 self.forecaster = HyperbolicPointForecaster(
                     lookback=self.seq_len,
                     pred_len=self.pred_len,
@@ -84,8 +81,6 @@ class Model(nn.Module):
                     hidden_dim=self.hidden_dim,
                     curvature=self.curvature,
                     manifold_type=self.manifold_type,
-                    use_hierarchy=self.use_hierarchy,
-                    hierarchy_scales=self.hierarchy_scales,
                     use_attention_pooling=self.use_attention_pooling
                 )
 

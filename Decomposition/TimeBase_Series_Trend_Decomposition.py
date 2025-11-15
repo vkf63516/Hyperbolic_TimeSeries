@@ -9,7 +9,8 @@ from Decomposition.Series_Trend_Decomposition import trend_seasonal_decompositio
 class TimeBaseMSTL:
     """
     TimeBase-inspired MSTL decomposition using learned orthogonal basis functions
-    instead of .
+    instead of original data. Its only used in preprocessing to reconstruct the series,
+    whic
     """
 
     def __init__(self, n_basis_components=10, orthogonal_lr=1e-3, orthogonal_iters=500, seq_len=96):

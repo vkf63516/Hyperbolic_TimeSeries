@@ -60,8 +60,7 @@ class ParallelLorentz(nn.Module):
     All operations use proper Lorentz geometry (Einstein midpoint, weighted combinations).
     """
     def __init__(self, lookback, input_dim, embed_dim=32, hidden_dim=64, 
-                 curvature=1.0, use_hierarchy=False, hierarchy_scales=[0.5, 1.0, 1.5, 2.0],
-                 n_layer=2, embed_dropout=0.1, use_attention_pooling=False):
+                 curvature=1.0,n_layer=2, embed_dropout=0.1, use_attention_pooling=False):
         """
         Args:
             lookback: int - lookback window size
@@ -69,24 +68,11 @@ class ParallelLorentz(nn.Module):
             embed_dim: int - dimension of hyperbolic embeddings (actual space is embed_dim+1 for Lorentz)
             hidden_dim: int - hidden dimension for MLP
             curvature: float - curvature of Lorentz manifold (k parameter)
-            use_hierarchy: bool - whether to use hierarchical scaling
-            hierarchy_scales: list - radial scales for [trend, coarse, fine, residual]
-                                     Smaller = closer to origin = more general
             n_layer: int - number of MLP layers
             embed_dropout: float - dropout rate in embedders
             use_attention_pooling: bool - use attention pooling (True) or mean pooling (False)
         """
         super().__init__()
-        
-        self.use_hierarchy = use_hierarchy
-        if self.use_hierarchy:
-            # Store log of scales (ensures always positive via exp)
-            self.log_scales = nn.ParameterList([
-                nn.Parameter(torch.log(torch.tensor(hierarchy_scales[0]))),  # trend (closest to root)
-                nn.Parameter(torch.log(torch.tensor(hierarchy_scales[1]))),  # coarse
-                nn.Parameter(torch.log(torch.tensor(hierarchy_scales[2]))),  # fine
-                nn.Parameter(torch.log(torch.tensor(hierarchy_scales[3])))   # residual (furthest from root)
-            ])
 
         # MLP encoders for each component
         self.trend_embed = MLPEmbed(
@@ -133,68 +119,8 @@ class ParallelLorentz(nn.Module):
         # Scaling parameter for mapping to hyperbolic space
         self.effective_scale = nn.Parameter(torch.tensor(0.1))
         
-        # Learnable weights for weighted Einstein midpoint (non-hierarchical)
+        # Learnable weights for weighted Einstein midpoint 
         self.lorentz_weights = nn.Parameter(torch.ones(4) * 0.25)
-
-    def apply_hierarchy_scaling(self, manifold_point, scale):
-        """
-        Scale manifold point radially from origin using tangent space scaling.
-        Larger scale = further from origin = more specific in hierarchy.
-        
-        For Lorentz model, we scale in tangent space at origin.
-        
-        Args:
-            manifold_point: [B, embed_dim+1] - point on Lorentz manifold
-            scale: float - scaling factor
-        
-        Returns:
-            scaled_point: [B, embed_dim+1] - scaled point on manifold
-        """
-        # Map to tangent space at origin
-        tangent = self.manifold.logmap0(manifold_point)  # [B, embed_dim]
-        
-        # Scale in tangent space
-        scaled_tangent = tangent * scale
-        
-        # Map back to manifold
-        scaled_point = safe_expmap0(self.manifold, scaled_tangent)
-        
-        # Ensure point is on manifold
-        return self.manifold.projx(scaled_point)
-
-    def hierarchical_combine(self, z_trend_h, z_coarse_h, z_fine_h, z_residual_h):
-        """
-        Sequential hierarchical composition in Lorentz hyperbolic space.
-        Builds from general (trend) to specific (residual) along geodesics.
-        
-        Each step moves 25% along the geodesic from current state toward the component,
-        creating a hierarchical composition: trend → coarse → fine → residual
-        
-        Args:
-            z_trend_h, z_coarse_h, z_fine_h, z_residual_h: [B, embed_dim+1]
-        
-        Returns:
-            z_combined: [B, embed_dim+1] - hierarchically combined point
-        """
-        # Start from trend (root of hierarchy - most general pattern)
-        z_current = z_trend_h
-
-        # Incorporate coarse (second level) - geodesic interpolation
-        v_to_coarse = self.manifold.logmap(z_current, z_coarse_h)  # Tangent vector from current to coarse
-        z_current = safe_expmap(self.manifold, 0.25 * v_to_coarse, z_current)  # Move 25% along geodesic
-        z_current = self.manifold.projx(z_current)
-
-        # Incorporate fine (third level)
-        v_to_fine = self.manifold.logmap(z_current, z_fine_h)
-        z_current = safe_expmap(self.manifold, 0.25 * v_to_fine, z_current)
-        z_current = self.manifold.projx(z_current)
-
-        # Incorporate residual (deepest level - most specific)
-        v_to_residual = self.manifold.logmap(z_current, z_residual_h)
-        z_current = safe_expmap(self.manifold, 0.25 * v_to_residual, z_current)
-        z_current = self.manifold.projx(z_current)
-
-        return z_current
 
     def weighted_lorentz_mean(self, points, weights):
         """
@@ -306,31 +232,11 @@ class ParallelLorentz(nn.Module):
         z_seasonal_fine_h = self.manifold.projx(z_seasonal_fine_h)
         z_residual_h = self.manifold.projx(z_residual_h)
 
-        # 5) Apply hierarchy or hyperbolic fusion
-        if self.use_hierarchy:
-            # STEP 1: Radial hierarchy scaling
-            # Position each component at different distances from origin
-            trend_scale = torch.exp(self.log_scales[0])      # e.g., 0.5 (close to origin - general)
-            coarse_scale = torch.exp(self.log_scales[1])     # e.g., 1.0
-            fine_scale = torch.exp(self.log_scales[2])      # e.g., 1.5
-            residual_scale = torch.exp(self.log_scales[3])   # e.g., 2.0 (far from origin - specific)
     
-            z_trend_h = self.apply_hierarchy_scaling(z_trend_h, trend_scale)
-            z_seasonal_coarse_h = self.apply_hierarchy_scaling(z_seasonal_coarse_h, coarse_scale)
-            z_seasonal_fine_h = self.apply_hierarchy_scaling(z_seasonal_fine_h, fine_scale)
-            z_residual_h = self.apply_hierarchy_scaling(z_residual_h, residual_scale)
-            
-            # STEP 2: Sequential geodesic aggregation
-            # Combine the radially-positioned components sequentially along geodesics
-            combined_h = self.hierarchical_combine(
-                z_trend_h, z_seasonal_coarse_h, z_seasonal_fine_h, z_residual_h
-            )
-            combined_tangent = self.manifold.logmap0(combined_h)
-        else:
-            # Non-hierarchical: Use weighted Einstein midpoint (Fréchet mean)
-            combined_h, combined_tangent = self.lorentz_fusion(
-                z_trend_h, z_seasonal_coarse_h, z_seasonal_fine_h, z_residual_h
-            )
+        # Non-hierarchical: Use weighted Einstein midpoint (Fréchet mean)
+        combined_h, combined_tangent = self.lorentz_fusion(
+            z_trend_h, z_seasonal_coarse_h, z_seasonal_fine_h, z_residual_h
+        )
 
         return {
             "trend_tangent": z_trend_t,
