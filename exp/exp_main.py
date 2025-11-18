@@ -124,9 +124,11 @@ class Exp_Main(Exp_Basic):
 
     def vali(self, vali_data, vali_loader, criterion):
         total_loss = []
+        total_trend_loss = []
+        total_coarse_loss = []
+        total_fine_loss = []
+        total_resid_loss = []
         self.model.eval()
-        all_preds = []
-        all_trues = []
     
         with torch.no_grad():
             for i, (X_dict, batch_y, batch_x_mark, batch_y_mark, Y_dict) in enumerate(vali_loader):
@@ -139,10 +141,12 @@ class Exp_Main(Exp_Basic):
                 resid_x = X_dict['residual'].float().to(self.device, non_blocking=True)
 
                 trend_y = Y_dict['trend'].float().to(self.device, non_blocking=True)
-            
+                coarse_y = Y_dict['seasonal_coarse'].float().to(self.device, non_blocking=True)
+                fine_y = Y_dict['seasonal_fine'].float().to(self.device, non_blocking=True)
+                resid_y = Y_dict['residual'].float().to(self.device, non_blocking=True)
                 batch_y = batch_y.float().to(self.device, non_blocking=True)
             
-                outputs, component_output = self.model(
+                trend_outputs, coarse_outputs, fine_outputs, resid_outputs = self.model(
                     trend=trend_x,
                     seasonal_coarse=coarse_x,
                     seasonal_fine=fine_x,
@@ -150,23 +154,49 @@ class Exp_Main(Exp_Basic):
                 )
                 f_dim = -1 if self.args.features == 'MS' else 0
                 batch_y = batch_y[:, -self.args.pred_len:, f_dim:]
+
+                trend_outputs = trend_outputs[:, -self.args.pred_len:, f_dim:]
+                coarse_outputs = coarse_outputs[:, -self.args.pred_len:, f_dim:]
+                fine_outputs = fine_outputs[:, -self.args.pred_len:, f_dim:]
+                resid_outputs = resid_outputs[:, -self.args.pred_len:, f_dim:]
+                outputs = trend_outputs + coarse_outputs + fine_outputs + resid_outputs
                 outputs = outputs[:, -self.args.pred_len:, f_dim:]
+
                 trend_y = trend_y[:, -self.args.pred_len:, f_dim:]
-                component_output = component_output[:, -self.args.pred_len:, f_dim:]
+                coarse_y = coarse_y[:, -self.args.pred_len:, f_dim:]
+                fine_y = fine_y[:, -self.args.pred_len:, f_dim:]
+                resid_y = resid_y[:, -self.args.pred_len:, f_dim:]
+                
+
                 preds = outputs.detach().cpu()
                 trues = batch_y.detach().cpu()
-                component_output = component_output.detach().cpu()
-                trend_y = trend_y.detach().cpu()
 
+                trend_y = trend_y.detach().cpu()
+                coarse_y = coarse_y.detach().cpu()
+                fine_y = fine_y.detach().cpu()
+                resid_y = resid_y.detach().cpu()
                 # Compute validation loss
-                # loss = criterion(preds, trues)
-                loss = criterion(component_output, trend_y)
+                loss = criterion(preds, trues)
+                loss_trend = criterion(trend_outputs, trend_y)
+                loss_coarse = criterion(coarse_outputs, coarse_y)
+                loss_fine = criterion(fine_outputs, fine_y)
+                loss_resid = criterion(resid_outputs, resid_y)
+
+
                 # print("Component Loss: ", loss)
+                total_trend_loss.append(loss_trend.item())
+                total_coarse_loss.append(loss_coarse.item())
+                total_fine_loss.append(loss_fine.item())
+                total_resid_loss.append(loss_resid.item())
                 total_loss.append(loss.item())
                 
         avg_total_loss = np.average(total_loss)
+        avg_total_trend_loss = np.average(total_trend_loss)
+        avg_total_coarse_loss = np.average(total_coarse_loss)
+        avg_total_fine_loss = np.average(total_fine_loss)
+        avg_total_resid_loss = np.average(total_resid_loss)
         self.model.train()
-        return avg_total_loss
+        return avg_total_loss, avg_total_trend_loss, avg_total_coarse_loss, avg_total_fine_loss, avg_total_resid_loss
 
     def train(self, setting):
         train_data, train_loader = self._get_data(flag='train')
@@ -201,7 +231,10 @@ class Exp_Main(Exp_Basic):
         for epoch in range(self.args.train_epochs):
             iter_count = 0
             train_loss = []
-
+            train_trend_loss = []
+            train_coarse_loss = []
+            train_fine_loss = []
+            train_resid_loss = []
             self.model.train()
             epoch_time = time.time()
             for i, (X_dict, batch_y, batch_x_mark, batch_y_mark, Y_dict) in enumerate(train_loader):
@@ -216,58 +249,98 @@ class Exp_Main(Exp_Basic):
                 resid_x = X_dict['residual'].float().to(self.device, non_blocking=True)
                 # Ground truth
                 trend_y = Y_dict['trend'].float().to(self.device, non_blocking=True)
-                # coarse_y = Y_dict['seasonal_coarse'].float().to(self.device, non_blocking=True)
-                # fine_y = Y_dict['seasonal_fine'].float().to(self.device, non_blocking=True)
-                # resid_y = Y_dict['residual'].float().to(self.device, non_blocking=True)  
+                coarse_y = Y_dict['seasonal_coarse'].float().to(self.device, non_blocking=True)
+                fine_y = Y_dict['seasonal_fine'].float().to(self.device, non_blocking=True)
+                resid_y = Y_dict['residual'].float().to(self.device, non_blocking=True)  
                 batch_y = batch_y.float().to(self.device, non_blocking=True)
             
                 # Forward pass
                 if self.args.use_amp:
                     with torch.cuda.amp.autocast():
-                        outputs, component_output = self.model(
+                        trend_outputs, coarse_outputs, fine_outputs, resid_outputs = self.model(
                             trend=trend_x,
                             seasonal_coarse=coarse_x,
                             seasonal_fine=fine_x,
-                            residual=resid_x
+                            residual=resid_x,
                         )
                         f_dim = -1 if self.args.features == 'MS' else 0
                         batch_y = batch_y[:, -self.args.pred_len:, f_dim:]
+
+                        trend_outputs = trend_outputs[:, -self.args.pred_len:, f_dim:]
+                        coarse_outputs = coarse_outputs[:, -self.args.pred_len:, f_dim:]
+                        fine_outputs = fine_outputs[:, -self.args.pred_len:, f_dim:]
+                        resid_outputs = resid_outputs[:, -self.args.pred_len:, f_dim:]
+                        outputs = trend_outputs + coarse_outputs + fine_outputs + resid_outputs
                         outputs = outputs[:, -self.args.pred_len:, f_dim:]
-                        component_output = component_output[:, -self.args.pred_len:, f_dim:]
+
                         trend_y = trend_y[:, -self.args.pred_len:, f_dim:]
+                        coarse_y = coarse_y[:, -self.args.pred_len:, f_dim:]
+                        fine_y = fine_y[:, -self.args.pred_len:, f_dim:]
+                        resid_y = resid_y[:, -self.args.pred_len:, f_dim:]
+
                         loss = criterion(outputs, batch_y)
-                        loss = criterion(component_output, trend_y) 
+                        loss_trend = criterion(trend_outputs, trend_y)
+                        loss_coarse = criterion(coarse_outputs, coarse_y)
+                        loss_fine = criterion(fine_outputs, fine_y)
+                        loss_resid = criterion(resid_outputs, resid_y)
+
                         train_loss.append(loss.item())
+                        train_trend_loss.append(loss_trend.item())
+                        train_coarse_loss.append(loss_coarse.item())
+                        train_fine_loss.append(loss_fine.item())
+                        train_resid_loss.append(loss_resid.item())
                 else:
-                    outputs, component_output = self.model(
+                    trend_outputs, coarse_outputs, fine_outputs, resid_outputs = self.model(
                         trend=trend_x,
                         seasonal_coarse=coarse_x,
                         seasonal_fine=fine_x,
-                        residual=resid_x
+                        residual=resid_x,
                     )
                     f_dim = -1 if self.args.features == 'MS' else 0
                     batch_y = batch_y[:, -self.args.pred_len:, f_dim:]
+
+                    trend_outputs = trend_outputs[:, -self.args.pred_len:, f_dim:]
+                    coarse_outputs = coarse_outputs[:, -self.args.pred_len:, f_dim:]
+                    fine_outputs = fine_outputs[:, -self.args.pred_len:, f_dim:]
+                    resid_outputs = resid_outputs[:, -self.args.pred_len:, f_dim:]
+                    outputs = trend_outputs + coarse_outputs + fine_outputs + resid_outputs
                     outputs = outputs[:, -self.args.pred_len:, f_dim:]
-                    component_output = component_output[:, -self.args.pred_len:, f_dim:]
+
                     trend_y = trend_y[:, -self.args.pred_len:, f_dim:]
+                    coarse_y = coarse_y[:, -self.args.pred_len:, f_dim:]
+                    fine_y = fine_y[:, -self.args.pred_len:, f_dim:]
+                    resid_y = resid_y[:, -self.args.pred_len:, f_dim:]
+
                     loss = criterion(outputs, batch_y)
-                    loss = criterion(component_output, trend_y)
+                    loss_trend = criterion(trend_outputs, trend_y)
+                    loss_coarse = criterion(coarse_outputs, coarse_y)
+                    loss_fine = criterion(fine_outputs, fine_y)
+                    loss_resid = criterion(resid_outputs, resid_y)
+
                     train_loss.append(loss.item())
+                    train_trend_loss.append(loss_trend.item())
+                    train_coarse_loss.append(loss_coarse.item())
+                    train_fine_loss.append(loss_fine.item())
+                    train_resid_loss.append(loss_resid.item())
                 
                 # Log iteration metrics
                 if i % 100 == 0 and self.wandb_logger is not None:
                     self.wandb_logger.log_losses(
                         global_step,
                         train_loss=loss.item(),
-                        train_losses_dict={'mse': loss.item()}
-                    )
+                        train_losses_dict={
+                            'trend loss': loss_trend.item(),
+                            'coarse loss': loss_coarse.item(),
+                            'fine loss': loss_fine.item(),
+                            'resid loss': loss_resid.item()
+                    })
                     # Log learning rate
                     self.wandb_logger.log_learning_rate(global_step, model_geooptim)
                 
                 # Console logging
                 if (iter_count) % 100 == 0:
-                    print("\titers: {0}, epoch: {1} | loss: {2:.7f}".format(
-                        iter_count, epoch + 1, loss.item()))
+                    print("\titers: {0}, epoch: {1} | loss: {2:.7f} | trend loss {3:.7f} | coarse loss {4:.7f} | fine loss {5:.7f} | resid loss {6:.7f}".format(
+                        iter_count, epoch + 1, loss.item(), loss_trend.item(), loss_coarse.item(), loss_fine.item(), loss_resid.item()))
                     speed = (time.time() - time_now) / iter_count
                     left_time = speed * ((self.args.train_epochs - epoch) * train_steps - iter_count)
                     print('\tspeed: {:.4f}s/iter; left time: {:.4f}s'.format(speed, left_time))
@@ -304,11 +377,15 @@ class Exp_Main(Exp_Basic):
             # End of epoch
             print(f"Epoch {epoch + 1} Max Memory (MB): {max_memory}")
             print("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_time))
-            avg_train_loss = np.mean(train_loss)
+            avg_train_loss = np.average(train_loss)
+            avg_trend_train_loss = np.average(train_trend_loss)
+            avg_coarse_train_loss = np.average(train_coarse_loss)
+            avg_fine_train_loss = np.average(train_fine_loss)
+            avg_resid_train_loss = np.average(train_resid_loss)
             train_losses_dict = {k: v / len(train_loader) for k, v in train_losses_dict.items()}
             
             # Validation
-            vali_loss = self.vali(vali_data, vali_loader, criterion)
+            vali_loss, vali_loss_trend, vali_loss_coarse, vali_loss_fine, vali_loss_resid = self.vali(vali_data, vali_loader, criterion)
             # test_loss = self.vali(test_data, test_loader, criterion)
             # Log epoch metrics to wandb
             if self.wandb_logger is not None:
@@ -329,8 +406,8 @@ class Exp_Main(Exp_Basic):
                     epoch_time=epoch_duration
                 )
 
-            print("Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f}".format(
-                epoch + 1, train_steps, avg_train_loss, vali_loss))
+            print("Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f} | Trend Train Loss: {4:.7f} Vali Loss: {5:.7f} | Coarse Train Loss {6:.7f} Vali Loss {7:.7f} | Fine Train Loss {8:.7f} Vali Loss {9:.7f} | Residual Train Loss {10:.7f} Vali Loss {11:.7f}".format(
+                epoch + 1, train_steps, avg_train_loss, vali_loss, avg_trend_train_loss, vali_loss_trend, avg_coarse_train_loss, vali_loss_coarse, avg_fine_train_loss, vali_loss_fine, avg_resid_train_loss, vali_loss_resid))
 
             # Early stopping
             early_stopping(vali_loss, self.model, path)
@@ -368,6 +445,7 @@ class Exp_Main(Exp_Basic):
                 map_location=self.device
             ))
 
+
         preds = []
         trues = []
         folder_path = './test_results/' + setting + '/'
@@ -386,9 +464,9 @@ class Exp_Main(Exp_Basic):
                 resid_x = X_dict['residual'].float().to(self.device, non_blocking=True)
 
                 trend_y = Y_dict['trend'].float().to(self.device, non_blocking=True)
-                # coarse_y = Y_dict['seasonal_coarse'].float().to(self.device, non_blocking=True)
-                # fine_y = Y_dict['seasonal_fine'].float().to(self.device, non_blocking=True)
-                # resid_y = Y_dict['residual'].float().to(self.device, non_blocking=True)  
+                coarse_y = Y_dict['seasonal_coarse'].float().to(self.device, non_blocking=True)
+                fine_y = Y_dict['seasonal_fine'].float().to(self.device, non_blocking=True)
+                resid_y = Y_dict['residual'].float().to(self.device, non_blocking=True)  
                 # ========================================
                 # Load Ground Truth (SAME AS TRAIN)
                 # ========================================
@@ -399,18 +477,28 @@ class Exp_Main(Exp_Basic):
             
                 # ========================================
                 # Forward Pass (SAME AS TRAIN, but no AMP)
-                # ========================================
-                outputs, component_output = self.model(
+                # ========================================                
+                trend_outputs, coarse_outputs, fine_outputs, resid_outputs = self.model(
                     trend=trend_x,
                     seasonal_coarse=coarse_x,
                     seasonal_fine=fine_x,
-                    residual=resid_x
+                    residual=resid_x,
                 )
                 f_dim = -1 if self.args.features == 'MS' else 0
                 batch_y = batch_y[:, -self.args.pred_len:, f_dim:]
+
+                trend_outputs = trend_outputs[:, -self.args.pred_len:, f_dim:]
+                coarse_outputs = coarse_outputs[:, -self.args.pred_len:, f_dim:]
+                fine_outputs = fine_outputs[:, -self.args.pred_len:, f_dim:]
+                resid_outputs = resid_outputs[:, -self.args.pred_len:, f_dim:]
+                outputs = trend_outputs + coarse_outputs + fine_outputs + resid_outputs
                 outputs = outputs[:, -self.args.pred_len:, f_dim:]
+
                 trend_y = trend_y[:, -self.args.pred_len:, f_dim:]
-                component_output = component_output[:, -self.args.pred_len, f_dim:]
+                coarse_y = coarse_y[:, -self.args.pred_len:, f_dim:]
+                fine_y = fine_y[:, -self.args.pred_len:, f_dim:]
+                resid_y = resid_y[:, -self.args.pred_len:, f_dim:]
+
             # ========================================
             # For Segment-Level: Flatten for Metrics
             # ========================================
@@ -427,13 +515,15 @@ class Exp_Main(Exp_Basic):
             # ========================================
             # Convert to NumPy
             # ========================================
-                component_output = component_output.detach().cpu().numpy()
                 trend_y =  trend_y.detach().cpu().numpy()
+                coarse_y = coarse_y.detach().cpu().numpy()
+                fine_y = fine_y.detach().cpu().numpy()
+                resid_y = resid_y.detach().cpu().numpy()
                 outputs = outputs.detach().cpu().numpy()
                 batch_y = batch_y.detach().cpu().numpy()
             
-                preds.append(component_output)
-                trues.append(trend_y)
+                preds.append(outputs)
+                trues.append(batch_y)
 
         # ========================================
         # Concatenate All Batches
@@ -451,7 +541,7 @@ class Exp_Main(Exp_Basic):
             os.makedirs(folder_path)
 
         mae, mse, rmse, mape, mspe, rse, corr = metric(preds, trues)
-        print('mse:{}, mae:{}, rse:{}'.format(mse, mae, rse))
+        print('mse:{}, mae:{}, rmse:{}'.format(mse, mae, rmse))
         
         f = open("result.txt", 'a')
         f.write(setting + "  \n")

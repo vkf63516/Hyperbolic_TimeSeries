@@ -4,6 +4,7 @@ import torch.nn as nn
 import geoopt
 from embed.mlp_embed_euclidean import ParallelEuclideanEmbed
 from DynamicsMvar.Lorentz_Residual_Dynamics import HyperbolicLorentzDynamics
+from DynamicsMvar.Poincare_Residual_Dynamics import HyperbolicPoincareDynamics
 from embed.mlp_embed_lorentz import ParallelLorentz
 from embed.mlp_embed_poincare import ParallelPoincare
 from Lifting.hyperbolic_reconstructor import HyperbolicReconstructionHead
@@ -84,26 +85,64 @@ class ComponentForecaster(nn.Module):
     def forward(self, trend, seasonal_coarse, seasonal_fine, residual):
 
         embed_h = self.embed_hyperbolic(trend, seasonal_coarse, seasonal_fine, residual)
-        z_current = embed_h["trend_h"]
+        z_current_trend = embed_h["trend_h"]
+        z_current_coarse = embed_h["seasonal_coarse_h"]
+        z_current_fine = embed_h["seasonal_fine_h"]
+        z_current_residual = embed_h["residual_h"]
 
-        predictions = []
-        embed_trajectory = []
+        trend_predictions = []
+        trend_embed_trajectory = []
+        coarse_predictions = []
+        coarse_embed_trajectory = []
+        fine_predictions = []
+        fine_embed_trajectory = []
+        residual_predictions = []
+        residual_embed_trajectory = []
 
         for step in range(self.pred_len):
             # Lift point back to original dimension
-            trend_pred = self.reconstructor(z_current)
-            predictions.append(trend_pred)
-            embed_trajectory.append(z_current)
+            trend_pred = self.reconstructor(z_current_trend)
+            trend_predictions.append(trend_pred)
+            trend_embed_trajectory.append(z_current_trend)
+
+            coarse_pred = self.reconstructor(z_current_coarse)
+            coarse_predictions.append(coarse_pred)
+            coarse_embed_trajectory.append(z_current_coarse)
+
+            fine_pred = self.reconstructor(z_current_fine)
+            fine_predictions.append(fine_pred)
+            fine_embed_trajectory.append(z_current_fine)
+
+            residual_pred = self.reconstructor(z_current_residual)
+            residual_predictions.append(residual_pred)
+            residual_embed_trajectory.append(z_current_residual)
+
+            
             # Evolve dynamics in tangent space
-            tangent_current = self.manifold.logmap0(z_current)  # [B, embed_dim]
+            tangent_current_trend = self.manifold.logmap0(z_current_trend)  # [B, embed_dim]
+            tangent_current_coarse = self.manifold.logmap0(z_current_coarse)
+            tangent_current_fine = self.manifold.logmap0(z_current_fine)
+            tangent_current_residual = self.manifold.logmap0(z_current_residual)
             
             # Predict velocity
-            z_current = self.dynamics(tangent_current)  # [B, embed_dim]
+            z_current_trend = self.dynamics(tangent_current_trend)  # [B, embed_dim]
+            z_current_coarse = self.dynamics(tangent_current_coarse)
+            z_current_fine = self.dynamics(tangent_current_fine)
+            z_current_residual = self.dynamics(tangent_current_residual)
             
             # Map back to manifold
-            z_current = self.manifold.projx(z_current)
+            z_current_trend = self.manifold.projx(z_current_trend)
+            z_current_coarse = self.manifold.projx(z_current_coarse)
+            z_current_fine = self.manifold.projx(z_current_fine)
+            z_current_residual = self.manifold.projx(z_current_residual)
         
         return {
-            'component_predictions': torch.stack(predictions, dim=1),  # [B, pred_len, n_features]
-            'embed_trajectory': torch.stack(embed_trajectory, dim=1),  # [B, pred_len, embed_dim]
+            'trend_predictions': torch.stack(trend_predictions, dim=1),  # [B, pred_len, n_features]
+            'trend_embed_trajectory': torch.stack(trend_embed_trajectory, dim=1),  # [B, pred_len, embed_dim]
+            'coarse_predictions': torch.stack(coarse_predictions, dim=1),
+            'coarse_embed_trajectory': torch.stack(coarse_embed_trajectory, dim=1),
+            'fine_predictions': torch.stack(fine_predictions, dim=1),
+            'fine_embed_trajectory': torch.stack(fine_embed_trajectory, dim=1),
+            'residual_predictions': torch.stack(residual_predictions, dim=1),
+            'residual_embed_trajectory': torch.stack(residual_embed_trajectory, dim=1)
         }

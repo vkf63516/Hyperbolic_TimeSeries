@@ -15,7 +15,7 @@ class Dataset_ETT_hour(Dataset):
     def __init__(self, root_path, flag='train', size=None,
                  features='S', data_path='ETTh1.csv',
                  target='OT', scale=True, timeenc=0, freq='h',
-                 basis=None, use_segments=False, mstl_period=24):
+                 basis=None):
         # size [seq_len, label_len, pred_len]
         # info
         if size == None:
@@ -104,7 +104,7 @@ class Dataset_ETT_minute(Dataset):
     def __init__(self, root_path, flag='train', size=None,
                  features='S', data_path='ETTm1.csv',
                  target='OT', scale=True, timeenc=0, freq='t', 
-                 basis=None, use_segments=False, mstl_period=24):
+                 basis=None):
         # size [seq_len, label_len, pred_len]
         # info
         if size == None:
@@ -194,7 +194,7 @@ class Dataset_ETT_hour_Decomposition(Dataset):
     def __init__(self, root_path, flag='train', size=None,
                  features='S', data_path='ETTh1.csv',
                  target='OT', scale=True, timeenc=0, freq='h',
-                 basis=None, use_segments=False, mstl_period=24):
+                 basis=None):
         # size [seq_len, label_len, pred_len]
         # info
         if size == None:
@@ -217,8 +217,6 @@ class Dataset_ETT_hour_Decomposition(Dataset):
             self.n_basis_components = basis[0]
             self.orthogonal_lr = basis[1]
             self.orthogonal_iters = basis[2]
-        self.use_segments = use_segments
-        self.mstl_period = mstl_period
         self.flag = flag
         self.features = features
         self.target = target
@@ -268,13 +266,6 @@ class Dataset_ETT_hour_Decomposition(Dataset):
         
         print(f"[{self.flag}] Fitting TimeBaseMSTL on training data...")
         self.timebase_mstl.fit(train_df)
-        
-        # Auto-detect MSTL period if using segments
-        if self.use_segments:
-            detected_period = self.timebase_mstl.timesteps_from_index(train_df)[0]
-            if self.mstl_period != detected_period:
-                print(f"[{self.flag}] Overriding mstl_period {self.mstl_period} with detected {detected_period}")
-                self.mstl_period = detected_period
 
         # Transform current split using fitted TimeBaseMSTL
         current_data_normalized = data[border1:border2]
@@ -288,7 +279,6 @@ class Dataset_ETT_hour_Decomposition(Dataset):
         # Convert to model-ready format: always store as [T, C] point-level
         self.decomposed_components = self._format_components(components_per_column)
         
-        # After: self.decomposed_components = self._format_components(components_per_column)
         
         # Cache temporal length for efficient __len__ computation
         self.temporal_length = self.decomposed_components['trend'].shape[0]
@@ -309,7 +299,6 @@ class Dataset_ETT_hour_Decomposition(Dataset):
         self.data_x = data[border1:border2]
         self.data_y = data[border1:border2]
         self.data_stamp = data_stamp
-            # ADD THIS:
         print(f"\n{'='*60}")
         print(f"[{self.flag}] DECOMPOSITION DIAGNOSTICS FOR ETTh1")
         print(f"{'='*60}")
@@ -333,24 +322,21 @@ class Dataset_ETT_hour_Decomposition(Dataset):
         print(f"\nReconstruction error: {reconstruction_error:.8f}")
 
         if reconstruction_error > 0.01:
-            print(f"⚠️  WARNING: High reconstruction error! Decomposition may be broken.")
+            print(f"WARNING: High reconstruction error! Decomposition may be broken.")
         else:
-            print(f"✅ Reconstruction looks good.")
+            print(f"Reconstruction looks good.")
 
         # Check for degenerate components (all zeros or constant)
         for comp_name in ['trend', 'seasonal_coarse', 'seasonal_fine', 'residual']:
             comp_std = self.decomposed_components[comp_name].std()
             if comp_std < 1e-6:
-                print(f"⚠️  WARNING: {comp_name} is nearly constant (std={comp_std:.8f})")
+                print(f"WARNING: {comp_name} is nearly constant (std={comp_std:.8f})")
 
         print(f"{'='*60}\n")
-        mode_str = "segment-level" if self.use_segments else "point-level"
-        print(f"[{self.flag}] Data preparation complete ({mode_str}). Temporal length: {self.temporal_length}")
 
     def _format_components(self, components_per_column):
         """
         Convert TimeBaseMSTL output to unified [T, num_features] format.
-        use_segments is not important for this aspect.
         
         Args:
             components_per_column: dict from TimeBaseMSTL.transform()
@@ -401,25 +387,6 @@ class Dataset_ETT_hour_Decomposition(Dataset):
                 ])
             }
 
-    def _create_segments(self, data, seg_len):
-        """
-        Create segments that fit
-        Only creates full segments that fit within the data.
-        
-        Args:
-            data: [T, C] array
-            seg_len: segment length (mstl_period)
-        
-        Returns:
-            segments: [num_segs, seg_len, C] array
-        """
-        T, C = data.shape
-        num_segments = T // seg_len
-        effective_len = num_segments * seg_len
-        data_trimmed = data[:effective_len]
-        segments = data_trimmed.reshape(num_segments, seg_len, C)
-        
-        return segments  # [num_segs, seg_len, C]
 
     def __getitem__(self, index):
         """
@@ -428,45 +395,26 @@ class Dataset_ETT_hour_Decomposition(Dataset):
         Point-level mode:
             Returns: X_dict with [seq_len, C] and [label_len + pred_len, C] arrays
         
-        Segment-level mode:
-            Returns: X_dict with [num_segs, seg_len, C] arrays
         """
         s_begin = index
         s_end = s_begin + self.seq_len
         r_begin = s_end - self.label_len
         r_end = r_begin + self.label_len + self.pred_len
 
-        if self.use_segments:
-            # ========================================
-            # Segment-Level Mode Overlapping Window
-            # ========================================
-            X_dict = {}
             
-            for comp_name, comp_data in self.decomposed_components.items():
-                # Extract window first
-                x_seq = comp_data[s_begin:s_end]  # [seq_len, C]
-                
-                # Creating segments
-                X_dict[comp_name] = self._create_segments(x_seq, self.mstl_period)
-            
-            seq_x_mark = self.data_stamp[s_begin:s_end]
-            seq_y_mark = self.data_stamp[r_begin:r_end]
-            seq_y = self.data_y[r_begin:r_end]
-            
-        else:
-            # ========================================
-            # Point-Level Mode Representing the segments
-            # ========================================
-            X_dict = {
-                'trend': self.decomposed_components['trend'][s_begin:s_end],
-                'seasonal_coarse': self.decomposed_components['seasonal_coarse'][s_begin:s_end],
-                'seasonal_fine': self.decomposed_components['seasonal_fine'][s_begin:s_end],
-                'residual': self.decomposed_components['residual'][s_begin:s_end]
-            }
-            
-            seq_x_mark = self.data_stamp[s_begin:s_end]
-            seq_y_mark = self.data_stamp[r_begin:r_end]
-            seq_y = self.data_y[r_begin:r_end]
+        # ========================================
+        # Point-Level Mode Representing the segments
+        # ========================================
+        X_dict = {
+            'trend': self.decomposed_components['trend'][s_begin:s_end],
+            'seasonal_coarse': self.decomposed_components['seasonal_coarse'][s_begin:s_end],
+            'seasonal_fine': self.decomposed_components['seasonal_fine'][s_begin:s_end],
+            'residual': self.decomposed_components['residual'][s_begin:s_end]
+        }
+        
+        seq_x_mark = self.data_stamp[s_begin:s_end]
+        seq_y_mark = self.data_stamp[r_begin:r_end]
+        seq_y = self.data_y[r_begin:r_end]
 
         return X_dict, seq_y, seq_x_mark, seq_y_mark
 
@@ -478,7 +426,7 @@ class Dataset_ETT_hour_Decomposition(Dataset):
         Segmentation only happens in __getitem__.
         """
         
-        return self.temporal_length - self.seq_len - self.pred_len + 1
+        return len(self.data_x) - self.seq_len - self.pred_len + 1
 
     def inverse_transform(self, data):
         """Inverse scaling for predictions."""
@@ -488,7 +436,7 @@ class Dataset_ETT_minute_Decomposition(Dataset):
     def __init__(self, root_path, flag='train', size=None,
                  features='S', data_path='ETTm1.csv',
                  target='OT', scale=True, timeenc=0, freq='t', 
-                 basis=None, use_segments=False, mstl_period=24):
+                 basis=None):
         # size [seq_len, label_len, pred_len]
         # info
         if size == None:
@@ -519,8 +467,6 @@ class Dataset_ETT_minute_Decomposition(Dataset):
             orthogonal_iters=self.orthogonal_iters,
             seq_len=self.seq_len
         )
-        self.use_segments = use_segments
-        self.mstl_period = mstl_period
         self.features = features
         self.target = target
         self.scale = scale
@@ -565,12 +511,6 @@ class Dataset_ETT_minute_Decomposition(Dataset):
         self.timebase_mstl.fit(train_df)
         
         # Auto-detect MSTL period if using segments
-        if self.use_segments:
-            detected_period = self.timebase_mstl.timesteps_from_index(train_df)[0]
-            if self.mstl_period != detected_period:
-                print(f"[{self.flag}] Overriding mstl_period {self.mstl_period} with detected {detected_period}")
-                self.mstl_period = detected_period
-
         # Transform current split using fitted TimeBaseMSTL
         current_data_normalized = data[border1:border2]
         current_df = pd.DataFrame(current_data_normalized, columns=df_data.columns)
@@ -602,8 +542,6 @@ class Dataset_ETT_minute_Decomposition(Dataset):
         self.data_x = data[border1:border2]
         self.data_y = data[border1:border2]
         self.data_stamp = data_stamp
-        mode_str = "segment-level" if self.use_segments else "point-level"
-        print(f"[{self.flag}] Data preparation complete ({mode_str}). Temporal length: {self.temporal_length}")
 
     def _format_components(self, components_per_column):
         """
@@ -659,26 +597,6 @@ class Dataset_ETT_minute_Decomposition(Dataset):
                 ])
             }
 
-    def _create_segments(self, data, seg_len):
-        """
-        Create segments that fit
-        Only creates full segments that fit within the data.
-        
-        Args:
-            data: [T, C] array
-            seg_len: segment length (mstl_period)
-        
-        Returns:
-            segments: [num_segs, seg_len, C] array
-        """
-        T, C = data.shape
-        num_segments = T // seg_len
-        effective_len = num_segments * seg_len
-        data_trimmed = data[:effective_len]
-        segments = data_trimmed.reshape(num_segments, seg_len, C)
-        
-        return segments  # [num_segs, seg_len, C]
-
     def __getitem__(self, index):
         """
         Returns decomposed components in dict format.
@@ -694,44 +612,26 @@ class Dataset_ETT_minute_Decomposition(Dataset):
         r_begin = s_end - self.label_len
         r_end = r_begin + self.label_len + self.pred_len
 
-        if self.use_segments:
-            # ========================================
-            # Segment-Level Mode Overlapping Window
-            # ========================================
-            X_dict = {}
-            Y_dict = {} # Used to evaluate components
-            
-            for comp_name, comp_data in self.decomposed_components.items():
-                # Extract window first
-                x_seq = comp_data[s_begin:s_end]  # [seq_len, C]
-                
-                # Creating segments
-                X_dict[comp_name] = self._create_segments(x_seq, self.mstl_period)
-            
-            seq_x_mark = self.data_stamp[s_begin:s_end]
-            seq_y_mark = self.data_stamp[r_begin:r_end]
-            seq_y = self.data_y[r_begin:r_end]
-            
-        else:
-            # ========================================
-            # Point-Level Mode Representing the segments
-            # ========================================
-            X_dict = {
-                'trend': self.decomposed_components['trend'][s_begin:s_end],
-                'seasonal_coarse': self.decomposed_components['seasonal_coarse'][s_begin:s_end],
-                'seasonal_fine': self.decomposed_components['seasonal_fine'][s_begin:s_end],
-                'residual': self.decomposed_components['residual'][s_begin:s_end]
-            }
-            Y_dict = {
-                'trend': self.decomposed_components['trend'][r_begin:r_end],
-                'seasonal_coarse': self.decomposed_components['seasonal_coarse'][r_begin:r_end],
-                'seasonal_fine': self.decomposed_components['seasonal_fine'][r_begin:r_end],
-                'residual': self.decomposed_components['residual'][r_begin:r_end]
-            }
-            
-            seq_x_mark = self.data_stamp[s_begin:s_end]
-            seq_y_mark = self.data_stamp[r_begin:r_end]
-            seq_y = self.data_y[r_begin:r_end]
+        
+        # ========================================
+        # Point-Level Mode Representing the segments
+        # ========================================
+        X_dict = {
+            'trend': self.decomposed_components['trend'][s_begin:s_end],
+            'seasonal_coarse': self.decomposed_components['seasonal_coarse'][s_begin:s_end],
+            'seasonal_fine': self.decomposed_components['seasonal_fine'][s_begin:s_end],
+            'residual': self.decomposed_components['residual'][s_begin:s_end]
+        }
+        Y_dict = {
+            'trend': self.decomposed_components['trend'][r_begin:r_end],
+            'seasonal_coarse': self.decomposed_components['seasonal_coarse'][r_begin:r_end],
+            'seasonal_fine': self.decomposed_components['seasonal_fine'][r_begin:r_end],
+            'residual': self.decomposed_components['residual'][r_begin:r_end]
+        }
+        
+        seq_x_mark = self.data_stamp[s_begin:s_end]
+        seq_y_mark = self.data_stamp[r_begin:r_end]
+        seq_y = self.data_y[r_begin:r_end]
 
         return X_dict, seq_y, seq_x_mark, seq_y_mark, Y_dict
 
@@ -743,7 +643,7 @@ class Dataset_ETT_minute_Decomposition(Dataset):
         Segmentation only happens in __getitem__.
         """
         
-        return self.temporal_length - self.seq_len - self.pred_len + 1
+        return len(self.data_x) - self.seq_len - self.pred_len + 1
 
     def inverse_transform(self, data):
         """Inverse scaling for predictions."""
@@ -753,7 +653,7 @@ class Dataset_Custom(Dataset):
     def __init__(self, root_path, flag='train', size=None,
                  features='S', data_path='ETTh1.csv',
                  target='OT', scale=True, timeenc=0, freq='h',
-                 basis=None, use_segments=False, mstl_period=24):
+                 basis=None):
         # size [seq_len, label_len, pred_len]
         # info
         if size == None:
@@ -858,7 +758,7 @@ class Dataset_Custom_Decomposition(Dataset):
     def __init__(self, root_path, flag='train', size=None,
                  features='S', data_path='ETTh1.csv',
                  target='OT', scale=True, timeenc=0, freq='h', 
-                 basis=None, use_segments=False, mstl_period=24):
+                 basis=None):
         # size [seq_len, label_len, pred_len]
         if size == None:
             self.seq_len = 24 * 4 * 4
@@ -870,8 +770,6 @@ class Dataset_Custom_Decomposition(Dataset):
             self.pred_len = size[2]
         
         # Segment/Point configuration
-        self.use_segments = use_segments
-        self.mstl_period = mstl_period
         
         # TimeBaseMSTL basis parameters
         if basis == None:
@@ -950,12 +848,6 @@ class Dataset_Custom_Decomposition(Dataset):
         print(f"[{self.flag}] Fitting TimeBaseMSTL on training data...")
         self.timebase_mstl.fit(train_df)
         
-        # Auto-detect MSTL period if using segments
-        if self.use_segments:
-            detected_period = self.timebase_mstl.timesteps_from_index(train_df)[0]
-            if self.mstl_period != detected_period:
-                print(f"[{self.flag}] Overriding mstl_period {self.mstl_period} with detected {detected_period}")
-                self.mstl_period = detected_period
 
         # Transform current split using fitted TimeBaseMSTL
         current_data_normalized = data[border1:border2]
@@ -1027,8 +919,6 @@ class Dataset_Custom_Decomposition(Dataset):
 
         print(f"{'='*60}\n")
        
-        mode_str = "segment-level" if self.use_segments else "point-level"
-        print(f"[{self.flag}] Data preparation complete ({mode_str}). Temporal length: {self.temporal_length}")
 
     def _format_components(self, components_per_column):
         """
@@ -1084,25 +974,6 @@ class Dataset_Custom_Decomposition(Dataset):
                 ])
             }
 
-    def _create_segments(self, data, seg_len):
-        """
-        Create segments that fit
-        Only creates full segments that fit within the data.
-        
-        Args:
-            data: [T, C] array
-            seg_len: segment length (mstl_period)
-        
-        Returns:
-            segments: [num_segs, seg_len, C] array
-        """
-        T, C = data.shape
-        num_segments = T // seg_len
-        effective_len = num_segments * seg_len
-        data_trimmed = data[:effective_len]
-        segments = data_trimmed.reshape(num_segments, seg_len, C)
-        
-        return segments  # [num_segs, seg_len, C]
 
     def __getitem__(self, index):
         """
@@ -1119,43 +990,25 @@ class Dataset_Custom_Decomposition(Dataset):
         r_begin = s_end - self.label_len
         r_end = r_begin + self.label_len + self.pred_len
 
-        if self.use_segments:
-            # ========================================
-            # Segment-Level Mode Overlapping Window
-            # ========================================
-            X_dict = {}
-            Y_dict = {}
-            
-            for comp_name, comp_data in self.decomposed_components.items():
-                # Extract window first
-                x_seq = comp_data[s_begin:s_end]  # [seq_len, C]
-                
-                # Creating segments
-                X_dict[comp_name] = self._create_segments(x_seq, self.mstl_period)
-            
-            seq_x_mark = self.data_stamp[s_begin:s_end]
-            seq_y_mark = self.data_stamp[r_begin:r_end]
-            seq_y = self.data_y[r_begin:r_end]
-            
-        else:
-            # ========================================
-            # Point-Level Mode Representing the segments
-            # ========================================
-            X_dict = {
-                'trend': self.decomposed_components['trend'][s_begin:s_end],
-                'seasonal_coarse': self.decomposed_components['seasonal_coarse'][s_begin:s_end],
-                'seasonal_fine': self.decomposed_components['seasonal_fine'][s_begin:s_end],
-                'residual': self.decomposed_components['residual'][s_begin:s_end]
-            }
-            Y_dict = {
-                'trend': self.decomposed_components['trend'][s_begin:s_end],
-                'seasonal_coarse': self.decomposed_components['seasonal_coarse'][s_begin:s_end],
-                'seasonal_fine': self.decomposed_components['seasonal_fine'][s_begin:s_end],
-                'residual': self.decomposed_components['residual'][s_begin:s_end]
-            }
-            seq_x_mark = self.data_stamp[s_begin:s_end]
-            seq_y_mark = self.data_stamp[r_begin:r_end]
-            seq_y = self.data_y[r_begin:r_end]
+        # ========================================
+        # Point-Level Mode Representing the segments
+        # ========================================
+        X_dict = {
+            'trend': self.decomposed_components['trend'][s_begin:s_end],
+            'seasonal_coarse': self.decomposed_components['seasonal_coarse'][s_begin:s_end],
+            'seasonal_fine': self.decomposed_components['seasonal_fine'][s_begin:s_end],
+            'residual': self.decomposed_components['residual'][s_begin:s_end]
+        }
+        # Y_dict is just to act as ground truth for each component individually
+        Y_dict = {
+            'trend': self.decomposed_components['trend'][r_begin:r_end],
+            'seasonal_coarse': self.decomposed_components['seasonal_coarse'][r_begin:r_end],
+            'seasonal_fine': self.decomposed_components['seasonal_fine'][r_begin:r_end],
+            'residual': self.decomposed_components['residual'][r_begin:r_end]
+        }
+        seq_x_mark = self.data_stamp[s_begin:s_end]
+        seq_y_mark = self.data_stamp[r_begin:r_end]
+        seq_y = self.data_y[r_begin:r_end]
 
         return X_dict, seq_y, seq_x_mark, seq_y_mark, Y_dict
 
@@ -1167,7 +1020,7 @@ class Dataset_Custom_Decomposition(Dataset):
         Segmentation only happens in __getitem__.
         """
         
-        return self.temporal_length - self.seq_len - self.pred_len + 1
+        return len(self.data_x) - self.seq_len - self.pred_len + 1
 
     def inverse_transform(self, data):
         """Inverse scaling for predictions."""

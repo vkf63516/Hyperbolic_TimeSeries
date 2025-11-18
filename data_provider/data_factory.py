@@ -6,12 +6,13 @@ data_dict = {
     'ETTh2': Dataset_ETT_hour,
     'ETTm1': Dataset_ETT_minute,
     'ETTm2': Dataset_ETT_minute,
+    'custom': Dataset_Custom,
+
     'ETTh1_decomposition': Dataset_ETT_hour_Decomposition,
     'ETTh2_decomposition': Dataset_ETT_hour_Decomposition,
     'ETTm1_decomposition': Dataset_ETT_minute_Decomposition,
     'ETTm2_decomposition': Dataset_ETT_minute_Decomposition,
-    'custom': Dataset_Custom,
-    'custom_decomposition': Dataset_Custom_Decomposition,
+    'custom_decomposition': Dataset_Custom_Decomposition
 }
 
 
@@ -45,9 +46,7 @@ def data_provider(args, flag):
         target=args.target,
         timeenc=timeenc,
         freq=freq,
-        basis=[args.num_basis, args.orthogonal_lr, args.orthogonal_iters],
-        use_segments=args.use_segments,
-        mstl_period=args.mstl_period
+        basis=[args.num_basis, args.orthogonal_lr, args.orthogonal_iters]
     )
     print(flag, len(data_set))
     data_loader = DataLoader(
