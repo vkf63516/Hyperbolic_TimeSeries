@@ -92,7 +92,7 @@ python run.py \
   --lradj "type3" \
   --embed_dim 32 \
   --hidden_dim 64 \
-  --batch_size  \
+  --batch_size 32 \
   --learning_rate $lr \
   --train_epochs 30 \
   --use_decomposition \

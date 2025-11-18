@@ -10,6 +10,7 @@ sys.path.append(str(Path(__file__).resolve().parents[0]))
 
 from Forecasting.Euclidean_Forecaster import PointForecastEuclidean
 from Forecasting.Forecaster import HyperbolicPointForecaster
+from Forecasting.ComponentForecaster import ComponentForecaster
 from Forecasting.Segment_Forecaster import HyperbolicSegmentForecaster
 from spec import safe_expmap0
 
@@ -84,6 +85,17 @@ class Model(nn.Module):
                     use_attention_pooling=self.use_attention_pooling
                 )
 
+                self.component_forecaster = ComponentForecaster(
+                    lookback=self.seq_len,
+                    pred_len=self.pred_len,
+                    n_features=self.enc_in,
+                    embed_dim=self.embed_dim,
+                    hidden_dim=self.hidden_dim,
+                    curvature=self.curvature,
+                    manifold_type=self.manifold_type,
+                    use_attention_pooling=self.use_attention_pooling                
+                )
+
             # Forecaster: Autoregressively predicts in hyperbolic space
 
    
@@ -104,7 +116,8 @@ class Model(nn.Module):
         """
 
         forecasts = self.forecaster(trend, seasonal_coarse, seasonal_fine, residual)
-        x_hat = forecasts
+        x_hat = forecasts["predictions"]
+        comp_forecasts = self.component_forecaster(trend, seasonal_coarse, seasonal_fine, residual)
         # Get individual and combined hyperbolic representations
-        
-        return x_hat
+        comp_xhat = comp_forecasts["component_predictions"]
+        return x_hat, comp_xhat

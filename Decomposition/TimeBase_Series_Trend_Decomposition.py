@@ -76,11 +76,8 @@ class TimeBaseMSTL:
             raise ValueError("Could not determine valid time step.")
         periods_seconds = [24*3600, 7*24*3600]
         steps = [max(1, int(round(p / step_seconds))) for p in periods_seconds]
-        print(f"\nDetected periods:")
-        print(f"  Fine:   {period_fine:5d} steps ({period_fine/reference_length*100:5.1f}% of reference)")
-        print(f"          → segment_len={segment_len_fine}, yields {n_segments_fine} segments")
-        print(f"  Coarse: {period_coarse:5d} steps ({period_coarse/reference_length*100:5.1f}% of reference)")
-        print(f"          → segment_len={segment_len_coarse}, yields {n_segments_coarse}")
+        if steps[0] == 1 or steps[-1] == 1:
+            steps = detect_periods(df)
         return steps
 
     def detect_periods(self, df):
@@ -102,6 +99,7 @@ class TimeBaseMSTL:
         """
         reference_length = self.seq_len 
         n_points = len(df)
+
     
         print(f"\n{'='*70}")
         print(f"PERIOD DETECTION")
@@ -389,7 +387,7 @@ class TimeBaseMSTL:
         but don't reconstruct or return anything yet.
         """
         print(f"Learning orthogonal bases from {df.shape[1]} series...")
-        steps_per_period = self.detect_periods(df)
+        steps_per_period = self.timesteps_from_index(df)
         self.feature_names = list(df.columns)
         self.steps_per_period = steps_per_period
 

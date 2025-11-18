@@ -9,8 +9,11 @@ from spec import safe_expmap, safe_expmap0
 
 class SegmentMLPEmbed(nn.Module):
     """MLP encoder for segmented data"""
-    def __init__(self, input_dim, segment_length, hidden_dim, output_dim, n_layer=2):
+    def __init__(self, lookback, input_dim, segment_length, hidden_dim, output_dim,
+                 n_layer=2, use_attention_pooling=False, embed_dropout=0.5):
         super().__init__()
+        self.num_segments = lookback // segment_length
+        self.use_attention_pooling = use_attention_pooling
         
         # Encode each segment
         self.segment_encoder = nn.Sequential(
@@ -25,89 +28,83 @@ class SegmentMLPEmbed(nn.Module):
                 nn.Linear(hidden_dim, hidden_dim),
                 nn.LayerNorm(hidden_dim),
                 nn.GELU(),
-                nn.Dropout(0.1)
+                nn.Dropout(embed_dropout)
             ) for _ in range(n_layer)
         ])
         
         # Attention pooling over segments
-        self.attention = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim // 2),
-            nn.Tanh(),
-            nn.Linear(hidden_dim // 2, 1)
-        )
+        if self.use_attention_pooling:
+            self.attention = nn.Sequential(
+                nn.Linear(hidden_dim, hidden_dim // 2),
+                nn.Tanh(),
+                nn.Linear(hidden_dim // 2, 1)
+            )
         
         self.output_proj = nn.Linear(hidden_dim, output_dim)
 
     def forward(self, x):
         """
-        x: [B, N_segments, segment_length, input_dim] OR [B, seq_len, input_dim]
+        x: [B, N_segments, segment_length, input_dim] 
         returns: [B, output_dim]
         """
-        if x.ndim == 3:
-            # Non-segmented: [B, seq_len, input_dim]
-            # Just use mean pooling
-            B, T, C = x.shape
-            x = x.reshape(B, T * C)
-            x = self.segment_encoder(x)
-            for layer in self.layers:
-                x = x + layer(x)
-            return self.output_proj(x)
         
-        # Segmented: [B, N_segments, segment_length, input_dim]
+        # Segmented: [B, N_segments, segment_length, n_features]
         B, N_seg, seg_len, C = x.shape
         
-        # Flatten each segment
-        x = x.reshape(B, N_seg * seg_len, C)
+        x = x.reshape(B, N_seg, seg_len * C)
         
         # Encode segments
-        x = self.segment_encoder(x)  # [B, N_segments, hidden_dim]
-        
+        x = self.segment_encoder(x)  
         # Process
         for layer in self.layers:
-            x = x + layer(x)
+            x = layer(x)
         
         # Attention pooling
-        attn_scores = self.attention(x)
-        attn_weights = torch.softmax(attn_scores, dim=1)
-        x_pooled = (x * attn_weights).sum(dim=1)
+        if self.use_attention_pooling:
+            attn_scores = self.attention(x)
+            attn_weights = torch.softmax(attn_scores, dim=1)
+            x_pooled = (x * attn_weights).sum(dim=1)
+        else:
+            x_pooled = x.mean(dim=1)
         
         return self.output_proj(x_pooled)
 
 
 class SegmentedParallelLorentz(nn.Module):
     def __init__(self, lookback, input_dim, embed_dim=32, hidden_dim=64, curvature=1.0,
-                 segment_lengths={'trend': 30, 'coarse': 7, 'fine': 24, 'residual': 1}):
-        """
-        segment_lengths: dict specifying segment length for each component
-            e.g., {'trend': 30, 'coarse': 7, 'fine': 24, 'residual': 1}
-        """
+                 segment_length=24):
+
         super().__init__()
         
         # Segment-aware encoders (different segment lengths for different components)
         self.trend_embed = SegmentMLPEmbed(
+            lookback=lookback,
             input_dim=input_dim, 
-            segment_length=segment_lengths['trend'],
+            segment_length=segment_length,
             hidden_dim=hidden_dim, 
             output_dim=embed_dim, 
             n_layer=2
         )
         self.seasonal_coarse_embed = SegmentMLPEmbed(
+            lookback=lookback,
             input_dim=input_dim, 
-            segment_length=segment_lengths['coarse'],
+            segment_length=segment_length,
             hidden_dim=hidden_dim, 
             output_dim=embed_dim, 
             n_layer=2
         )
         self.seasonal_fine_embed = SegmentMLPEmbed(
+            lookback=lookback,
             input_dim=input_dim, 
-            segment_length=segment_lengths['fine'],
+            segment_length=segment_length,
             hidden_dim=hidden_dim, 
             output_dim=embed_dim, 
             n_layer=2
         )
         self.residual_embed = SegmentMLPEmbed(
+            lookback=lookback,
             input_dim=input_dim, 
-            segment_length=segment_lengths['residual'],
+            segment_length=segment_length,
             hidden_dim=hidden_dim, 
             output_dim=embed_dim, 
             n_layer=2

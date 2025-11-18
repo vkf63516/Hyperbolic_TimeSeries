@@ -271,7 +271,7 @@ class Dataset_ETT_hour_Decomposition(Dataset):
         
         # Auto-detect MSTL period if using segments
         if self.use_segments:
-            detected_period = self.timebase_mstl.detect_periods(train_df)[0]
+            detected_period = self.timebase_mstl.timesteps_from_index(train_df)[0]
             if self.mstl_period != detected_period:
                 print(f"[{self.flag}] Overriding mstl_period {self.mstl_period} with detected {detected_period}")
                 self.mstl_period = detected_period
@@ -566,7 +566,7 @@ class Dataset_ETT_minute_Decomposition(Dataset):
         
         # Auto-detect MSTL period if using segments
         if self.use_segments:
-            detected_period = self.timebase_mstl.detect_periods(train_df)[0]
+            detected_period = self.timebase_mstl.timesteps_from_index(train_df)[0]
             if self.mstl_period != detected_period:
                 print(f"[{self.flag}] Overriding mstl_period {self.mstl_period} with detected {detected_period}")
                 self.mstl_period = detected_period
@@ -699,6 +699,7 @@ class Dataset_ETT_minute_Decomposition(Dataset):
             # Segment-Level Mode Overlapping Window
             # ========================================
             X_dict = {}
+            Y_dict = {} # Used to evaluate components
             
             for comp_name, comp_data in self.decomposed_components.items():
                 # Extract window first
@@ -721,12 +722,18 @@ class Dataset_ETT_minute_Decomposition(Dataset):
                 'seasonal_fine': self.decomposed_components['seasonal_fine'][s_begin:s_end],
                 'residual': self.decomposed_components['residual'][s_begin:s_end]
             }
+            Y_dict = {
+                'trend': self.decomposed_components['trend'][r_begin:r_end],
+                'seasonal_coarse': self.decomposed_components['seasonal_coarse'][r_begin:r_end],
+                'seasonal_fine': self.decomposed_components['seasonal_fine'][r_begin:r_end],
+                'residual': self.decomposed_components['residual'][r_begin:r_end]
+            }
             
             seq_x_mark = self.data_stamp[s_begin:s_end]
             seq_y_mark = self.data_stamp[r_begin:r_end]
             seq_y = self.data_y[r_begin:r_end]
 
-        return X_dict, seq_y, seq_x_mark, seq_y_mark
+        return X_dict, seq_y, seq_x_mark, seq_y_mark, Y_dict
 
     def __len__(self):
         """
@@ -945,7 +952,7 @@ class Dataset_Custom_Decomposition(Dataset):
         
         # Auto-detect MSTL period if using segments
         if self.use_segments:
-            detected_period = self.timebase_mstl.detect_periods(train_df)[0]
+            detected_period = self.timebase_mstl.timesteps_from_index(train_df)[0]
             if self.mstl_period != detected_period:
                 print(f"[{self.flag}] Overriding mstl_period {self.mstl_period} with detected {detected_period}")
                 self.mstl_period = detected_period
@@ -1008,15 +1015,15 @@ class Dataset_Custom_Decomposition(Dataset):
         print(f"\nReconstruction error: {reconstruction_error:.8f}")
 
         if reconstruction_error > 0.01:
-            print(f"⚠️  WARNING: High reconstruction error! Decomposition may be broken.")
+            print(f"WARNING: High reconstruction error! Decomposition may be broken.")
         else:
-            print(f"✅ Reconstruction looks good.")
+            print(f"Reconstruction looks good.")
 
         # Check for degenerate components (all zeros or constant)
         for comp_name in ['trend', 'seasonal_coarse', 'seasonal_fine', 'residual']:
             comp_std = self.decomposed_components[comp_name].std()
             if comp_std < 1e-6:
-                print(f"⚠️  WARNING: {comp_name} is nearly constant (std={comp_std:.8f})")
+                print(f"WARNING: {comp_name} is nearly constant (std={comp_std:.8f})")
 
         print(f"{'='*60}\n")
        
@@ -1117,6 +1124,7 @@ class Dataset_Custom_Decomposition(Dataset):
             # Segment-Level Mode Overlapping Window
             # ========================================
             X_dict = {}
+            Y_dict = {}
             
             for comp_name, comp_data in self.decomposed_components.items():
                 # Extract window first
@@ -1139,12 +1147,17 @@ class Dataset_Custom_Decomposition(Dataset):
                 'seasonal_fine': self.decomposed_components['seasonal_fine'][s_begin:s_end],
                 'residual': self.decomposed_components['residual'][s_begin:s_end]
             }
-            
+            Y_dict = {
+                'trend': self.decomposed_components['trend'][s_begin:s_end],
+                'seasonal_coarse': self.decomposed_components['seasonal_coarse'][s_begin:s_end],
+                'seasonal_fine': self.decomposed_components['seasonal_fine'][s_begin:s_end],
+                'residual': self.decomposed_components['residual'][s_begin:s_end]
+            }
             seq_x_mark = self.data_stamp[s_begin:s_end]
             seq_y_mark = self.data_stamp[r_begin:r_end]
             seq_y = self.data_y[r_begin:r_end]
 
-        return X_dict, seq_y, seq_x_mark, seq_y_mark
+        return X_dict, seq_y, seq_x_mark, seq_y_mark, Y_dict
 
     def __len__(self):
         """

@@ -48,7 +48,6 @@ class MLPEmbed(nn.Module):
 
 class ParallelEuclideanEmbed(nn.Module):
     def __init__(self, lookback, input_dim, embed_dim=32, hidden_dim=64,
-                use_hierarchy=False, hierarchy_scales=[0.5,1.0,1.5,2.0], 
                 n_layer=2, embed_dropout=0.1, use_attention_pooling=False):
         super().__init__()
         # 5 parallel Mamba encoder blocks

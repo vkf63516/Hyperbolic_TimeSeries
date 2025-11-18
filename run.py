@@ -48,7 +48,6 @@ parser.add_argument('--save_freq', type=int, default=10,
 parser.add_argument('--embed_dim', type=int, default=32, help='hyperbolic embedding dimension')
 parser.add_argument('--hidden_dim', type=int, default=128, help='mamba hidden dimension')
 parser.add_argument('--curvature', type=float, default=1.0, help='negative number for hyperbolic curvature')
-parser.add_argument('--hyperbolic_component')
 # Data loader
 parser.add_argument('--data', type=str, required=True, default='ETTm1', help='dataset type')
 parser.add_argument('--root_path', type=str, default='./data/ETT/', help='root path of the data file')

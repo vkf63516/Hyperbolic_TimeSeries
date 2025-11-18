@@ -50,6 +50,121 @@ def set_seed(seed=42):
     
     print(f"✓ Random seed set to {seed} for reproducibility")
 
+def analyze_hierarchy_raw_timeseries(raw_data, window_size, stride=None, max_patterns=5000):
+    """
+    Detect hierarchical structure in raw time series without decomposition.
+    
+    Args:
+        raw_data: [T, d_features] raw time series
+        window_size: Window size for pattern extraction
+        stride: Stride for windowing (default: window_size // 2)
+        max_patterns: Maximum patterns to analyze
+    
+    Returns:
+        hierarchy_metrics: Dict with scores and recommendations
+    """
+    if stride is None:
+        stride = max(1, window_size // 2)
+    
+    T, d_features = raw_data.shape
+    
+    # Extract overlapping windows
+    patterns = []
+    for i in range(0, T - window_size + 1, stride):
+        patterns.append(raw_data[i:i+window_size, :].flatten())
+    
+    patterns = np.array(patterns)
+    
+    # Subsample if needed
+    if len(patterns) > max_patterns:
+        indices = np.random.choice(len(patterns), max_patterns, replace=False)
+        patterns = patterns[indices]
+    
+    # Normalize
+    scaler = StandardScaler()
+    patterns_normalized = scaler.fit_transform(patterns)
+    
+    # Compute distances
+    distances = pdist(patterns_normalized, metric='euclidean')
+    distance_matrix = squareform(distances)
+    
+    # Build hierarchical clustering
+    linkage_matrix = linkage(distances, method='ward')
+    
+    # Cophenetic correlation
+    cophenetic_corr, _ = cophenet(linkage_matrix, distances)
+    
+    # Silhouette analysis
+    max_k = min(20, len(patterns) // 2)
+    silhouette_scores = []
+    
+    for k in range(2, max_k + 1):
+        clustering = AgglomerativeClustering(n_clusters=k, linkage='ward')
+        labels = clustering.fit_predict(patterns_normalized)
+        sil = silhouette_score(patterns_normalized, labels)
+        silhouette_scores.append(sil)
+    
+    best_k = np.argmax(silhouette_scores) + 2
+    best_sil = silhouette_scores[best_k - 2]
+    
+    # Compute hierarchy score (same as your code)
+    hierarchy_score = 0
+    if cophenetic_corr > 0.7:
+        hierarchy_score += 2
+    elif cophenetic_corr > 0.4:
+        hierarchy_score += 1
+    
+    # Branching factor
+    depth = np.log2(len(patterns))
+    branching = len(patterns) ** (1 / depth)
+    
+    if branching > 3:
+        hierarchy_score += 2
+    elif branching > 2:
+        hierarchy_score += 1
+    
+    return {
+        'cophenetic_correlation': cophenetic_corr,
+        'best_k': best_k,
+        'best_silhouette': best_sil,
+        'branching_factor': branching,
+        'hierarchy_score': hierarchy_score,
+        'n_patterns': len(patterns)
+    }
+
+def multiscale_hierarchy_test(raw_data, scales=[24, 168, 720]):
+    """
+    Test hierarchical structure at multiple time scales.
+    
+    Args:
+        raw_data: [T, d] raw time series
+        scales: List of window sizes (e.g., daily, weekly, monthly)
+    
+    Returns:
+        Dictionary with hierarchy scores per scale
+    """
+    results = {}
+    
+    for scale in scales:
+        print(f"\nAnalyzing scale: {scale} timesteps")
+        metrics = analyze_hierarchy_raw_timeseries(
+            raw_data, 
+            window_size=scale,
+            max_patterns=5000
+        )
+        results[f'scale_{scale}'] = metrics
+    
+    # Aggregate: if ANY scale shows hierarchy, flag it
+    max_hierarchy_score = max(r['hierarchy_score'] for r in results.values())
+    avg_cophenetic = np.mean([r['cophenetic_correlation'] for r in results.values()])
+    
+    return {
+        'per_scale': results,
+        'max_hierarchy_score': max_hierarchy_score,
+        'avg_cophenetic': avg_cophenetic,
+        'has_hierarchy': max_hierarchy_score >= 3
+    }
+
 
 def extract_mstl_components_from_dataset(dataset):
     """

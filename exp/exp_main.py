@@ -46,12 +46,13 @@ class Exp_Main(Exp_Basic):
         # Initialize wandb logger
         if args.use_wandb:
             # Create experiment name
-            experiment_name = f"{args.model}_{args.data}_sl{args.seq_len}_pl{args.pred_len}_{args.manifold_type}"
+            experiment_name = f"{args.model}_{args.data}_{args.data_path}_sl{args.seq_len}_pl{args.pred_len}_{args.manifold_type}"
             
             # Prepare config dict
             config = {
                 'model': args.model,
                 'data': args.data,
+                'data_path': args.data_path,
                 'seq_len': args.seq_len,
                 'pred_len': args.pred_len,
                 'learning_rate': args.learning_rate,
@@ -128,7 +129,7 @@ class Exp_Main(Exp_Basic):
         all_trues = []
     
         with torch.no_grad():
-            for i, (X_dict, batch_y, batch_x_mark, batch_y_mark) in enumerate(vali_loader):
+            for i, (X_dict, batch_y, batch_x_mark, batch_y_mark, Y_dict) in enumerate(vali_loader):
                 # ========================================
                 # IDENTICAL to train loop up to forward pass
                 # ========================================
@@ -136,10 +137,12 @@ class Exp_Main(Exp_Basic):
                 coarse_x = X_dict['seasonal_coarse'].float().to(self.device, non_blocking=True)
                 fine_x = X_dict['seasonal_fine'].float().to(self.device, non_blocking=True)
                 resid_x = X_dict['residual'].float().to(self.device, non_blocking=True)
+
+                trend_y = Y_dict['trend'].float().to(self.device, non_blocking=True)
             
                 batch_y = batch_y.float().to(self.device, non_blocking=True)
             
-                outputs = self.model(
+                outputs, component_output = self.model(
                     trend=trend_x,
                     seasonal_coarse=coarse_x,
                     seasonal_fine=fine_x,
@@ -148,22 +151,21 @@ class Exp_Main(Exp_Basic):
                 f_dim = -1 if self.args.features == 'MS' else 0
                 batch_y = batch_y[:, -self.args.pred_len:, f_dim:]
                 outputs = outputs[:, -self.args.pred_len:, f_dim:]
-                preds = outputs.detach()
-                trues = batch_y.detach()
-                all_preds.append(preds.numpy())
-                all_trues.append(trues.numpy())
+                trend_y = trend_y[:, -self.args.pred_len:, f_dim:]
+                component_output = component_output[:, -self.args.pred_len:, f_dim:]
+                preds = outputs.detach().cpu()
+                trues = batch_y.detach().cpu()
+                component_output = component_output.detach().cpu()
+                trend_y = trend_y.detach().cpu()
+
                 # Compute validation loss
                 loss = criterion(preds, trues)
+                print("Combined Loss: ", loss)
+                loss = criterion(component_output, trend_y)
+                print("Component Loss: ", loss)
                 total_loss.append(loss.item())
                 
         avg_total_loss = np.average(total_loss)
-        all_preds = np.concatenate(all_preds, axis=0)
-        all_trues = np.concatenate(all_trues, axis=0)
-        global_loss = np.mean((all_preds - all_trues) ** 2)
-        print(f"[DIAGNOSTIC] Val loss (avg of batches): {avg_total_loss:.6f}")
-        print(f"[DIAGNOSTIC] Val loss (global): {global_loss:.6f}")
-        print(f"[DIAGNOSTIC] Num batches: {len(total_loss)}")
-        print(f"[DIAGNOSTIC] Total samples: {len(all_preds)}")
         self.model.train()
         return avg_total_loss
 
@@ -203,7 +205,7 @@ class Exp_Main(Exp_Basic):
 
             self.model.train()
             epoch_time = time.time()
-            for i, (X_dict, batch_y, batch_x_mark, batch_y_mark) in enumerate(train_loader):
+            for i, (X_dict, batch_y, batch_x_mark, batch_y_mark, Y_dict) in enumerate(train_loader):
                 global_step = epoch * len(train_loader) + i
                 iter_count += 1
                 model_geooptim.zero_grad()
@@ -214,12 +216,16 @@ class Exp_Main(Exp_Basic):
                 fine_x = X_dict['seasonal_fine'].float().to(self.device, non_blocking=True)
                 resid_x = X_dict['residual'].float().to(self.device, non_blocking=True)
                 # Ground truth
+                trend_y = Y_dict['trend'].float().to(self.device, non_blocking=True)
+                # coarse_y = Y_dict['seasonal_coarse'].float().to(self.device, non_blocking=True)
+                # fine_y = Y_dict['seasonal_fine'].float().to(self.device, non_blocking=True)
+                # resid_y = Y_dict['residual'].float().to(self.device, non_blocking=True)  
                 batch_y = batch_y.float().to(self.device, non_blocking=True)
             
                 # Forward pass
                 if self.args.use_amp:
                     with torch.cuda.amp.autocast():
-                        outputs = self.model(
+                        outputs, component_output = self.model(
                             trend=trend_x,
                             seasonal_coarse=coarse_x,
                             seasonal_fine=fine_x,
@@ -228,10 +234,13 @@ class Exp_Main(Exp_Basic):
                         f_dim = -1 if self.args.features == 'MS' else 0
                         batch_y = batch_y[:, -self.args.pred_len:, f_dim:]
                         outputs = outputs[:, -self.args.pred_len:, f_dim:]
+                        component_output = component_output[:, -self.args.pred_len:, f_dim:]
+                        trend_y = trend_y[:, -self.args.pred_len:, f_dim:]
                         loss = criterion(outputs, batch_y)
+                        loss = criterion(component_output, trend_y) 
                         train_loss.append(loss.item())
                 else:
-                    outputs = self.model(
+                    outputs, component_output = self.model(
                         trend=trend_x,
                         seasonal_coarse=coarse_x,
                         seasonal_fine=fine_x,
@@ -240,7 +249,10 @@ class Exp_Main(Exp_Basic):
                     f_dim = -1 if self.args.features == 'MS' else 0
                     batch_y = batch_y[:, -self.args.pred_len:, f_dim:]
                     outputs = outputs[:, -self.args.pred_len:, f_dim:]
+                    component_output = component_output[:, -self.args.pred_len:, f_dim:]
+                    trend_y = trend_y[:, -self.args.pred_len:, f_dim:]
                     loss = criterion(outputs, batch_y)
+                    loss = criterion(component_output, trend_y)
                     train_loss.append(loss.item())
                 
                 # Log iteration metrics
@@ -365,7 +377,7 @@ class Exp_Main(Exp_Basic):
 
         self.model.eval()
         with torch.no_grad():
-            for i, (X_dict, batch_y, batch_x_mark, batch_y_mark) in enumerate(test_loader):
+            for i, (X_dict, batch_y, batch_x_mark, batch_y_mark, Y_dict) in enumerate(test_loader):
                 # ========================================
                 # Load Input Components (SAME AS TRAIN)
                 # ========================================
@@ -373,6 +385,11 @@ class Exp_Main(Exp_Basic):
                 coarse_x = X_dict['seasonal_coarse'].float().to(self.device, non_blocking=True)
                 fine_x = X_dict['seasonal_fine'].float().to(self.device, non_blocking=True)
                 resid_x = X_dict['residual'].float().to(self.device, non_blocking=True)
+
+                trend_y = Y_dict['trend'].float().to(self.device, non_blocking=True)
+                # coarse_y = Y_dict['seasonal_coarse'].float().to(self.device, non_blocking=True)
+                # fine_y = Y_dict['seasonal_fine'].float().to(self.device, non_blocking=True)
+                # resid_y = Y_dict['residual'].float().to(self.device, non_blocking=True)  
                 # ========================================
                 # Load Ground Truth (SAME AS TRAIN)
                 # ========================================
@@ -384,7 +401,7 @@ class Exp_Main(Exp_Basic):
                 # ========================================
                 # Forward Pass (SAME AS TRAIN, but no AMP)
                 # ========================================
-                outputs = self.model(
+                outputs, component_output = self.model(
                     trend=trend_x,
                     seasonal_coarse=coarse_x,
                     seasonal_fine=fine_x,
@@ -410,11 +427,13 @@ class Exp_Main(Exp_Basic):
             # ========================================
             # Convert to NumPy
             # ========================================
+                component_output = component_output.detach().cpu().numpy()
+                trend_y =  trend_y.detach().cpu().numpy()
                 outputs = outputs.detach().cpu().numpy()
                 batch_y = batch_y.detach().cpu().numpy()
             
-                preds.append(outputs)
-                trues.append(batch_y)
+                preds.append(component_output)
+                trues.append(trend_y)
 
         # ========================================
         # Concatenate All Batches
