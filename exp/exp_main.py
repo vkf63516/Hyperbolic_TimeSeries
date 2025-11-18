@@ -159,10 +159,9 @@ class Exp_Main(Exp_Basic):
                 trend_y = trend_y.detach().cpu()
 
                 # Compute validation loss
-                loss = criterion(preds, trues)
-                print("Combined Loss: ", loss)
+                # loss = criterion(preds, trues)
                 loss = criterion(component_output, trend_y)
-                print("Component Loss: ", loss)
+                # print("Component Loss: ", loss)
                 total_loss.append(loss.item())
                 
         avg_total_loss = np.average(total_loss)
@@ -410,7 +409,8 @@ class Exp_Main(Exp_Basic):
                 f_dim = -1 if self.args.features == 'MS' else 0
                 batch_y = batch_y[:, -self.args.pred_len:, f_dim:]
                 outputs = outputs[:, -self.args.pred_len:, f_dim:]
-        
+                trend_y = trend_y[:, -self.args.pred_len:, f_dim:]
+                component_output = component_output[:, -self.args.pred_len, f_dim:]
             # ========================================
             # For Segment-Level: Flatten for Metrics
             # ========================================

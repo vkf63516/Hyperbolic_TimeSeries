@@ -14,9 +14,9 @@ python run.py \
   --embed_dim 32 \
   --hidden_dim 64 \
   --num_basis 10 \
-  --batch_size 32 \
+  --batch_size 128 \
   --learning_rate 0.001 \
-  --train_epochs 30 \
+  --train_epochs 20 \
   --patience 5 \
   --manifold_type "Lorentzian" \
   --curvature 1.0 \
