@@ -9,9 +9,8 @@ sys.path.append(str(Path(__file__).resolve().parents[0]))
 
 
 from Forecasting.Euclidean_Forecaster import PointForecastEuclidean
-from Forecasting.ComponentForecaster import ComponentForecaster
+from Forecasting.Forecaster import HyperbolicForecaster
 from Forecasting.Segment_Forecaster import HyperbolicSegmentForecaster
-from spec import safe_expmap0
 
 class Model(nn.Module):
     """
@@ -57,7 +56,7 @@ class Model(nn.Module):
             )
         else:
 
-            self.component_forecaster = ComponentForecaster(
+            self.forecaster = HyperbolicForecaster(
                 lookback=self.seq_len,
                 pred_len=self.pred_len,
                 n_features=self.enc_in,
@@ -87,10 +86,12 @@ class Model(nn.Module):
             predictions: [B, pred_len, output_dim]
         """
 
-        comp_forecasts = self.component_forecaster(trend, seasonal_coarse, seasonal_fine, residual)
+        forecasts = self.forecaster(trend, seasonal_coarse, seasonal_fine, residual)
         # Get individual hyperbolic representations
-        trend_xhat = comp_forecasts["trend_predictions"]
-        coarse_xhat = comp_forecasts["coarse_predictions"]
-        fine_xhat = comp_forecasts["fine_predictions"]
-        residual_xhat = comp_forecasts["residual_predictions"]
-        return trend_xhat, coarse_xhat, fine_xhat, residual_xhat
+        trend_xhat = forecasts["trend_predictions"]
+        coarse_xhat = forecasts["coarse_predictions"]
+        fine_xhat = forecasts["fine_predictions"]
+        residual_xhat = forecasts["residual_predictions"]
+        x_hat = forecasts["predictions"]
+        
+        return x_hat, trend_xhat, coarse_xhat, fine_xhat, residual_xhat

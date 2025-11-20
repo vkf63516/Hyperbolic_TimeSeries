@@ -3,14 +3,15 @@ import torch
 import torch.nn as nn
 import geoopt
 from embed.mlp_embed_euclidean import ParallelEuclideanEmbed
-from DynamicsMvar.Lorentz_Residual_Dynamics import HyperbolicLorentzDynamics
+from DynamicsMvar.Lorentz_Residual_Dynamics import HyperbolicLorentzDynamics, HyperbolicLorentzMultiStepDynamics
 from DynamicsMvar.Poincare_Residual_Dynamics import HyperbolicPoincareDynamics
 from embed.mlp_embed_lorentz import ParallelLorentz
 from embed.mlp_embed_poincare import ParallelPoincare
+from embed.segment_mlp_embed_lorentz import SegmentedParallelLorentz
 from Lifting.hyperbolic_reconstructor import HyperbolicReconstructionHead
-from spec import RevIN, safe_expmap0, safe_expmap
+from spec import RevIN, safe_expmap
 
-class ComponentForecaster(nn.Module):
+class HyperbolicForecaster(nn.Module):
     def __init__(self, lookback, pred_len, n_features, embed_dim, hidden_dim, 
                 curvature, manifold_type, use_attention_pooling=False, use_revin=False,
                 use_truncated_bptt=False, truncate_every=16,dynamic_dropout=0.3,
@@ -88,61 +89,66 @@ class ComponentForecaster(nn.Module):
         z_current_trend = embed_h["trend_h"]
         z_current_coarse = embed_h["seasonal_coarse_h"]
         z_current_fine = embed_h["seasonal_fine_h"]
-        z_current_residual = embed_h["residual_h"]
-
+        z_current_resid = embed_h["residual_h"]
+        z_current = embed_h["combined_h"]
+        z_previous = None
+        z_previous_trend = None
+        z_previous_coarse = None
+        z_previous_fine = None
+        z_previous_resid = None
+        print(z_current)
         trend_predictions = []
-        trend_embed_trajectory = []
         coarse_predictions = []
-        coarse_embed_trajectory = []
         fine_predictions = []
-        fine_embed_trajectory = []
         residual_predictions = []
-        residual_embed_trajectory = []
+        predictions = []
 
         for step in range(self.pred_len):
             # Lift point back to original dimension
+            print(step)
+            x_pred = self.reconstructor(z_current)
+            predictions.append(x_pred)
+
             trend_pred = self.reconstructor(z_current_trend)
             trend_predictions.append(trend_pred)
-            trend_embed_trajectory.append(z_current_trend)
 
             coarse_pred = self.reconstructor(z_current_coarse)
             coarse_predictions.append(coarse_pred)
-            coarse_embed_trajectory.append(z_current_coarse)
 
             fine_pred = self.reconstructor(z_current_fine)
             fine_predictions.append(fine_pred)
-            fine_embed_trajectory.append(z_current_fine)
 
-            residual_pred = self.reconstructor(z_current_residual)
+            residual_pred = self.reconstructor(z_current_resid)
             residual_predictions.append(residual_pred)
-            residual_embed_trajectory.append(z_current_residual)
-
+          
+            # Predict velocity and to make sure each step is not isolated
+            z_current, z_previous = self.dynamics(z_current, z_previous)
+            z_current_trend, z_previous_trend = self.dynamics(z_current_trend, z_previous_trend)  # [B, embed_dim]
+            z_current_coarse, z_previous_coarse = self.dynamics(z_current_coarse, z_previous_coarse)
+            z_current_fine, z_previous_fine = self.dynamics(z_current_fine, z_previous_fine)
+            z_current_resid, z_previous_resid = self.dynamics(z_current_resid, z_previous_resid)
             
-            # Evolve dynamics in tangent space
-            tangent_current_trend = self.manifold.logmap0(z_current_trend)  # [B, embed_dim]
-            tangent_current_coarse = self.manifold.logmap0(z_current_coarse)
-            tangent_current_fine = self.manifold.logmap0(z_current_fine)
-            tangent_current_residual = self.manifold.logmap0(z_current_residual)
+        
+            if (step + 1) % 8 == 0 and step < self.pred_len - 1:
+                z_current = z_current.detach()
+                z_current_trend = z_current_trend.detach()
+                z_current_coarse = z_current_coarse.detach()
+                z_current_fine = z_current_fine.detach()
+                z_current_resid = z_current_resid.detach()
             
-            # Predict velocity
-            z_current_trend = self.dynamics(tangent_current_trend)  # [B, embed_dim]
-            z_current_coarse = self.dynamics(tangent_current_coarse)
-            z_current_fine = self.dynamics(tangent_current_fine)
-            z_current_residual = self.dynamics(tangent_current_residual)
-            
-            # Map back to manifold
-            z_current_trend = self.manifold.projx(z_current_trend)
-            z_current_coarse = self.manifold.projx(z_current_coarse)
-            z_current_fine = self.manifold.projx(z_current_fine)
-            z_current_residual = self.manifold.projx(z_current_residual)
+            if z_previous is not None:
+                z_previous = z_previous.detach()
+                z_previous_trend = z_previous_trend.detach()
+                z_previous_coarse = z_previous_coarse.detach()
+                z_previous_fine = z_previous_fine.detach()
+                z_previous_resid = z_previous_resid.detach()
+    
+        
         
         return {
+            'predictions': torch.stack(predictions, dim=1),
             'trend_predictions': torch.stack(trend_predictions, dim=1),  # [B, pred_len, n_features]
-            'trend_embed_trajectory': torch.stack(trend_embed_trajectory, dim=1),  # [B, pred_len, embed_dim]
             'coarse_predictions': torch.stack(coarse_predictions, dim=1),
-            'coarse_embed_trajectory': torch.stack(coarse_embed_trajectory, dim=1),
             'fine_predictions': torch.stack(fine_predictions, dim=1),
-            'fine_embed_trajectory': torch.stack(fine_embed_trajectory, dim=1),
             'residual_predictions': torch.stack(residual_predictions, dim=1),
-            'residual_embed_trajectory': torch.stack(residual_embed_trajectory, dim=1)
         }

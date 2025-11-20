@@ -318,7 +318,7 @@ class Dataset_ETT_hour_Decomposition(Dataset):
                     self.decomposed_components['seasonal_coarse'] + 
                     self.decomposed_components['seasonal_fine'] + 
                     self.decomposed_components['residual'])
-        reconstruction_error = np.abs(recomposed - self.data_x[:len(recomposed)]).mean()
+        reconstruction_error = np.abs(recomposed - self.data_x).mean()
         print(f"\nReconstruction error: {reconstruction_error:.8f}")
 
         if reconstruction_error > 0.01:
@@ -411,12 +411,18 @@ class Dataset_ETT_hour_Decomposition(Dataset):
             'seasonal_fine': self.decomposed_components['seasonal_fine'][s_begin:s_end],
             'residual': self.decomposed_components['residual'][s_begin:s_end]
         }
+        Y_dict = {
+            'trend': self.decomposed_components['trend'][r_begin:r_end],
+            'seasonal_coarse': self.decomposed_components['seasonal_coarse'][r_begin:r_end],
+            'seasonal_fine': self.decomposed_components['seasonal_fine'][r_begin:r_end],
+            'residual': self.decomposed_components['residual'][r_begin:r_end]
+        }
         
         seq_x_mark = self.data_stamp[s_begin:s_end]
         seq_y_mark = self.data_stamp[r_begin:r_end]
         seq_y = self.data_y[r_begin:r_end]
 
-        return X_dict, seq_y, seq_x_mark, seq_y_mark
+        return X_dict, seq_y, seq_x_mark, seq_y_mark, Y_dict
 
     def __len__(self):
         """
@@ -542,6 +548,40 @@ class Dataset_ETT_minute_Decomposition(Dataset):
         self.data_x = data[border1:border2]
         self.data_y = data[border1:border2]
         self.data_stamp = data_stamp
+        print(f"\n{'='*60}")
+        print(f"[{self.flag}] DECOMPOSITION DIAGNOSTICS FOR ETTh1")
+        print(f"{'='*60}")
+        print(f"Data shape: {self.data_x.shape}")
+        print(f"Temporal length: {self.temporal_length}")
+        print(f"\nOriginal data stats:")
+        print(f"  Mean: {self.data_x.mean():.6f}, Std: {self.data_x.std():.6f}")
+        print(f"  Range: [{self.data_x.min():.6f}, {self.data_x.max():.6f}]")
+
+        print(f"\nDecomposed components stats:")
+        for comp_name in ['trend', 'seasonal_coarse', 'seasonal_fine', 'residual']:
+            comp_data = self.decomposed_components[comp_name]
+            print(f"  {comp_name:20s}: mean={comp_data.mean():8.6f}, std={comp_data.std():8.6f}, range=[{comp_data.min():8.4f}, {comp_data.max():8.4f}]")
+
+        # Reconstruction check
+        recomposed = (self.decomposed_components['trend'] + 
+                    self.decomposed_components['seasonal_coarse'] + 
+                    self.decomposed_components['seasonal_fine'] + 
+                    self.decomposed_components['residual'])
+        reconstruction_error = np.abs(recomposed - self.data_x).mean()
+        print(f"\nReconstruction error: {reconstruction_error:.8f}")
+
+        if reconstruction_error > 0.01:
+            print(f"WARNING: High reconstruction error! Decomposition may be broken.")
+        else:
+            print(f"Reconstruction looks good.")
+
+        # Check for degenerate components (all zeros or constant)
+        for comp_name in ['trend', 'seasonal_coarse', 'seasonal_fine', 'residual']:
+            comp_std = self.decomposed_components[comp_name].std()
+            if comp_std < 1e-6:
+                print(f"WARNING: {comp_name} is nearly constant (std={comp_std:.8f})")
+
+        print(f"{'='*60}\n")
 
     def _format_components(self, components_per_column):
         """

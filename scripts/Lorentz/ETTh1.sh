@@ -1,0 +1,22 @@
+python run.py \
+  --is_training 1 \
+  --root_path ./time-series-dataset/dataset/ \
+  --data_path ETTh1.csv \
+  --model_id ETTh1_Lorentz_hyperbolic \
+  --model HyperbolicForecasting \
+  --data ETTh1_decomposition \
+  --features M \
+  --seq_len 96 \
+  --label_len 0 \
+  --pred_len 96 \
+  --enc_in 7 \
+  --embed_dim 32 \
+  --hidden_dim 64 \
+  --num_basis 10 \
+  --batch_size 32 \
+  --learning_rate 0.001 \
+  --train_epochs 20 \
+  --patience 5 \
+  --manifold_type "Lorentzian" \
+  --curvature 1.0 \
+  --use_decomposition 

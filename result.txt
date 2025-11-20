@@ -143,3 +143,9 @@ mse:0.20689356327056885, mae:0.2573698163032532, rse:0.5994125008583069
 Weather_96_192_exp1_HScales_HyperbolicForecasting_custom_decomposition_weather.csv_ftM_sl96_pl192_exp_ebfixed_Euclidean_0_seed2023  
 mse:0.25498804450035095, mae:0.29318711161613464, rse:0.6647027730941772
 
+Weather_trend_hyperbolic_HyperbolicForecasting_custom_decomposition_weather.csv_ftM_sl96_pl96_exp_ebfixed_Lorentzian_0_seed2023  
+mse:0.4424777030944824, mae:0.45675957202911377, rse:0.8765929937362671
+
+ETTh1_Lorentz_hyperbolic_HyperbolicForecasting_ETTh1_decomposition_ETTh1.csv_ftM_sl48_pl96_exp_ebfixed_Lorentzian_0_seed2023  
+mse:1.4149010181427002, mae:0.8383867144584656, rse:1.1298502683639526
+

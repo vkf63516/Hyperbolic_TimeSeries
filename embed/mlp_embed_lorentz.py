@@ -156,7 +156,7 @@ class ParallelLorentz(nn.Module):
                 break
             
             # Move along weighted direction
-            current_mean = safe_expmap0(self.manifold, 0.5 * weighted_vec, current_mean)
+            current_mean = safe_expmap(self.manifold, current_mean, 0.5 * weighted_vec)
             current_mean = self.manifold.projx(current_mean)
         
         return current_mean
@@ -182,10 +182,8 @@ class ParallelLorentz(nn.Module):
         # Compute weighted Einstein midpoint
         combined_h = self.weighted_lorentz_mean(points, weights)
         
-        # Get tangent representation for downstream tasks
-        combined_tangent = self.manifold.logmap0(combined_h)
-        
-        return combined_h, combined_tangent
+        # Get tangent representation for downstream tasks        
+        return combined_h
 
     def forward(self, trend, seasonal_coarse, seasonal_fine, residual):
         """
@@ -234,19 +232,14 @@ class ParallelLorentz(nn.Module):
 
     
         # Non-hierarchical: Use weighted Einstein midpoint (Fréchet mean)
-        combined_h, combined_tangent = self.lorentz_fusion(
+        combined_h = self.lorentz_fusion(
             z_trend_h, z_seasonal_coarse_h, z_seasonal_fine_h, z_residual_h
         )
 
         return {
-            "trend_tangent": z_trend_t,
-            "seasonal_coarse_tangent": z_seasonal_coarse_t,
-            "seasonal_fine_tangent": z_seasonal_fine_t,
-            "residual_tangent": z_residual_t,
             "trend_h": z_trend_h,
             "seasonal_coarse_h": z_seasonal_coarse_h,
             "seasonal_fine_h": z_seasonal_fine_h,
             "residual_h": z_residual_h,
-            "combined_tangent": combined_tangent,
             "combined_h": combined_h
         }

@@ -107,7 +107,9 @@ class Exp_Main(Exp_Basic):
             return model_geooptim
         model_geooptim = geooptim.RiemannianAdam(
             params=self.model.parameters(), 
-            lr=self.args.learning_rate
+            lr=self.args.learning_rate,
+            weight_decay=1e-4,
+            stabilize=5
         )
         return model_geooptim
 
@@ -146,7 +148,7 @@ class Exp_Main(Exp_Basic):
                 resid_y = Y_dict['residual'].float().to(self.device, non_blocking=True)
                 batch_y = batch_y.float().to(self.device, non_blocking=True)
             
-                trend_outputs, coarse_outputs, fine_outputs, resid_outputs = self.model(
+                outputs, trend_outputs, coarse_outputs, fine_outputs, resid_outputs = self.model(
                     trend=trend_x,
                     seasonal_coarse=coarse_x,
                     seasonal_fine=fine_x,
@@ -159,7 +161,6 @@ class Exp_Main(Exp_Basic):
                 coarse_outputs = coarse_outputs[:, -self.args.pred_len:, f_dim:]
                 fine_outputs = fine_outputs[:, -self.args.pred_len:, f_dim:]
                 resid_outputs = resid_outputs[:, -self.args.pred_len:, f_dim:]
-                outputs = trend_outputs + coarse_outputs + fine_outputs + resid_outputs
                 outputs = outputs[:, -self.args.pred_len:, f_dim:]
 
                 trend_y = trend_y[:, -self.args.pred_len:, f_dim:]
@@ -257,7 +258,7 @@ class Exp_Main(Exp_Basic):
                 # Forward pass
                 if self.args.use_amp:
                     with torch.cuda.amp.autocast():
-                        trend_outputs, coarse_outputs, fine_outputs, resid_outputs = self.model(
+                        outputs, trend_outputs, coarse_outputs, fine_outputs, resid_outputs = self.model(
                             trend=trend_x,
                             seasonal_coarse=coarse_x,
                             seasonal_fine=fine_x,
@@ -270,7 +271,6 @@ class Exp_Main(Exp_Basic):
                         coarse_outputs = coarse_outputs[:, -self.args.pred_len:, f_dim:]
                         fine_outputs = fine_outputs[:, -self.args.pred_len:, f_dim:]
                         resid_outputs = resid_outputs[:, -self.args.pred_len:, f_dim:]
-                        outputs = trend_outputs + coarse_outputs + fine_outputs + resid_outputs
                         outputs = outputs[:, -self.args.pred_len:, f_dim:]
 
                         trend_y = trend_y[:, -self.args.pred_len:, f_dim:]
@@ -290,7 +290,7 @@ class Exp_Main(Exp_Basic):
                         train_fine_loss.append(loss_fine.item())
                         train_resid_loss.append(loss_resid.item())
                 else:
-                    trend_outputs, coarse_outputs, fine_outputs, resid_outputs = self.model(
+                    outputs, trend_outputs, coarse_outputs, fine_outputs, resid_outputs = self.model(
                         trend=trend_x,
                         seasonal_coarse=coarse_x,
                         seasonal_fine=fine_x,
@@ -303,7 +303,6 @@ class Exp_Main(Exp_Basic):
                     coarse_outputs = coarse_outputs[:, -self.args.pred_len:, f_dim:]
                     fine_outputs = fine_outputs[:, -self.args.pred_len:, f_dim:]
                     resid_outputs = resid_outputs[:, -self.args.pred_len:, f_dim:]
-                    outputs = trend_outputs + coarse_outputs + fine_outputs + resid_outputs
                     outputs = outputs[:, -self.args.pred_len:, f_dim:]
 
                     trend_y = trend_y[:, -self.args.pred_len:, f_dim:]
@@ -362,7 +361,7 @@ class Exp_Main(Exp_Basic):
                     scaler.update()
                 else:
                     loss.backward()
-                    nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=5.0)
+                    nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                     model_geooptim.step()
 
             # Memory tracking
@@ -478,7 +477,7 @@ class Exp_Main(Exp_Basic):
                 # ========================================
                 # Forward Pass (SAME AS TRAIN, but no AMP)
                 # ========================================                
-                trend_outputs, coarse_outputs, fine_outputs, resid_outputs = self.model(
+                outputs, trend_outputs, coarse_outputs, fine_outputs, resid_outputs = self.model(
                     trend=trend_x,
                     seasonal_coarse=coarse_x,
                     seasonal_fine=fine_x,
@@ -491,7 +490,7 @@ class Exp_Main(Exp_Basic):
                 coarse_outputs = coarse_outputs[:, -self.args.pred_len:, f_dim:]
                 fine_outputs = fine_outputs[:, -self.args.pred_len:, f_dim:]
                 resid_outputs = resid_outputs[:, -self.args.pred_len:, f_dim:]
-                outputs = trend_outputs + coarse_outputs + fine_outputs + resid_outputs
+                # outputs = trend_outputs + coarse_outputs + fine_outputs + resid_outputs
                 outputs = outputs[:, -self.args.pred_len:, f_dim:]
 
                 trend_y = trend_y[:, -self.args.pred_len:, f_dim:]
