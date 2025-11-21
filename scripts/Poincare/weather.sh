@@ -1,0 +1,24 @@
+# Weather dataset - Trend in Hyperbolic Space
+python run.py \
+  --is_training 1 \
+  --root_path ./time-series-dataset/dataset/ \
+  --data_path weather.csv \
+  --model_id Weather_trend_hyperbolic \
+  --model HyperbolicForecasting \
+  --data custom_decomposition \
+  --features M \
+  --seq_len 96 \
+  --label_len 0 \
+  --pred_len 96 \
+  --enc_in 21 \
+  --embed_dim 32 \
+  --hidden_dim 64 \
+  --num_basis 10 \
+  --batch_size 64 \
+  --learning_rate 0.001 \
+  --train_epochs 20 \
+  --patience 5 \
+  --manifold_type "Poincare" \
+  --curvature 1.0 \
+  --use_decomposition \
+  --use_wandb

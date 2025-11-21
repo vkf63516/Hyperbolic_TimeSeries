@@ -21,75 +21,7 @@ def poincare_norm(x, c=1.0, eps=1e-8):
     return torch.sqrt((x ** 2).sum(dim=-1) + eps)
 
 
-def mobius_scalar_mult(alpha, x, c=1.0, eps=1e-8):
-    """
-    Möbius scalar multiplication: α ⊗ x
-    
-    Formula: α ⊗ x = tanh(α * arctanh(sqrt(c)||x||)) * x / (sqrt(c)||x||)
-    
-    Args:
-        alpha: scalar or [B] tensor
-        x: [B, n] points in Poincaré ball
-        c: curvature
-        eps: numerical stability
-    
-    Returns:
-        result: [B, n] scaled points
-    """
-    x_norm = poincare_norm(x, c, eps=eps)  # [B]
-    sqrt_c = torch.sqrt(torch.tensor(c, device=x.device))
-    
-    # arctanh(sqrt(c)||x||)
-    arctanh_arg = sqrt_c * x_norm
-    arctanh_arg = torch.clamp(arctanh_arg, -1 + eps, 1 - eps)  # Numerical stability
-    arctanh_val = torch.atanh(arctanh_arg)
-    
-    # tanh(α * arctanh(...))
-    tanh_arg = alpha * arctanh_val
-    tanh_val = torch.tanh(tanh_arg)
-    
-    # Result: tanh(...) * x / (sqrt(c)||x||)
-    coeff = tanh_val / (sqrt_c * x_norm + eps)
-    result = coeff.unsqueeze(-1) * x
-    
-    return result
-
-
-def mobius_add(x, y, c=1.0, eps=1e-8):
-    """
-    Möbius addition (Einstein midpoint): x ⊕_c y
-    
-    Formula:
-    x ⊕_c y = [(1 + 2c<x,y> + c||y||²)x + (1 - c||x||²)y] / [1 + 2c<x,y> + c²||x||²||y||²]
-    
-    Args:
-        x: [B, n] points in Poincaré ball
-        y: [B, n] points in Poincaré ball
-        c: curvature
-        eps: numerical stability
-    
-    Returns:
-        result: [B, n] sum in Poincaré ball
-    """
-    x_norm_sq = (x ** 2).sum(dim=-1, keepdim=True)  # [B, 1]
-    y_norm_sq = (y ** 2).sum(dim=-1, keepdim=True)  # [B, 1]
-    xy_dot = (x * y).sum(dim=-1, keepdim=True)      # [B, 1]
-    
-    # Numerator terms
-    term1_coeff = 1 + 2 * c * xy_dot + c * y_norm_sq  # [B, 1]
-    term2_coeff = 1 - c * x_norm_sq                   # [B, 1]
-    
-    numerator = term1_coeff * x + term2_coeff * y
-    
-    # Denominator
-    denominator = 1 + 2 * c * xy_dot + c**2 * x_norm_sq * y_norm_sq + eps
-    
-    result = numerator / denominator
-    
-    return result
-
-
-def poincare_residual_update(x_current, x_update, manifold, alpha=0.7, eps=1e-8):
+def poincare_residual_update(x_current, x_update, manifold, alpha=0.7):
     """
     Poincaré ball residual update using Möbius operations:
     
@@ -109,15 +41,13 @@ def poincare_residual_update(x_current, x_update, manifold, alpha=0.7, eps=1e-8)
     x_current = manifold.projx(x_current)
     x_update = manifold.projx(x_update)
     
-    # Get curvature
-    c = 1.0
     
     # Möbius scalar multiplications
-    alpha_x = mobius_scalar_mult(alpha, x_current, c=c, eps=eps)
-    beta_x = mobius_scalar_mult(1 - alpha, x_update, c=c, eps=eps)
+    alpha_x = manifold.mobius_scalar_mul(alpha, x_current)
+    beta_x = manifold.mobius_scalar_mul(1 - alpha, x_update)
     
     # Möbius addition
-    x_next = mobius_add(alpha_x, beta_x, c=c, eps=eps)
+    x_next = manifold.mobius_add(alpha_x, beta_x)
     
     # Project back to manifold
     x_next = manifold.projx(x_next)
@@ -194,10 +124,10 @@ class HyperbolicPoincareDynamics(nn.Module):
             backward_trajectory = self.manifold.logmap(x_previous, x_current)
         # Predict velocity in tangent space
         velocity = self.velocity_net(backward_trajectory)  # [B, embed_dim]
-        velocity = torch.clamp(velocity, min=-5.0, max=5.0)
+        # velocity = torch.clamp(velocity, min=-5.0, max=5.0)
 
         scale = torch.sigmoid(self.velocity_scale)  # 0.5 initially
-        velocity = velocity * scale * 0.3
+        velocity = velocity * scale * 0.2
         # print(velocity)
         # Map velocity to manifold
         x_update = safe_expmap(self.manifold, x_current, velocity)  # [B, embed_dim+1]

@@ -129,7 +129,7 @@ class HyperbolicLorentzDynamics(nn.Module):
         
             backward_trajectory = self.manifold.logmap(x_previous, x_current)
         # Predict velocity in tangent space
-        print(f"backward trajectoru: {backward_trajectory}")
+        # print(f"backward trajectoru: {backward_trajectory}")
         velocity = self.velocity_net(backward_trajectory)  # [B, embed_dim]
         print(f"velocity net: {velocity}")
         velocity = torch.clamp(velocity, min=-5.0, max=5.0)

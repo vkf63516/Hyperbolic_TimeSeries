@@ -6,120 +6,122 @@ import sys
 sys.path.append(str(Path(__file__).resolve().parents[0]))
 from spec import safe_expmap, safe_expmap0
 
-class MLPEmbed(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim, n_layer=3, dropout=0.5, lookback=None, use_attention_pooling=False):
+
+class SegmentMLPEmbed(nn.Module):
+    """MLP encoder for segmented data"""
+    def __init__(self, lookback, input_dim, segment_length, hidden_dim, output_dim,
+                 n_layer=2, use_attention_pooling=False, embed_dropout=0.5):
         super().__init__()
-        self.lookback = lookback
+        self.num_segments = lookback // segment_length
         self.use_attention_pooling = use_attention_pooling
-        self.input_proj = nn.Linear(input_dim, hidden_dim)
+        
+        # Encode each segment
+        self.segment_encoder = nn.Sequential(
+            nn.Linear(input_dim * segment_length, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU()
+        )
+        
+        # Process segment encodings
         self.layers = nn.ModuleList([
             nn.Sequential(
                 nn.Linear(hidden_dim, hidden_dim),
                 nn.LayerNorm(hidden_dim),
                 nn.GELU(),
-                nn.Dropout(dropout)
+                nn.Dropout(embed_dropout)
             ) for _ in range(n_layer)
         ])
-        self.output_proj = nn.Linear(hidden_dim, output_dim)
+        
+        # Attention pooling over segments
         if self.use_attention_pooling:
             self.attention = nn.Sequential(
                 nn.Linear(hidden_dim, hidden_dim // 2),
                 nn.Tanh(),
                 nn.Linear(hidden_dim // 2, 1)
             )
+        
+        self.output_proj = nn.Linear(hidden_dim, output_dim)
 
     def forward(self, x):
         """
-        x: [B, seqlen, input_dim]
-        returns: [B, output_dim]  (Poincare latent, tangent vectors)
+        x: [B, N_segments, segment_length, input_dim] 
+        returns: [B, output_dim]
         """
-        x = self.input_proj(x)
+        
+        # Segmented: [B, N_segments, segment_length, n_features]
+        B, N_seg, seg_len, C = x.shape
+        
+        x = x.reshape(B, N_seg, seg_len * C)
+        
+        # Encode segments
+        x = self.segment_encoder(x)  
+        # Process
         for layer in self.layers:
             x = layer(x)
-        # Compresses a series to a vector.
-        # Pool across time (attention or mean)
+        
+        # Attention pooling
         if self.use_attention_pooling:
-            attn_scores = self.attention(x)  # [B, seqlen, 1]
-            attn_weights = torch.softmax(attn_scores, dim=1)  # [B, seqlen, 1]
-            x_pooled = (x * attn_weights).sum(dim=1)  # [B, hidden_dim]
+            attn_scores = self.attention(x)
+            attn_weights = torch.softmax(attn_scores, dim=1)
+            x_pooled = (x * attn_weights).sum(dim=1)
         else:
-            x_pooled = x.mean(dim=1)   # mean pooling
+            x_pooled = x.mean(dim=1)
+        
         return self.output_proj(x_pooled)
 
-# --------------------------
-# Parallel Poincaré Encoder with Pure Möbius Operations
-# --------------------------
-class ParallelPoincare(nn.Module):
-    """
-    Hyperbolic encoder using Poincaré ball model with proper Möbius gyrovector operations.
-    
-    Encodes decomposed time series components (trend, coarse, fine, residual)
-    into hyperbolic space with hierarchical structure.
-    
-    Uses MLP encoders (memory efficient, no Mamba overhead).
-    
-    Poincaré ball: Points live in open ball {x ∈ R^n : ||x|| < 1/√c}
-    All operations use proper Möbius gyrovector space arithmetic.
-    """
-    def __init__(self, lookback, input_dim, embed_dim=32, hidden_dim=64, 
-                 curvature=1.0, n_layer=2, use_attention_pooling=False):
-        """
-        Args:
-            lookback: int - lookback window size
-            input_dim: int - number of input features (for MVAR)
-            embed_dim: int - dimension of hyperbolic embeddings (Poincaré ball in R^embed_dim)
-            hidden_dim: int - hidden dimension for MLP
-            curvature: float - curvature of Poincaré ball (c parameter)
-            n_layer: int - number of MLP layers
-            use_attention_pooling: bool - use attention pooling (True) or mean pooling (False)
-        """
+class SegmentedParallelPoincare(nn.Module):
+    def __init__(self, lookback, input_dim, embed_dim=32, hidden_dim=64, curvature=1.0,
+                 segment_length=24, num_layers=2, embed_dropout=0.1, use_attention_pooling=False):
+
         super().__init__()
-
-
-        # MLP encoders for each component
-        self.trend_embed = MLPEmbed(
+        
+        # Segment-aware encoders (different segment lengths for different components)
+        self.trend_embed = SegmentMLPEmbed(
+            lookback=lookback,
             input_dim=input_dim, 
+            segment_length=segment_length,
             hidden_dim=hidden_dim, 
             output_dim=embed_dim, 
-            n_layer=n_layer,
-            lookback=lookback,
+            n_layer=num_layers,
+            embed_dropout=embed_dropout,
             use_attention_pooling=use_attention_pooling
         )
-        self.seasonal_coarse_embed = MLPEmbed(
+        self.seasonal_coarse_embed = SegmentMLPEmbed(
+            lookback=lookback,
             input_dim=input_dim, 
+            segment_length=segment_length,
             hidden_dim=hidden_dim, 
             output_dim=embed_dim, 
-            n_layer=n_layer,
-            lookback=lookback,
+            n_layer=num_layers,
+            embed_dropout=embed_dropout,
             use_attention_pooling=use_attention_pooling
         )
-        self.seasonal_fine_embed = MLPEmbed(
+        self.seasonal_fine_embed = SegmentMLPEmbed(
+            lookback=lookback,
             input_dim=input_dim, 
+            segment_length=segment_length,
             hidden_dim=hidden_dim, 
             output_dim=embed_dim, 
-            n_layer=n_layer,
-            lookback=lookback,
+            n_layer=num_layers,
+            embed_dropout=embed_dropout,
             use_attention_pooling=use_attention_pooling
         )
-        self.residual_embed = MLPEmbed(
+        self.residual_embed = SegmentMLPEmbed(
+            lookback=lookback,
             input_dim=input_dim, 
+            segment_length=segment_length,
             hidden_dim=hidden_dim, 
             output_dim=embed_dim, 
-            n_layer=n_layer,
-            lookback=lookback,
+            n_layer=num_layers,
+            embed_dropout=embed_dropout,
             use_attention_pooling=use_attention_pooling
         )
         
-        # Poincaré ball manifold
-        # Points live in open ball {x ∈ R^embed_dim : ||x|| < 1/√c}
-        self.manifold = geoopt.manifolds.PoincareBall(c=curvature)
-        
-        # Scaling parameter for mapping to hyperbolic space
+        self.manifold = geoopt.manifolds.Lorentz(k=curvature)
         self.effective_scale = nn.Parameter(torch.tensor(0.1))
-        
-        # Learnable weights for Möbius combination 
         self.mobius_weights = nn.Parameter(torch.ones(4) * 0.25)
 
+        
     def mobius_fusion(self, z_trend_h, z_coarse_h, z_fine_h, z_residual_h):
         """
         Non-hierarchical fusion using weighted Möbius addition.

@@ -155,7 +155,7 @@ class Exp_Main(Exp_Basic):
                     residual=resid_x,
                 )
                 f_dim = -1 if self.args.features == 'MS' else 0
-                batch_y = batch_y[:, -self.args.pred_len:, f_dim:]
+                batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
 
                 trend_outputs = trend_outputs[:, -self.args.pred_len:, f_dim:]
                 coarse_outputs = coarse_outputs[:, -self.args.pred_len:, f_dim:]
@@ -169,13 +169,13 @@ class Exp_Main(Exp_Basic):
                 resid_y = resid_y[:, -self.args.pred_len:, f_dim:]
                 
 
-                preds = outputs.detach().cpu()
-                trues = batch_y.detach().cpu()
+                preds = outputs.detach()
+                trues = batch_y.detach()
 
-                trend_y = trend_y.detach().cpu()
-                coarse_y = coarse_y.detach().cpu()
-                fine_y = fine_y.detach().cpu()
-                resid_y = resid_y.detach().cpu()
+                trend_y = trend_y.detach()
+                coarse_y = coarse_y.detach()
+                fine_y = fine_y.detach()
+                resid_y = resid_y.detach()
                 # Compute validation loss
                 loss = criterion(preds, trues)
                 loss_trend = criterion(trend_outputs, trend_y)
@@ -355,7 +355,6 @@ class Exp_Main(Exp_Basic):
                 # Backward pass
                 if self.args.use_amp:
                     scaler.scale(loss).backward()
-                    scaler.unscale_(model_geooptim)
                     nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=5.0)
                     scaler.step(model_geooptim)
                     scaler.update()

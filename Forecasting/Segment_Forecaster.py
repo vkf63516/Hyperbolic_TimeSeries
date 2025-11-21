@@ -1,89 +1,154 @@
 import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[1]))  # add project root
+from embed.segment_mlp_embed_lorentz import SegmentedParallelLorentz
+from embed.segment_mlp_embed_poincare import SegmentedParallelPoincare
 import pandas as pd
 import torch
 import torch.nn as nn
 import geoopt
 
 class HyperbolicSegmentForecaster(nn.Module):
-    def __init__(self, embed_dim, hidden_dim, seg_len, manifold):
+    def __init__(self, lookback, pred_len, n_features, embed_dim, hidden_dim, 
+                curvature, manifold_type, seg_len, use_attention_pooling=False, use_revin=False,
+                use_truncated_bptt=False, truncate_every=16,dynamic_dropout=0.3,
+                embed_dropout=0.5, recon_dropout=0.2, num_layers=2):
         super().__init__()
-        self.manifold = manifold
+
+        self.lookback = lookback
+        self.embed_dim = embed_dim
+        self.num_pred_segs = pred_len // seg_len
+        self.n_features = n_features
+        self.use_revin = use_revin
+        self.use_truncated_bptt = use_truncated_bptt
+        self.truncate_every = truncate_every
         self.hidden_dim = hidden_dim
-        self.seg_len = seg_len
-        
-        # Dynamics on hyperbolic manifold
-        self.mvar = HyperbolicMambaLorentz(embed_dim, hidden_dim, manifold)
-        
-        # Reconstruct segment from hyperbolic point
-        self.recon = HyperbolicReconstructionHead(embed_dim, seg_len, manifold)
+        self.manifold_type = manifold_type
 
-    def combine_branches(self, trend_z, seasonal_coarse_z, seasonal_fine_z, residual_z):
-        """Combine individual component embeddings."""
-        u_trend = self.manifold.logmap0(trend_z)
-        u_coarse = self.manifold.logmap0(seasonal_coarse_z)
-        u_fine = self.manifold.logmap0(seasonal_fine_z)
-        u_resid = self.manifold.logmap0(residual_z)
+        if self.use_revin:
+            self.revin = RevIN(num_features=n_features, eps=1e-5, affine=True)
         
-        combined_tangent = u_trend + u_coarse + u_fine + u_resid
-        combined_h = segment_safe_expmap0(self.manifold, combined_tangent)
-        combined_h = self.manifold.projx(combined_h)
-        
-        return combined_h
 
-    def forward(self, pred_len, trend_z=None, seasonal_coarse_z=None, 
-                seasonal_fine_z=None, residual_z=None, z0=None,
-                teacher_forcing=False, z_true_seq=None, K=6):
-        """
-        Args:
-            pred_len: Number of timesteps to forecast
-            trend_z, coarse_z, fine_z, resid_z: [B, num_seg, D+1]
-            z0: [B, num_seg, D+1] or [B, D+1] (pre-combined from encoder)
-            teacher_forcing: bool - if True, always use ground truth when available
-            z_true_seq: [B, num_pred_segments, D+1] - ground truth hyperbolic states
-            K: Gradient truncation interval (in segments)
-            
-        Returns:
-            x_hat: [B, pred_len]
-            z_pred: [B, num_pred_segments, D+1]
-        """
-        num_pred_segments = (pred_len + self.seg_len - 1) // self.seg_len
-        
-        # Get initial state
-        z_cur = None
-        if z0 is None:
-            if trend_z is None:
-                raise ValueError("Must provide either z0 or individual components")
-            combined = self.combine_branches(trend_z, seasonal_coarse_z, seasonal_fine_z, residual_z)
-            z_cur = combined[:, -1, :]
+        # Encoder (works with MLP, Mamba, or Transformer backend)
+        if manifold_type == "Poincare":
+
+            self.embed_hyperbolic = SegmentedParallelPoincare(
+                lookback=lookback,
+                input_dim=n_features,
+                segment_length=seg_len,
+                embed_dim=embed_dim,
+                hidden_dim=hidden_dim,
+                curvature=curvature, 
+                embed_dropout=embed_dropout,
+                use_attention_pooling=use_attention_pooling
+            )
         else:
-            if z0.dim() == 3:
-                z_cur = z0[:, -1, :]
-            else:
-                z_cur = z0
+            self.embed_hyperbolic = ParallelLorentz(
+                lookback=lookback,
+                input_dim=n_features,
+                segment_length=seg_len,
+                embed_dim=embed_dim,
+                hidden_dim=hidden_dim,
+                curvature=curvature,
+                embed_dropout=embed_dropout,
+                use_attention_pooling=use_attention_pooling
+            )
+        
+        self.manifold = self.embed_hyperbolic.manifold
+        
+        # Dynamics network (predicts velocity in tangent space)
+        if manifold_type == "Lorentzian":
+            self.dynamics = HyperbolicLorentzDynamics(
+                embed_dim=embed_dim,
+                hidden_dim=hidden_dim,
+                manifold=self.manifold,
+                dropout=dynamic_dropout,
+                n_layers=num_layers
+            )
+        else:
+            self.dynamics = HyperbolicPoincareDynamics(
+                embed_dim=embed_dim,
+                hidden_dim=hidden_dim,
+                manifold=self.manifold,
+                dropout=dynamic_dropout,
+                n_layers=num_layers
+            )
+        
+        # Reconstructor
+        self.reconstructor = HyperbolicReconstructionHead(
+            embed_dim=embed_dim,
+            output_dim=n_features,
+            manifold=self.manifold,
+            hidden_dim=hidden_dim,
+            dropout=recon_dropout
+        )
+    
+    def forward(self, trend, seasonal_coarse, seasonal_fine, residual):
 
-        preds_x = []
-        preds_z = []
-        
-        for seg in range(num_pred_segments):
-            z_next, _ = self.mvar(z_cur)
-            x_hat_seg = self.recon(z_next)
+        embed_h = self.embed_hyperbolic(trend, seasonal_coarse, seasonal_fine, residual)
+        z_current_trend = embed_h["trend_h"]
+        z_current_coarse = embed_h["seasonal_coarse_h"]
+        z_current_fine = embed_h["seasonal_fine_h"]
+        z_current_resid = embed_h["residual_h"]
+        z_current = embed_h["combined_h"]
+        z_previous = None
+        z_previous_trend = None
+        z_previous_coarse = None
+        z_previous_fine = None
+        z_previous_resid = None
+        # print(f"Z Current {z_current}")
+        trend_predictions = []
+        coarse_predictions = []
+        fine_predictions = []
+        residual_predictions = []
+        predictions = []
+
+        for step in range(self.pred_len):
+            # Lift point back to original dimension
+            # print(step)
+            x_pred = self.reconstructor(z_current)
+            predictions.append(x_pred)
+
+            trend_pred = self.reconstructor(z_current_trend)
+            trend_predictions.append(trend_pred)
+
+            coarse_pred = self.reconstructor(z_current_coarse)
+            coarse_predictions.append(coarse_pred)
+
+            fine_pred = self.reconstructor(z_current_fine)
+            fine_predictions.append(fine_pred)
+
+            residual_pred = self.reconstructor(z_current_resid)
+            residual_predictions.append(residual_pred)
+          
+            # Predict velocity and to make sure each step is not isolated
+            z_current, z_previous = self.dynamics(z_current, z_previous)
+            z_current_trend, z_previous_trend = self.dynamics(z_current_trend, z_previous_trend)  # [B, embed_dim]
+            z_current_coarse, z_previous_coarse = self.dynamics(z_current_coarse, z_previous_coarse)
+            z_current_fine, z_previous_fine = self.dynamics(z_current_fine, z_previous_fine)
+            z_current_resid, z_previous_resid = self.dynamics(z_current_resid, z_previous_resid)
             
-            preds_x.append(x_hat_seg.unsqueeze(1))
-            preds_z.append(z_next.unsqueeze(1))
-            
-            # Teacher forcing: if enabled and ground truth available, use it
-            if teacher_forcing and z_true_seq is not None and seg < num_pred_segments - 1:
-                z_cur = z_true_seq[:, seg, :]
-            else:
-                z_cur = z_next
-            
-            # Gradient truncation
-            if K > 0 and (seg + 1) % K == 0:
-                z_cur = z_cur.detach()
         
-        x_hat = torch.cat(preds_x, dim=1)
-        z_pred = torch.cat(preds_z, dim=1)
+            if (step + 1) % 8 == 0 and step < self.pred_len - 1:
+                z_current = z_current.detach()
+                z_current_trend = z_current_trend.detach()
+                z_current_coarse = z_current_coarse.detach()
+                z_current_fine = z_current_fine.detach()
+                z_current_resid = z_current_resid.detach()
+            
+            if z_previous is not None:
+                z_previous = z_previous.detach()
+                z_previous_trend = z_previous_trend.detach()
+                z_previous_coarse = z_previous_coarse.detach()
+                z_previous_fine = z_previous_fine.detach()
+                z_previous_resid = z_previous_resid.detach()
+    
         
-        return x_hat, z_pred
+        
+        return {
+            'predictions': torch.stack(predictions, dim=1),
+            'trend_predictions': torch.stack(trend_predictions, dim=1),  # [B, pred_len, n_features]
+            'coarse_predictions': torch.stack(coarse_predictions, dim=1),
+            'fine_predictions': torch.stack(fine_predictions, dim=1),
+            'residual_predictions': torch.stack(residual_predictions, dim=1),
+        }
