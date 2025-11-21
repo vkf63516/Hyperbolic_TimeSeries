@@ -49,6 +49,7 @@ def lorentzian_residual_update(x_current, x_update, manifold, alpha=0.7, eps=1e-
     # Compute tangent direction from current to update
     tangent_direction = manifold.logmap(x_current, x_update)
     
+    
     # Scale by (1-alpha) to interpolate
     scaled_tangent = (1 - alpha) * tangent_direction
     
@@ -126,23 +127,21 @@ class HyperbolicLorentzDynamics(nn.Module):
              # Map to tangent space from current step
             dist = self.manifold.dist(x_current, x_previous)
         
-            # if torch.any(dist < 1e-6):
-            #     print("⚠️ Points too close, using logmap0 instead")
-            #     backward_trajectory = self.manifold.logmap0(x_current)
-            # else:
-            backward_trajectory = self.manifold.logmap(x_current, x_previous)
-            # tangent = torch.cat([origin_tangent, backward_trajectory], dim=-1)
+            backward_trajectory = self.manifold.logmap(x_previous, x_current)
         # Predict velocity in tangent space
+        print(f"backward trajectoru: {backward_trajectory}")
         velocity = self.velocity_net(backward_trajectory)  # [B, embed_dim]
+        print(f"velocity net: {velocity}")
         velocity = torch.clamp(velocity, min=-5.0, max=5.0)
 
         scale = torch.sigmoid(self.velocity_scale)  # 0.5 initially
         velocity = velocity * scale * 0.3
-        print(velocity)
+        print(f"Velocity: {velocity}")
         # Map velocity to manifold
         x_update = safe_expmap(self.manifold, x_current, velocity)  # [B, embed_dim+1]
-        
+        print(f"X update {x_update}")
         x_update = self.manifold.projx(x_update)
+        print(f"X update after projx {x_update}")
         # Apply Lorentzian residual update
         alpha = torch.sigmoid(self.alpha)  # Constrain to (0, 1)
         x_next, x_current = lorentzian_residual_update(

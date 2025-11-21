@@ -78,16 +78,18 @@ def segment_safe_expmap0(manifold, u, max_norm=10.0, eps=1e-6):
     return x
 
 
-def safe_expmap(manifold, base_point, v, eps=1e-15, max_norm=15.0):
+def safe_expmap(manifold, base_point, v, eps=1e-15, max_norm=3.0):
     """Similar to safe_expmap0 but for non-origin base points"""
     v_norm = torch.norm(v, dim=-1, keepdim=True).clamp(min=eps)
+    # print(f"V_norm ")
     scale_factor = max_norm * torch.tanh(v_norm / max_norm)
+    # print(f"Scale Factor {scale_factor}")
     v_safe = v / v_norm * scale_factor
         
     # Expmap
     result = manifold.expmap(base_point, v_safe)
     
-    # ✅ ADD THIS: Check result
+    # ADD THIS: Check result
     if torch.isnan(result).any():
         nan_mask = torch.isnan(result).any(dim=-1)
         result = torch.where(nan_mask.unsqueeze(-1), base_point, result)

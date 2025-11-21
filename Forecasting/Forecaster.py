@@ -96,7 +96,7 @@ class HyperbolicForecaster(nn.Module):
         z_previous_coarse = None
         z_previous_fine = None
         z_previous_resid = None
-        print(z_current)
+        # print(f"Z Current {z_current}")
         trend_predictions = []
         coarse_predictions = []
         fine_predictions = []
@@ -105,7 +105,7 @@ class HyperbolicForecaster(nn.Module):
 
         for step in range(self.pred_len):
             # Lift point back to original dimension
-            print(step)
+            # print(step)
             x_pred = self.reconstructor(z_current)
             predictions.append(x_pred)
 

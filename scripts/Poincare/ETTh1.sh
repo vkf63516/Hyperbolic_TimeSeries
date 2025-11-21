@@ -2,7 +2,7 @@ python run.py \
   --is_training 1 \
   --root_path ./time-series-dataset/dataset/ \
   --data_path ETTh1.csv \
-  --model_id ETTh1_Lorentz_hyperbolic \
+  --model_id ETTh1_Poincare_hyperbolic \
   --model HyperbolicForecasting \
   --data ETTh1_decomposition \
   --features M \
@@ -17,6 +17,6 @@ python run.py \
   --learning_rate 0.001 \
   --train_epochs 20 \
   --patience 5 \
-  --manifold_type "Lorentzian" \
+  --manifold_type "Poincare" \
   --curvature 1.0 \
-  --use_decomposition >> logfile.log 2>&1
+  --use_decomposition 
