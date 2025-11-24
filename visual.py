@@ -17,7 +17,7 @@ import time
 # --------------------------------------------------------------------
 sys.path.append(str(Path(__file__).resolve().parents[0]))
 
-from Decomposition.TimeBase_Series_Trend_Decomposition import TimeBaseMSTL
+from Decomposition.Orthogonal_Series_Trend_Decomposition import orthogonalMSTL
 from Decomposition.visualization_utils import plot_variance_contribution, plot_component_correlation_maps
 def set_seed(seed=42):
     random.seed(seed)
@@ -53,10 +53,10 @@ print(f"Ratios -> train:{tr:.3f}, val:{va:.3f}, test:{te:.3f}")
 # -------------------------------------------------------------
 # 4. Compute adaptive periods and window lengths
 # -------------------------------------------------------------
-timebase = TimeBaseMSTL(n_basis_components=10, orthogonal_lr=1e-3, orthogonal_iters=300)
+orthogonal = orthogonalMSTL(n_basis_components=10, orthogonal_lr=1e-3, orthogonal_iters=300)
 
 # Automatically infers fine, coarse steps
-steps_per_period = timebase.detect_periods(df)
+steps_per_period = orthogonal.detect_periods(df)
 fine, coarse = steps_per_period
 
 lookback = coarse
@@ -72,8 +72,8 @@ print(f"lookback window={lookback}, pred_len={pred_len_96}")
 # 5. Decompose training and validation data
 # -------------------------------------------------------------
 
-timebase.fit(train_df)
-train_components = timebase.transform(train_df)
+orthogonal.fit(train_df)
+train_components = orthogonal.transform(train_df)
 # -------------------------------------------------------------
 # 3. Normalize using training statistics only
 # -------------------------------------------------------------

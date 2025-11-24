@@ -6,11 +6,11 @@ sys.path.append(str(Path(__file__).resolve().parents[0]))
 from statsmodels.tsa.seasonal import MSTL
 from Decomposition.Series_Trend_Decomposition import trend_seasonal_decomposition_parallel
 
-class TimeBaseMSTL:
+class orthogonalMSTL:
     """
-    TimeBase-inspired MSTL decomposition using learned orthogonal basis functions
+    orthogonal-based MSTL decomposition using learned orthogonal basis functions
     instead of original data. Its only used in preprocessing to reconstruct the series,
-    whic
+    which takes into account relations between the features
     """
 
     def __init__(self, n_basis_components=10, orthogonal_lr=1e-3, orthogonal_iters=500, seq_len=96):
@@ -33,9 +33,9 @@ class TimeBaseMSTL:
         self.feature_names = None
 
 
-    def _should_use_original_mstl(self, df, threshold=15):
+    def _should_use_original_mstl(self, df, threshold=5):
         """
-        Decide whether to use original MSTL or TimeBase MSTL.
+        Decide whether to use original MSTL or orthogonal MSTL.
     
         Parameters
         ----------
@@ -47,7 +47,7 @@ class TimeBaseMSTL:
         Returns
         -------
         bool
-            True if should use original MSTL, False for TimeBase MSTL
+            True if should use original MSTL, False for orthogonal MSTL
         """
         n_features = df.shape[1]
     
@@ -57,7 +57,7 @@ class TimeBaseMSTL:
             return True
         else:
             print(f"Dataset has {n_features} features (> {threshold})")
-            print(f"Using TimeBase MSTL (basis decomposition)\n")
+            print(f"Using orthogonal MSTL (basis decomposition)\n")
             return False
 
     # -------------------------------
@@ -161,7 +161,7 @@ class TimeBaseMSTL:
         return segments_dict
 
     # -------------------------------
-    # Orthogonal Basis Learning (TimeBase-style)
+    # Orthogonal Basis Learning (orthogonal-style)
     # -------------------------------
     def learn_orthogonal_basis(self, segments):
         """

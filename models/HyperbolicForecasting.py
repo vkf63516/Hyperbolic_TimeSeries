@@ -9,8 +9,9 @@ sys.path.append(str(Path(__file__).resolve().parents[0]))
 
 
 from Forecasting.Euclidean_Forecaster import PointForecastEuclidean
+from Forecasting.Segment_Euclidean_Forecaster import SegmentForecastEuclidean
 from Forecasting.Forecaster import HyperbolicForecaster
-from Forecasting.Segment_Forecaster import HyperbolicSegmentForecaster
+from Forecasting.Segment_Forecaster import SegmentedHyperbolicForecaster
 
 class Model(nn.Module):
     """
@@ -42,30 +43,58 @@ class Model(nn.Module):
         # Embedding: Maps decomposed components to hyperbolic space
         
         if self.manifold_type == "Euclidean":
-
-            self.forecaster = PointForecastEuclidean(
-                lookback=self.seq_len,
-                pred_len=self.pred_len,
-                n_features=self.enc_in,
-                embed_dim=self.embed_dim,
-                hidden_dim=self.hidden_dim,
-                use_attention_pooling=self.use_attention_pooling,
-                use_revin=self.use_revin,
-                use_truncated_bptt=True,
-                truncate_every=16
-            )
+            if self.use_segments:
+                self.forecaster = SegmentForecastEuclidean(
+                    lookback=self.seq_len,
+                    pred_len=self.pred_len,
+                    n_features=self.enc_in,
+                    embed_dim=self.embed_dim,
+                    hidden_dim=self.hidden_dim,
+                    manifold_type=self.manifold_type,
+                    segment_length=self.mstl_period,
+                    use_segment_norm=True,
+                    use_revin=self.use_revin,
+                    num_layers=2
+                )
+            else:
+                self.forecaster = PointForecastEuclidean(
+                    lookback=self.seq_len,
+                    pred_len=self.pred_len,
+                    n_features=self.enc_in,
+                    embed_dim=self.embed_dim,
+                    hidden_dim=self.hidden_dim,
+                    use_attention_pooling=self.use_attention_pooling,
+                    use_revin=self.use_revin,
+                    use_truncated_bptt=True,
+                    truncate_every=16
+                )
         else:
+            if self.use_segments:
+                self.forecaster = SegmentedHyperbolicForecaster(
+                    lookback=self.seq_len,
+                    pred_len=self.pred_len,
+                    n_features=self.enc_in,
+                    embed_dim=self.embed_dim,
+                    hidden_dim=self.hidden_dim,
+                    curvature=self.curvature,
+                    manifold_type=self.manifold_type,
+                    use_attention_pooling=self.use_attention_pooling,
+                    segment_length=self.mstl_period,
+                    use_segment_norm=True,
+                    num_layers=1
 
-            self.forecaster = HyperbolicForecaster(
-                lookback=self.seq_len,
-                pred_len=self.pred_len,
-                n_features=self.enc_in,
-                embed_dim=self.embed_dim,
-                hidden_dim=self.hidden_dim,
-                curvature=self.curvature,
-                manifold_type=self.manifold_type,
-                use_attention_pooling=self.use_attention_pooling                
-            )
+                )
+            else:
+                self.forecaster = HyperbolicForecaster(
+                    lookback=self.seq_len,
+                    pred_len=self.pred_len,
+                    n_features=self.enc_in,
+                    embed_dim=self.embed_dim,
+                    hidden_dim=self.hidden_dim,
+                    curvature=self.curvature,
+                    manifold_type=self.manifold_type,
+                    use_attention_pooling=self.use_attention_pooling                
+                )
 
             # Forecaster: Autoregressively predicts in hyperbolic space
 
@@ -74,7 +103,7 @@ class Model(nn.Module):
     def forward(self, trend, seasonal_coarse, seasonal_fine, residual):
         """
         Forward pass with explicit decomposed components.
-        Use this when you have TimeBaseMSTL decomposition.
+        Use this when you have orthogonalMSTL decomposition.
         
         Args:
             trend: [B, seq_len, C]

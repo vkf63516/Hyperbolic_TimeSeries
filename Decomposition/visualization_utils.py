@@ -46,7 +46,7 @@ def plot_component_correlation_maps(decompositions, features=None, figsize=(16, 
     Parameters
     ----------
     decompositions : dict
-        Output dictionary from TimeBaseMSTL.reconstruct_series_decomposition.
+        Output dictionary from orthogonalMSTL.reconstruct_series_decomposition.
         Format:
             {
                 'feature_name': {

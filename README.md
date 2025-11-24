@@ -1,12 +1,12 @@
 # Hyperbolic_TimeSeries
-This repository implements Hyperbolic Time Series Forecasting with TimeBaseMSTL decomposition. Below is a description of each file in the project:
+This repository implements Hyperbolic Time Series Forecasting with orthogonalMSTL decomposition. Below is a description of each file in the project:
 Main Files
 run.py
-Download the datasets from Google Drive [TimeSer]
+Download the datasets from Google Drive
 The main entry point for training and evaluation. This script:
 
     Defines command-line arguments for configuring the model and training process
-    Supports hyperbolic forecasting with TimeBaseMSTL decomposition
+    Supports hyperbolic forecasting with orthogonalMSTL decomposition
     Configures hyperparameters including:
         Embedding dimensions, hidden dimensions, and curvature for hyperbolic space
         Data loading parameters (dataset type, paths, features)
@@ -49,7 +49,7 @@ exp/exp_main.py
 Main experiment orchestrator that extends Exp_Basic:
 
     Initialization:
-        Configures decomposition settings (TimeBaseMSTL parameters)
+        Configures decomposition settings (orthogonalMSTL parameters)
         Sets up TensorBoard logging for experiment tracking
         Supports both segment-level and point-level hyperbolic embeddings via use_segments flag
         Initializes manifold type (Lorentzian, Poincare, or Euclidean)
@@ -71,7 +71,7 @@ Implements PyTorch Dataset classes for time series data:
     Dataset_ETT_hour: Loads ETT (Electricity Transformer Temperature) hourly data
         Handles train/val/test splits with predefined borders
         Applies StandardScaler normalization using training statistics
-        TimeBaseMSTL Integration:
+        orthogonalMSTL Integration:
             Fits decomposition on training data
             Auto-detects MSTL period from data frequency
             Transforms data into trend, seasonal_coarse, seasonal_fine, and residual components
@@ -81,11 +81,11 @@ Implements PyTorch Dataset classes for time series data:
         Supports multivariate (M), univariate (S), and multivariate-to-univariate (MS) forecasting tasks
 
 Decomposition Module
-Decomposition/TimeBase_Series_Trend_Decomposition.py
+Decomposition/Orthogonal_Series_Trend_Decomposition.py
 
-Implements TimeBaseMSTL - a TimeBase-inspired decomposition using learned orthogonal basis functions:
+Implements orthogonalMSTL - a orthogonal-inspired decomposition using learned orthogonal basis functions:
 
-    TimeBaseMSTL Class:
+    orthogonalMSTL Class:
         Period Detection: detect_periods() automatically infers fine and coarse periods from data frequency
         Segment Extraction: extract_periodic_segments() extracts repeating patterns from time series
         Orthogonal Basis Learning: learn_orthogonal_basis() learns basis functions via gradient-based orthogonalization (alternative to PCA)
@@ -113,7 +113,7 @@ Alternative MSTL decomposition using statsmodels:
 
     mstl_decomposition_for_window(): Standard MSTL decomposition with hourly, fine, and coarse periods
     timesteps_based_on_frequency(): Computes period lengths based on data frequency
-    Provides a baseline comparison to TimeBaseMSTL
+    Provides a baseline comparison to orthogonalMSTL
 
 Embedding Modules
 embed/segment_mlp_embed_lorentz.py

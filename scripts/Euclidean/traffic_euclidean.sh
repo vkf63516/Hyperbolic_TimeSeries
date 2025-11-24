@@ -20,7 +20,7 @@ python run.py \
   --enc_in 862 \
   --patience 10 \
   --manifold_type "Euclidean" \
-  --use_attention_pooling \
+  --use_revin \
   --use_amp
 
 python run.py \
@@ -44,7 +44,7 @@ python run.py \
   --enc_in 862 \
   --patience 6 \
   --manifold_type "Euclidean" \
-  --use_attention_pooling \
+  --use_revin \
   --use_amp
 
 
@@ -69,7 +69,7 @@ python run.py \
   --use_tensorboard \
   --patience 6 \
   --manifold_type "Euclidean" \
-  --use_attention_pooling \
+  --use_revin \
   --use_amp
 
 
@@ -94,5 +94,6 @@ python run.py \
   --enc_in 862 \
   --patience 6 \
   --manifold_type "Euclidean" \
-  --use_attention_pooling \
+  --use_revin \
+  --use_segments \
   --use_amp 

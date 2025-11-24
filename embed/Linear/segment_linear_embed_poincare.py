@@ -1,139 +1,132 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import geoopt
 from pathlib import Path
 import sys 
 sys.path.append(str(Path(__file__).resolve().parents[0]))
 from spec import safe_expmap, safe_expmap0
 
+def cal_orthogonal_loss(matrix):
+    """From TimeBase - enforce orthogonality"""
+    gram_matrix = torch.matmul(matrix.transpose(-2, -1), matrix) 
+    one_diag = torch.diagonal(gram_matrix, dim1=-2, dim2=-1)
+    two_diag = torch.diag_embed(one_diag)  
+    off_diagonal = gram_matrix - two_diag  
+    loss = torch.norm(off_diagonal, dim=(-2, -1)) 
+    return loss.mean()
 
-# --------------------------
-# Segment-Level MLP Embedder
-# --------------------------
-class SegmentMLPEmbed(nn.Module):
-    """
-    MLP encoder for segmented data - follows same logic as MLPEmbed but operates on segments.
-    
-    Key difference: Instead of pooling across time points, we:
-    1. Divide sequence into segments
-    2. Encode each segment 
-    3. Pool across segments
-    """
-    def __init__(self, input_dim, hidden_dim, output_dim, n_layer=3, dropout=0.5, 
-                 lookback=None, segment_length=24, use_attention_pooling=False, 
-                 use_segment_norm=True):
+class SegmentLinearEmbed(nn.Module):
+    def __init__(self, input_dim, output_dim, segment_length, dropout=0.1,
+                 lookback=None, use_segment_norm=True, use_orthogonal_loss=False):
         super().__init__()
-        self.lookback = lookback
-        self.segment_length = segment_length
-        self.use_attention_pooling = use_attention_pooling
-        self.use_segment_norm = use_segment_norm
         
-        # Calculate number of segments (with padding if needed)
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        self.segment_length = segment_length
+        self.use_segment_norm = use_segment_norm
+        self.use_orthogonal_loss = use_orthogonal_loss
+        
+        # Calculate segments
         if lookback is not None:
             self.num_segments = lookback // segment_length
             self.pad_len = 0
             if lookback % segment_length != 0:
                 self.pad_len = (self.num_segments + 1) * segment_length - lookback
                 self.num_segments += 1
-        else:
-            self.num_segments = None
-            self.pad_len = 0
         
-        # Instead of projecting single points, we project flattened segments
-        # Each segment: [segment_length * input_dim] → [hidden_dim]
-        self.input_proj = nn.Linear(input_dim * segment_length, hidden_dim)
+        self.total_len = self.num_segments * segment_length
         
-        # Same layer structure as MLPEmbed
-        self.layers = nn.ModuleList([
-            nn.Sequential(
-                nn.Linear(hidden_dim, hidden_dim),
-                nn.ReLU(),
-                nn.Dropout(dropout)
-            ) for _ in range(n_layer)
+        print(f"TimeBaseInspiredEmbed: {input_dim} features, {self.num_segments} segments")
+        
+        # Per-feature projections (from TimeBase individual=True & DLinear)
+        self.feature_linears = nn.ModuleList([
+            nn.Linear(self.total_len, output_dim)
+            for _ in range(input_dim)
         ])
         
-        self.output_proj = nn.Linear(hidden_dim, output_dim)
-        
-        # Attention over segments (instead of time points)
-        if self.use_attention_pooling:
-            self.attention = nn.Sequential(
-                nn.Linear(hidden_dim, max(1, hidden_dim // 2)),
-                nn.Tanh(),
-                nn.Linear(max(1, hidden_dim // 2), 1)
+        # Initialize like TimeBase (helps training)
+        for linear in self.feature_linears:
+            linear.weight = nn.Parameter(
+                (1 / self.total_len) * torch.ones([output_dim, self.total_len])
             )
+        
+        self.dropout = nn.Dropout(dropout)
     
     def _normalize_segments(self, x):
-        """
-        Normalize each segment independently (critical for hyperbolic stability).
-        x: [B, N_seg, seg_len, C]
-        Returns: normalized x
-        """
+        """Period normalization (from TimeBase)"""
         if self.use_segment_norm:
-            # Per-segment z-score normalization
-            seg_mean = x.mean(dim=2, keepdim=True)  # [B, N_seg, seg_lem, C]
-            seg_std = x.std(dim=2, keepdim=True).clamp_min(1e-5)
-            x_norm = (x - seg_mean) / seg_std
-            return x_norm
+            # Per-period normalization (TimeBase style)
+            period_mean = x.mean(dim=2, keepdim=True)
+            x = x - period_mean
+            return x, period_mean
         else:
-            # Global normalization across all segments
             B, N_seg, seg_len, C = x.shape
             x_flat = x.reshape(B, -1, C)
-            global_mean = x_flat.mean(dim=1, keepdim=True)
-            global_std = x_flat.std(dim=1, keepdim=True).clamp_min(1e-5)
-            x_norm = (x_flat - global_mean) / global_std
-            return x_norm.reshape(B, N_seg, seg_len, C)
-
-    def forward(self, x):
+            mean = x_flat.mean(dim=1, keepdim=True)
+            x = x_flat - mean
+            return x.reshape(B, N_seg, seg_len, C), mean
+    
+    def forward(self, x, return_orthogonal_loss=False):
         """
-        x: [B, seq_len, input_dim]
-        returns: [B, output_dim]  (tangent vectors for Poincaré)
+        Forward with optional orthogonal loss.
         
-        Follows same logic as MLPEmbed but operates on segments:
-        1. Segment the sequence
-        2. Project each segment to hidden_dim
-        3. Process through layers
-        4. Pool across segments (attention or mean)
-        5. Project to output_dim
+        Args:
+            x: [B, seq_len, C]
+            return_orthogonal_loss: bool
+        
+        Returns:
+            output: [B, output_dim]
+            orthogonal_loss: scalar (if return_orthogonal_loss=True)
         """
         B, seq_len, C = x.shape
         
-        # 1. Padding if needed (like orthogonal)
+        # Padding (TimeBase style)
         if self.pad_len > 0:
             pad_start = max(0, seq_len - self.pad_len)
             pad_data = x[:, pad_start:pad_start + self.pad_len, :]
             x = torch.cat([x, pad_data], dim=1)
         
-        # 2. Reshape to segments: [B, seq_len, C] → [B, N_seg, seg_len, C]
+        # Segment
         x = x.reshape(B, self.num_segments, self.segment_length, C)
         
-        # 3. Normalize segments (CRITICAL for hyperbolic!)
-        x = self._normalize_segments(x)
+        # Normalize (TimeBase style)
+        x, norm_stats = self._normalize_segments(x)
         
-        # 4. Flatten each segment: [B, N_seg, seg_len, C] → [B, N_seg, seg_len*C]
-        x = x.reshape(B, self.num_segments, self.segment_length * C)
+        # Flatten time: [B, total_len, C]
+        x = x.reshape(B, self.total_len, C)
         
-        # 5. Project segments (analogous to input_proj in MLPEmbed)
-        x = self.input_proj(x)  # [B, N_seg, hidden_dim]
+        # Transpose to [B, C, total_len] (TimeBase/DLinear style)
+        x = x.permute(0, 2, 1)
         
-        # 6. Process through layers (same as MLPEmbed)
-        for layer in self.layers:
-            x = layer(x)
+        # Per-feature processing (TimeBase individual=True)
+        output = torch.zeros([B, C, self.output_dim], 
+                            dtype=x.dtype, device=x.device)
         
-        # 7. Pool across segments (analogous to pooling across time in MLPEmbed)
-        if self.use_attention_pooling:
-            attn_scores = self.attention(x)  # [B, N_seg, 1]
-            attn_weights = torch.softmax(attn_scores, dim=1)  # [B, N_seg, 1]
-            x_pooled = (x * attn_weights).sum(dim=1)  # [B, hidden_dim]
+        for i in range(self.input_dim):
+            feature_i = x[:, i, :]  # [B, total_len]
+            output[:, i, :] = self.feature_linears[i](feature_i)  # [B, output_dim]
+        
+            self.dropout(output)
+
+        # Compute orthogonal loss (TimeBase style)
+        if self.use_orthogonal_loss and return_orthogonal_loss:
+            # output: [B, C, output_dim]
+            # We want orthogonality across output_dim for each feature
+            orthogonal_loss = cal_orthogonal_loss(output)
         else:
-            x_pooled = x.mean(dim=1)  # mean pooling across segments
+            orthogonal_loss = None
         
-        # 8. Output projection (same as MLPEmbed)
-        return self.output_proj(x_pooled)  # [B, output_dim]
+        # Average across features
+        output = output.mean(dim=1)  # [B, output_dim]
+        
+        if return_orthogonal_loss:
+            return output, orthogonal_loss
+        else:
+            return output
 
 
-# --------------------------
-# Segmented Parallel Poincaré Encoder
-# --------------------------
+
 class SegmentedParallelPoincare(nn.Module):
     """
     Segmented version of ParallelPoincare - follows exact same logic but uses segments.
@@ -146,65 +139,52 @@ class SegmentedParallelPoincare(nn.Module):
     
     Everything else (Möbius fusion, scaling, projection) is IDENTICAL to ParallelPoincare.
     """
-    def __init__(self, lookback, input_dim, embed_dim=32, hidden_dim=64, 
-                 curvature=1.0, segment_length=24, n_layer=2, embed_dropout=0.1,
-                 use_attention_pooling=False, use_segment_norm=True):
+    def __init__(self, lookback, input_dim, embed_dim=32,
+                 curvature=1.0, segment_length=24, embed_dropout=0.1,
+                 use_segment_norm=True, return_orthogonal_loss=False):
         """
         Args:
             lookback: int - lookback window size
             input_dim: int - number of input features
             embed_dim: int - dimension of hyperbolic embeddings
-            hidden_dim: int - hidden dimension for MLP
             curvature: float - curvature of Poincaré ball (c parameter)
             segment_length: int - length of each segment (e.g., 24 for daily segments in hourly data)
-            n_layer: int - number of MLP layers
+            n_layer: int - number of linear layers
             use_attention_pooling: bool - use attention pooling over segments
             use_segment_norm: bool - normalize each segment independently
         """
         super().__init__()
         
         # Segment-aware MLP encoders (replacing point-level MLPEmbed)
-        self.trend_embed = SegmentMLPEmbed(
+        self.trend_embed = SegmentLinearEmbed(
             input_dim=input_dim,
-            hidden_dim=hidden_dim,
             output_dim=embed_dim,
-            n_layer=n_layer,
             lookback=lookback,
             segment_length=segment_length,
-            use_attention_pooling=use_attention_pooling,
             use_segment_norm=use_segment_norm,
             dropout=embed_dropout
         )
-        self.seasonal_coarse_embed = SegmentMLPEmbed(
+        self.seasonal_coarse_embed = SegmentLinearEmbed(
             input_dim=input_dim,
-            hidden_dim=hidden_dim,
             output_dim=embed_dim,
-            n_layer=n_layer,
             lookback=lookback,
             segment_length=segment_length,
-            use_attention_pooling=use_attention_pooling,
             use_segment_norm=use_segment_norm,
             dropout=embed_dropout
         )
-        self.seasonal_fine_embed = SegmentMLPEmbed(
+        self.seasonal_fine_embed = SegmentLinearEmbed(
             input_dim=input_dim,
-            hidden_dim=hidden_dim,
             output_dim=embed_dim,
-            n_layer=n_layer,
             lookback=lookback,
             segment_length=segment_length,
-            use_attention_pooling=use_attention_pooling,
             use_segment_norm=use_segment_norm,
             dropout=embed_dropout
         )
-        self.residual_embed = SegmentMLPEmbed(
+        self.residual_embed = SegmentLinearEmbed(
             input_dim=input_dim,
-            hidden_dim=hidden_dim,
             output_dim=embed_dim,
-            n_layer=n_layer,
             lookback=lookback,
             segment_length=segment_length,
-            use_attention_pooling=use_attention_pooling,
             use_segment_norm=use_segment_norm,
             dropout=embed_dropout
         )

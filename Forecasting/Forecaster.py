@@ -106,20 +106,7 @@ class HyperbolicForecaster(nn.Module):
         for step in range(self.pred_len):
             # Lift point back to original dimension
             # print(step)
-            x_pred = self.reconstructor(z_current)
-            predictions.append(x_pred)
 
-            trend_pred = self.reconstructor(z_current_trend)
-            trend_predictions.append(trend_pred)
-
-            coarse_pred = self.reconstructor(z_current_coarse)
-            coarse_predictions.append(coarse_pred)
-
-            fine_pred = self.reconstructor(z_current_fine)
-            fine_predictions.append(fine_pred)
-
-            residual_pred = self.reconstructor(z_current_resid)
-            residual_predictions.append(residual_pred)
           
             # Predict velocity and to make sure each step is not isolated
             z_current, z_previous = self.dynamics(z_current, z_previous)
@@ -142,6 +129,21 @@ class HyperbolicForecaster(nn.Module):
                 z_previous_coarse = z_previous_coarse.detach()
                 z_previous_fine = z_previous_fine.detach()
                 z_previous_resid = z_previous_resid.detach()
+
+            x_pred = self.reconstructor(z_current)
+            predictions.append(x_pred)
+
+            trend_pred = self.reconstructor(z_current_trend)
+            trend_predictions.append(trend_pred)
+
+            coarse_pred = self.reconstructor(z_current_coarse)
+            coarse_predictions.append(coarse_pred)
+
+            fine_pred = self.reconstructor(z_current_fine)
+            fine_predictions.append(fine_pred)
+
+            residual_pred = self.reconstructor(z_current_resid)
+            residual_predictions.append(residual_pred)
     
         
         

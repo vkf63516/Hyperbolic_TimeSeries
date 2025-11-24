@@ -9,12 +9,12 @@ import random
 import numpy as np
 import gc 
 
-parser = argparse.ArgumentParser(description="Hyperbolic TimeSeries with TimeBaseMSTL")
+parser = argparse.ArgumentParser(description="Hyperbolic TimeSeries with orthogonalMSTL")
 # basic config
 parser.add_argument('--is_training', type=int, required=True, default=1, help='status')
 parser.add_argument('--model_id', type=str, required=True, default='test', help='model id')
 parser.add_argument('--model', type=str, required=True, default='HyperbolicForecasting', help='model name')
-# TimeBaseMSTL arguments
+# orthogonalMSTL arguments
 parser.add_argument('--gradient_truncation_K', type=int, default=6, 
                     help='truncation steps for BPTT in hyperbolic forecasting')
 # NEW: Segment-level vs Point-level hyperbolic embeddings
@@ -24,9 +24,9 @@ parser.add_argument('--mstl_period', type=int, default=24,
 parser.add_argument('--use_segments', action='store_true', default=False,
                     help='use segment-level hyperbolic embeddings (True) or point-level (False)')
 parser.add_argument('--use_decomposition', action='store_true', default=False,
-                    help='Use TimeBaseMSTL decomposition')
+                    help='Use orthogonalMSTL decomposition')
 parser.add_argument('--num_basis', type=int, default=10,
-                    help='number of basis components for TimeBaseMSTL')
+                    help='number of basis components for orthogonalMSTL')
 parser.add_argument('--use_wandb', action='store_true', 
                     help='use wandb for experiment tracking')
 parser.add_argument("--use_attention_pooling", action="store_true", default=False,

@@ -3,7 +3,7 @@ Wandb initialized. Project: Hyperbolic_TimeSeries, Run: HyperbolicForecasting_ET
 View results at: https://wandb.ai/vkf-new-jersey-institute-of-technology/Hyperbolic_TimeSeries/runs/2yaelgbb
 Wandb logging enabled. Experiment: HyperbolicForecasting_ETTh1_decomposition_sl96_pl96_Euclidean
 >>>>>>>start training : ETTh1_96_96_exp1_HScales_HyperbolicForecasting_ETTh1_decomposition_ftM_sl96_pl96_exp_ebfixed_Euclidean_0_seed2023>>>>>>>>>>>>>>>>>>>>>>>>>>
-[train] Fitting TimeBaseMSTL on training data...
+[train] Fitting orthogonalMSTL on training data...
 Learning orthogonal bases from 7 series...
 
 ======================================================================
@@ -27,7 +27,7 @@ Learning from 7 series with 180 segments each
 Learned basis for period 24: basis shape (10, 48), coeffs shape (7, 180, 10)
 Learning from 7 series with 45 segments each
 Learned basis for period 96: basis shape (10, 192), coeffs shape (7, 45, 10)
-[train] Transforming data with TimeBaseMSTL...
+[train] Transforming data with orthogonalMSTL...
 Dataset has 7 features (≤ 15)
 Using original MSTL for accurate decomposition
 
@@ -56,7 +56,7 @@ Reconstruction error: 0.00000000
 
 [train] Data preparation complete (point-level). Temporal length: 8640
 train 8449
-[val] Fitting TimeBaseMSTL on training data...
+[val] Fitting orthogonalMSTL on training data...
 Learning orthogonal bases from 7 series...
 
 ======================================================================
@@ -80,7 +80,7 @@ Learning from 7 series with 180 segments each
 Learned basis for period 24: basis shape (10, 48), coeffs shape (7, 180, 10)
 Learning from 7 series with 45 segments each
 Learned basis for period 96: basis shape (10, 192), coeffs shape (7, 45, 10)
-[val] Transforming data with TimeBaseMSTL...
+[val] Transforming data with orthogonalMSTL...
 Dataset has 7 features (≤ 15)
 Using original MSTL for accurate decomposition
 
@@ -109,7 +109,7 @@ Reconstruction error: 0.00000000
 
 [val] Data preparation complete (point-level). Temporal length: 2976
 val 2785
-[test] Fitting TimeBaseMSTL on training data...
+[test] Fitting orthogonalMSTL on training data...
 Learning orthogonal bases from 7 series...
 
 ======================================================================
@@ -133,7 +133,7 @@ Learning from 7 series with 180 segments each
 Learned basis for period 24: basis shape (10, 48), coeffs shape (7, 180, 10)
 Learning from 7 series with 45 segments each
 Learned basis for period 96: basis shape (10, 192), coeffs shape (7, 45, 10)
-[test] Transforming data with TimeBaseMSTL...
+[test] Transforming data with orthogonalMSTL...
 Dataset has 7 features (≤ 15)
 Using original MSTL for accurate decomposition
 
@@ -373,7 +373,7 @@ EarlyStopping counter: 6 out of 6
 Early stopping
 Final Max Memory (MB): -1
 >>>>>>>testing : ETTh1_96_96_exp1_HScales_HyperbolicForecasting_ETTh1_decomposition_ftM_sl96_pl96_exp_ebfixed_Euclidean_0_seed2023<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-[test] Fitting TimeBaseMSTL on training data...
+[test] Fitting orthogonalMSTL on training data...
 Learning orthogonal bases from 7 series...
 
 ======================================================================
@@ -397,7 +397,7 @@ Learning from 7 series with 180 segments each
 Learned basis for period 24: basis shape (10, 48), coeffs shape (7, 180, 10)
 Learning from 7 series with 45 segments each
 Learned basis for period 96: basis shape (10, 192), coeffs shape (7, 45, 10)
-[test] Transforming data with TimeBaseMSTL...
+[test] Transforming data with orthogonalMSTL...
 Dataset has 7 features (≤ 15)
 Using original MSTL for accurate decomposition
 

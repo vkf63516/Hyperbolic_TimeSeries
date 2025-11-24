@@ -25,6 +25,7 @@ python run.py \
   --use_wandb \
   --patience $patience \
   --manifold_type "Euclidean" \
+  --use_segments \
   --use_revin
 
 python run.py \
@@ -50,6 +51,7 @@ python run.py \
   --use_wandb \
   --patience $patience \
   --manifold_type "Euclidean" \
+  --use_segments \
   --use_revin
 
 python run.py \
@@ -75,6 +77,7 @@ python run.py \
   --use_wandb \
   --patience $patience \
   --manifold_type "Euclidean" \
+  --use_segments \
   --use_revin
 
 python run.py \
@@ -100,4 +103,5 @@ python run.py \
   --use_wandb \
   --patience $patience \
   --manifold_type "Euclidean" \
+  --use_segments \
   --use_revin

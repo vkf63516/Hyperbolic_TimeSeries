@@ -17,7 +17,7 @@ import torch.nn as nn
 from torch import optim
 from torch.optim import lr_scheduler
 from spec import EarlyStopping, compute_hierarchical_loss_with_manifold_dist
-from Decomposition.TimeBase_Series_Trend_Decomposition import TimeBaseMSTL
+from Decomposition.Orthogonal_Series_Trend_Decomposition import orthogonalMSTL
 import pandas as pd
 
 import os
@@ -304,6 +304,8 @@ class Exp_Main(Exp_Basic):
                     fine_outputs = fine_outputs[:, -self.args.pred_len:, f_dim:]
                     resid_outputs = resid_outputs[:, -self.args.pred_len:, f_dim:]
                     outputs = outputs[:, -self.args.pred_len:, f_dim:]
+                    # print(f"Batch size of output {outputs.shape[0]}")
+                    # print(f"Batch size of coarse output {coarse_outputs.shape[0]}")
 
                     trend_y = trend_y[:, -self.args.pred_len:, f_dim:]
                     coarse_y = coarse_y[:, -self.args.pred_len:, f_dim:]

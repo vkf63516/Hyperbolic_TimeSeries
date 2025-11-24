@@ -5,7 +5,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from sklearn.preprocessing import StandardScaler
 from utils.timefeatures import time_features
-from Decomposition.TimeBase_Series_Trend_Decomposition import TimeBaseMSTL
+from Decomposition.Orthogonal_Series_Trend_Decomposition import orthogonalMSTL
 import warnings
 
 warnings.filterwarnings('ignore')
@@ -223,7 +223,7 @@ class Dataset_ETT_hour_Decomposition(Dataset):
         self.scale = scale
         self.timeenc = timeenc
         self.freq = freq
-        self.timebase_mstl = TimeBaseMSTL(
+        self.orthogonal_mstl = orthogonalMSTL(
             n_basis_components=self.n_basis_components,
             orthogonal_lr=self.orthogonal_lr,
             orthogonal_iters=self.orthogonal_iters,
@@ -257,24 +257,24 @@ class Dataset_ETT_hour_Decomposition(Dataset):
             data = df_data.values
 
         # ========================================
-        # TimeBaseMSTL Decomposition
+        # orthogonalMSTL Decomposition
         # ========================================
         train_data_normalized = data[border1s[0]:border2s[0]]
         train_df = pd.DataFrame(train_data_normalized, columns=df_data.columns)
         train_dates = pd.to_datetime(df_raw['date'][border1s[0]:border2s[0]].values)
         train_df.index = train_dates
         
-        print(f"[{self.flag}] Fitting TimeBaseMSTL on training data...")
-        self.timebase_mstl.fit(train_df)
+        print(f"[{self.flag}] Fitting orthogonalMSTL on training data...")
+        self.orthogonal_mstl.fit(train_df)
 
-        # Transform current split using fitted TimeBaseMSTL
+        # Transform current split using fitted orthogonalMSTL
         current_data_normalized = data[border1:border2]
         current_df = pd.DataFrame(current_data_normalized, columns=df_data.columns)
         current_dates = pd.to_datetime(df_raw['date'][border1:border2].values)
         current_df.index = current_dates
 
-        print(f"[{self.flag}] Transforming data with TimeBaseMSTL...")
-        components_per_column = self.timebase_mstl.transform(current_df)
+        print(f"[{self.flag}] Transforming data with orthogonalMSTL...")
+        components_per_column = self.orthogonal_mstl.transform(current_df)
         
         # Convert to model-ready format: always store as [T, C] point-level
         self.decomposed_components = self._format_components(components_per_column)
@@ -336,10 +336,10 @@ class Dataset_ETT_hour_Decomposition(Dataset):
 
     def _format_components(self, components_per_column):
         """
-        Convert TimeBaseMSTL output to unified [T, num_features] format.
+        Convert orthogonalMSTL output to unified [T, num_features] format.
         
         Args:
-            components_per_column: dict from TimeBaseMSTL.transform()
+            components_per_column: dict from orthogonalMSTL.transform()
                 {
                     'feature_name': {
                         'trend': np.array([T,]),
@@ -467,7 +467,7 @@ class Dataset_ETT_minute_Decomposition(Dataset):
             self.orthogonal_lr = basis[1]
             self.orthogonal_iters = basis[2]
 
-        self.timebase_mstl = TimeBaseMSTL(
+        self.orthogonal_mstl = orthogonalMSTL(
             n_basis_components=self.n_basis_components,
             orthogonal_lr=self.orthogonal_lr,
             orthogonal_iters=self.orthogonal_iters,
@@ -506,25 +506,25 @@ class Dataset_ETT_minute_Decomposition(Dataset):
         else:
             data = df_data.values
         # ========================================
-        # TimeBaseMSTL Decomposition
+        # orthogonalMSTL Decomposition
         # ========================================
         train_data_normalized = data[border1s[0]:border2s[0]]
         train_df = pd.DataFrame(train_data_normalized, columns=df_data.columns)
         train_dates = pd.to_datetime(df_raw['date'][border1s[0]:border2s[0]].values)
         train_df.index = train_dates
         
-        print(f"[{self.flag}] Fitting TimeBaseMSTL on training data...")
-        self.timebase_mstl.fit(train_df)
+        print(f"[{self.flag}] Fitting orthogonalMSTL on training data...")
+        self.orthogonal_mstl.fit(train_df)
         
         # Auto-detect MSTL period if using segments
-        # Transform current split using fitted TimeBaseMSTL
+        # Transform current split using fitted orthogonalMSTL
         current_data_normalized = data[border1:border2]
         current_df = pd.DataFrame(current_data_normalized, columns=df_data.columns)
         current_dates = pd.to_datetime(df_raw['date'][border1:border2].values)
         current_df.index = current_dates
 
-        print(f"[{self.flag}] Transforming data with TimeBaseMSTL...")
-        components_per_column = self.timebase_mstl.transform(current_df)
+        print(f"[{self.flag}] Transforming data with orthogonalMSTL...")
+        components_per_column = self.orthogonal_mstl.transform(current_df)
         
         # Convert to model-ready format: always store as [T, C] point-level
         self.decomposed_components = self._format_components(components_per_column)
@@ -585,11 +585,11 @@ class Dataset_ETT_minute_Decomposition(Dataset):
 
     def _format_components(self, components_per_column):
         """
-        Convert TimeBaseMSTL output to unified [T, num_features] format.
+        Convert orthogonalMSTL output to unified [T, num_features] format.
         use_segments is not important for this aspect.
         
         Args:
-            components_per_column: dict from TimeBaseMSTL.transform()
+            components_per_column: dict from orthogonalMSTL.transform()
                 {
                     'feature_name': {
                         'trend': np.array([T,]),
@@ -792,7 +792,7 @@ class Dataset_Custom(Dataset):
 
 class Dataset_Custom_Decomposition(Dataset):
     """
-    Custom dataset with TimeBaseMSTL decomposition.
+    Custom dataset with orthogonalMSTL decomposition.
     Unified implementation supporting both point-level and segment-level modes.
     """
     def __init__(self, root_path, flag='train', size=None,
@@ -811,7 +811,7 @@ class Dataset_Custom_Decomposition(Dataset):
         
         # Segment/Point configuration
         
-        # TimeBaseMSTL basis parameters
+        # orthogonalMSTL basis parameters
         if basis == None:
             self.n_basis_components = 20
             self.orthogonal_lr = 1e-3
@@ -832,7 +832,7 @@ class Dataset_Custom_Decomposition(Dataset):
         self.scale = scale
         self.timeenc = timeenc
         self.freq = freq
-        self.timebase_mstl = TimeBaseMSTL(
+        self.orthogonal_mstl = orthogonalMSTL(
             n_basis_components=self.n_basis_components,
             orthogonal_lr=self.orthogonal_lr,
             orthogonal_iters=self.orthogonal_iters,
@@ -878,25 +878,25 @@ class Dataset_Custom_Decomposition(Dataset):
             data = df_data.values
 
         # ========================================
-        # TimeBaseMSTL Decomposition
+        # orthogonalMSTL Decomposition
         # ========================================
         train_data_normalized = data[border1s[0]:border2s[0]]
         train_df = pd.DataFrame(train_data_normalized, columns=df_data.columns)
         train_dates = pd.to_datetime(df_raw['date'][border1s[0]:border2s[0]].values)
         train_df.index = train_dates
         
-        print(f"[{self.flag}] Fitting TimeBaseMSTL on training data...")
-        self.timebase_mstl.fit(train_df)
+        print(f"[{self.flag}] Fitting orthogonalMSTL on training data...")
+        self.orthogonal_mstl.fit(train_df)
         
 
-        # Transform current split using fitted TimeBaseMSTL
+        # Transform current split using fitted orthogonalMSTL
         current_data_normalized = data[border1:border2]
         current_df = pd.DataFrame(current_data_normalized, columns=df_data.columns)
         current_dates = pd.to_datetime(df_raw['date'][border1:border2].values)
         current_df.index = current_dates
 
-        print(f"[{self.flag}] Transforming data with TimeBaseMSTL...")
-        components_per_column = self.timebase_mstl.transform(current_df)
+        print(f"[{self.flag}] Transforming data with orthogonalMSTL...")
+        components_per_column = self.orthogonal_mstl.transform(current_df)
         
         # Convert to model-ready format: always store as [T, C] point-level
         self.decomposed_components = self._format_components(components_per_column)
@@ -962,11 +962,11 @@ class Dataset_Custom_Decomposition(Dataset):
 
     def _format_components(self, components_per_column):
         """
-        Convert TimeBaseMSTL output to unified [T, num_features] format.
+        Convert orthogonalMSTL output to unified [T, num_features] format.
         use_segments is not important for this aspect.
         
         Args:
-            components_per_column: dict from TimeBaseMSTL.transform()
+            components_per_column: dict from orthogonalMSTL.transform()
                 {
                     'feature_name': {
                         'trend': np.array([T,]),

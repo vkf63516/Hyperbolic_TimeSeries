@@ -3,7 +3,7 @@ Wandb initialized. Project: Hyperbolic_TimeSeries, Run: HyperbolicForecasting_cu
 View results at: https://wandb.ai/vkf-new-jersey-institute-of-technology/Hyperbolic_TimeSeries/runs/2eq0t9ej
 Wandb logging enabled. Experiment: HyperbolicForecasting_custom_decomposition_sl96_pl192_Euclidean
 >>>>>>>start training : Weather_96_192_exp1_HScales_HyperbolicForecasting_custom_decomposition_ftM_sl96_pl192_exp_ebfixed_Euclidean_0_seed2023>>>>>>>>>>>>>>>>>>>>>>>>>>
-[train] Fitting TimeBaseMSTL on training data...
+[train] Fitting orthogonalMSTL on training data...
 Learning orthogonal bases from 21 series...
 
 ======================================================================
@@ -44,12 +44,12 @@ Traceback (most recent call last):
     self.__read_data__()
     ~~~~~~~~~~~~~~~~~~^^
   File "/home/vishalfenn/Documents/Research/Hyperbolic_TimeSeries/data_provider/data_loader.py", line 944, in __read_data__
-    self.timebase_mstl.fit(train_df)
+    self.orthogonal_mstl.fit(train_df)
     ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
-  File "/home/vishalfenn/Documents/Research/Hyperbolic_TimeSeries/Decomposition/TimeBase_Series_Trend_Decomposition.py", line 390, in fit
+  File "/home/vishalfenn/Documents/Research/Hyperbolic_TimeSeries/Decomposition/orthogonal_Series_Trend_Decomposition.py", line 390, in fit
     basis, all_coeffs = self.learn_orthogonal_basis(segments)
                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
-  File "/home/vishalfenn/Documents/Research/Hyperbolic_TimeSeries/Decomposition/TimeBase_Series_Trend_Decomposition.py", line 190, in learn_orthogonal_basis
+  File "/home/vishalfenn/Documents/Research/Hyperbolic_TimeSeries/Decomposition/orthogonal_Series_Trend_Decomposition.py", line 190, in learn_orthogonal_basis
     off_diag = gram - np.diag(np.diag(gram))
                               ~~~~~~~^^^^^^
   File "/home/vishalfenn/base/lib/python3.13/site-packages/numpy/lib/_twodim_base_impl.py", line 254, in _diag_dispatcher

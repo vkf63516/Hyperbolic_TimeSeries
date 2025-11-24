@@ -1,0 +1,186 @@
+import torch
+import torch.nn as nn
+import torch.nn.functional as f
+import geoopt
+
+class SegmentLinearEmbed(nn.Module):
+    def __init__(self, input_dim, output_dim, segment_length, dropout=0.1,
+                 lookback=None, use_segment_norm=True, use_orthogonal_loss=True):
+        super().__init__()
+        
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        self.segment_length = segment_length
+        self.use_segment_norm = use_segment_norm
+        self.use_orthogonal_loss = use_orthogonal_loss
+        
+        # Calculate segments
+        if lookback is not None:
+            self.num_segments = lookback // segment_length
+            self.pad_len = 0
+            if lookback % segment_length != 0:
+                self.pad_len = (self.num_segments + 1) * segment_length - lookback
+                self.num_segments += 1
+        
+        self.total_len = self.num_segments * segment_length
+        
+        print(f"TimeBaseInspiredEmbed: {input_dim} features, {self.num_segments} segments")
+        
+        # Per-feature projections (from TimeBase individual=True & DLinear)
+        self.feature_linears = nn.ModuleList([
+            nn.Linear(self.total_len, output_dim)
+            for _ in range(input_dim)
+        ])
+        
+        # Initialize like TimeBase (helps training)
+        for linear in self.feature_linears:
+            linear.weight = nn.Parameter(
+                (1 / self.total_len) * torch.ones([output_dim, self.total_len])
+            )
+        
+        self.dropout = nn.Dropout(dropout)
+    
+    def _normalize_segments(self, x):
+        """Period normalization (from TimeBase)"""
+        if self.use_segment_norm:
+            # Per-period normalization (TimeBase style)
+            period_mean = x.mean(dim=2, keepdim=True)
+            x = x - period_mean
+            return x, period_mean
+        else:
+            B, N_seg, seg_len, C = x.shape
+            x_flat = x.reshape(B, -1, C)
+            mean = x_flat.mean(dim=1, keepdim=True)
+            x = x_flat - mean
+            return x.reshape(B, N_seg, seg_len, C), mean
+    
+    def forward(self, x, return_orthogonal_loss=False):
+        """
+        Forward with optional orthogonal loss.
+        
+        Args:
+            x: [B, seq_len, C]
+            return_orthogonal_loss: bool
+        
+        Returns:
+            output: [B, output_dim]
+            orthogonal_loss: scalar (if return_orthogonal_loss=True)
+        """
+        B, seq_len, C = x.shape
+        
+        # Padding (TimeBase style)
+        if self.pad_len > 0:
+            pad_start = max(0, seq_len - self.pad_len)
+            pad_data = x[:, pad_start:pad_start + self.pad_len, :]
+            x = torch.cat([x, pad_data], dim=1)
+        
+        # Segment
+        x = x.reshape(B, self.num_segments, self.segment_length, C)
+        
+        # Normalize (TimeBase style)
+        x, norm_stats = self._normalize_segments(x)
+        
+        # Flatten time: [B, total_len, C]
+        x = x.reshape(B, self.total_len, C)
+        
+        # Transpose to [B, C, total_len] (TimeBase/DLinear style)
+        x = x.permute(0, 2, 1)
+        
+        # Per-feature processing (TimeBase individual=True)
+        output = torch.zeros([B, C, self.output_dim], 
+                            dtype=x.dtype, device=x.device)
+        
+        for i in range(self.input_dim):
+            feature_i = x[:, i, :]  # [B, total_len]
+            output[:, i, :] = self.feature_linears[i](feature_i)  # [B, output_dim]
+        
+        self.dropout(output)
+        
+        # Compute orthogonal loss (TimeBase style)
+        if self.use_orthogonal_loss and return_orthogonal_loss:
+            # output: [B, C, output_dim]
+            # We want orthogonality across output_dim for each feature
+            orthogonal_loss = cal_orthogonal_loss(output)
+        else:
+            orthogonal_loss = None
+        
+        # Average across features
+        output = output.mean(dim=1)  # [B, output_dim]
+        
+        if return_orthogonal_loss:
+            return output, orthogonal_loss
+        else:
+            return output
+
+class SegmentParallelEuclidean(nn.Module):
+    def __init__(self, lookback, input_dim, embed_dim=32,
+                segment_length=24, embed_dropout=0.1, use_segment_norm=False):
+        super().__init__()
+        # 5 parallel Mamba encoder blocks
+        
+        self.trend_embed = SegmentLinearEmbed(
+            input_dim=input_dim, 
+            output_dim=embed_dim, 
+            lookback=lookback, 
+            segment_length=segment_length,
+            dropout=embed_dropout,
+            use_segment_norm=use_segment_norm
+        )
+        self.fine_embed = SegmentLinearEmbed(
+            input_dim=input_dim, 
+            output_dim=embed_dim, 
+            lookback=lookback, 
+            segment_length=segment_length,
+            dropout=embed_dropout,
+            use_segment_norm=use_segment_norm
+        )
+        self.coarse_embed = SegmentLinearEmbed(
+            input_dim=input_dim, 
+            output_dim=embed_dim, 
+            lookback=lookback, 
+            segment_length=segment_length,
+            dropout=embed_dropout,
+            use_segment_norm=use_segment_norm
+        )
+        self.residual_embed = SegmentLinearEmbed(
+            input_dim=input_dim, 
+            output_dim=embed_dim, 
+            lookback=lookback, 
+            segment_length=segment_length,
+            dropout=embed_dropout,
+            use_segment_norm=use_segment_norm
+        )
+
+    
+    def forward(self, trend, fine, coarse, residual):
+        """
+        Encode decomposed time series components to Euclidean space.
+        
+        Args:
+            trend: [B, seq_len, input_dim] 
+            fine: [B, seq_len, input_dim] 
+            coarse: [B, seq_len, input_dim]
+            residual: [B, seq_len, input_dim]
+        
+        Returns:
+            dict with:
+                - trend_e, seasonal_fine_e, seasonal_coarse_e, residual_e: [B, embed_dim]
+                - combined_e: [B, embed_dim]
+        """
+        # Embed each branch to Euclidean latent vector
+        e_trend = self.trend_embed(trend)
+        e_fine = self.fine_embed(fine)
+        e_coarse = self.coarse_embed(coarse)
+        e_residual = self.residual_embed(residual)
+        
+        # Simple sum (no hierarchy, all components equally weighted)
+        combined_e = e_trend + e_fine + e_coarse + e_residual
+
+        return {
+            "trend_e": e_trend,
+            "seasonal_fine_e": e_fine,
+            "seasonal_coarse_e": e_coarse,
+            "residual_e": e_residual,
+            "combined_e": combined_e
+        }
+
