@@ -54,6 +54,9 @@ class Model(nn.Module):
                     segment_length=self.mstl_period,
                     use_segment_norm=True,
                     use_revin=self.use_revin,
+                    embed_dropout=0.5,
+                    dynamic_dropout=0.3,
+                    recon_dropout=0.2,
                     num_layers=2
                 )
             else:
@@ -78,10 +81,14 @@ class Model(nn.Module):
                     hidden_dim=self.hidden_dim,
                     curvature=self.curvature,
                     manifold_type=self.manifold_type,
-                    use_attention_pooling=self.use_attention_pooling,
                     segment_length=self.mstl_period,
                     use_segment_norm=True,
-                    num_layers=1
+                    use_revin=self.use_revin,
+                    embed_dropout=0.5,
+                    dynamic_dropout=0.3,
+                    recon_dropout=0.2,
+                    num_layers=2
+
 
                 )
             else:

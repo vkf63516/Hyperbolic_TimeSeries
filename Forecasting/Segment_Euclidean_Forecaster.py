@@ -54,6 +54,7 @@ class SegmentForecastEuclidean(nn.Module):
         self.manifold_type = manifold_type
         self.embed_dropout = embed_dropout
         self.dynamic_dropout = dynamic_dropout
+        self.recon_dropout=recon_dropout
         self.num_layers=num_layers
         if self.use_revin:
             self.revin = RevIN(num_features=n_features, eps=1e-5, affine=True)

@@ -4,7 +4,6 @@ User: vkf63516
 Date: 2025-11-13 21:08:39 UTC
 
 Searches only: embed_dim, hidden_dim, learning_rate, batch_size
-Fixed: use_hierarchy=True, hierarchy_scales=[1.0,2.0,4.0,8.0], use_attention_pooling=True
 """
 
 import optuna
@@ -70,7 +69,6 @@ def objective(trial, pred_len, manifold_type='Euclidean'):
         'batch_size': batch_size,
         'curvature': curvature,
         # FIXED (not searched)
-        'use_hierarchy': True,
         'manifold_type': manifold_type,
     }
     
@@ -104,7 +102,6 @@ def objective(trial, pred_len, manifold_type='Euclidean'):
     print(f"[Trial {trial.number}] {manifold_type} manifold, pred_len={pred_len}")
     print(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC")
     print("SEARCHING: embed_dim, hidden_dim, learning_rate, batch_size")
-    print("FIXED: use_hierarchy=True, scales=[1,2,4,8], attention=True")
     print(json.dumps({k: v for k, v in config.items() if k in ['embed_dim', 'hidden_dim', 'learning_rate', 'batch_size', 'curvature']}, indent=2))
     print("="*80)
     

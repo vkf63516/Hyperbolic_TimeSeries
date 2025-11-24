@@ -5,14 +5,13 @@ import geoopt
 
 class SegmentLinearEmbed(nn.Module):
     def __init__(self, input_dim, output_dim, segment_length, dropout=0.1,
-                 lookback=None, use_segment_norm=True, use_orthogonal_loss=True):
+                 lookback=None, use_segment_norm=True):
         super().__init__()
         
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.segment_length = segment_length
         self.use_segment_norm = use_segment_norm
-        self.use_orthogonal_loss = use_orthogonal_loss
         
         # Calculate segments
         if lookback is not None:
@@ -54,7 +53,7 @@ class SegmentLinearEmbed(nn.Module):
             x = x_flat - mean
             return x.reshape(B, N_seg, seg_len, C), mean
     
-    def forward(self, x, return_orthogonal_loss=False):
+    def forward(self, x):
         """
         Forward with optional orthogonal loss.
         
@@ -96,21 +95,9 @@ class SegmentLinearEmbed(nn.Module):
         
         self.dropout(output)
         
-        # Compute orthogonal loss (TimeBase style)
-        if self.use_orthogonal_loss and return_orthogonal_loss:
-            # output: [B, C, output_dim]
-            # We want orthogonality across output_dim for each feature
-            orthogonal_loss = cal_orthogonal_loss(output)
-        else:
-            orthogonal_loss = None
-        
         # Average across features
         output = output.mean(dim=1)  # [B, output_dim]
-        
-        if return_orthogonal_loss:
-            return output, orthogonal_loss
-        else:
-            return output
+        return output 
 
 class SegmentParallelEuclidean(nn.Module):
     def __init__(self, lookback, input_dim, embed_dim=32,

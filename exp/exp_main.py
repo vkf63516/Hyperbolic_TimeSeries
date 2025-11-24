@@ -545,7 +545,7 @@ class Exp_Main(Exp_Basic):
         
         f = open("result.txt", 'a')
         f.write(setting + "  \n")
-        f.write('mse:{}, mae:{}, rse:{}'.format(mse, mae, rse))
+        f.write('mse:{}, mae:{}, rmse:{}'.format(mse, mae, rmse))
         f.write('\n\n')
         f.close()
         if self.wandb_logger is not None:

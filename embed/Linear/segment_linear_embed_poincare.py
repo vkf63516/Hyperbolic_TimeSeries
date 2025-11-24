@@ -7,25 +7,15 @@ import sys
 sys.path.append(str(Path(__file__).resolve().parents[0]))
 from spec import safe_expmap, safe_expmap0
 
-def cal_orthogonal_loss(matrix):
-    """From TimeBase - enforce orthogonality"""
-    gram_matrix = torch.matmul(matrix.transpose(-2, -1), matrix) 
-    one_diag = torch.diagonal(gram_matrix, dim1=-2, dim2=-1)
-    two_diag = torch.diag_embed(one_diag)  
-    off_diagonal = gram_matrix - two_diag  
-    loss = torch.norm(off_diagonal, dim=(-2, -1)) 
-    return loss.mean()
-
 class SegmentLinearEmbed(nn.Module):
     def __init__(self, input_dim, output_dim, segment_length, dropout=0.1,
-                 lookback=None, use_segment_norm=True, use_orthogonal_loss=False):
+                 lookback=None, use_segment_norm=True):
         super().__init__()
         
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.segment_length = segment_length
         self.use_segment_norm = use_segment_norm
-        self.use_orthogonal_loss = use_orthogonal_loss
         
         # Calculate segments
         if lookback is not None:
@@ -39,13 +29,13 @@ class SegmentLinearEmbed(nn.Module):
         
         print(f"TimeBaseInspiredEmbed: {input_dim} features, {self.num_segments} segments")
         
-        # Per-feature projections (from TimeBase individual=True & DLinear)
+        # Per-feature projections 
         self.feature_linears = nn.ModuleList([
             nn.Linear(self.total_len, output_dim)
             for _ in range(input_dim)
         ])
         
-        # Initialize like TimeBase (helps training)
+        # Initialize (helps training)
         for linear in self.feature_linears:
             linear.weight = nn.Parameter(
                 (1 / self.total_len) * torch.ones([output_dim, self.total_len])
@@ -56,7 +46,7 @@ class SegmentLinearEmbed(nn.Module):
     def _normalize_segments(self, x):
         """Period normalization (from TimeBase)"""
         if self.use_segment_norm:
-            # Per-period normalization (TimeBase style)
+            # Per-period normalization 
             period_mean = x.mean(dim=2, keepdim=True)
             x = x - period_mean
             return x, period_mean
@@ -67,7 +57,7 @@ class SegmentLinearEmbed(nn.Module):
             x = x_flat - mean
             return x.reshape(B, N_seg, seg_len, C), mean
     
-    def forward(self, x, return_orthogonal_loss=False):
+    def forward(self, x):
         """
         Forward with optional orthogonal loss.
         
@@ -81,7 +71,7 @@ class SegmentLinearEmbed(nn.Module):
         """
         B, seq_len, C = x.shape
         
-        # Padding (TimeBase style)
+        # Padding 
         if self.pad_len > 0:
             pad_start = max(0, seq_len - self.pad_len)
             pad_data = x[:, pad_start:pad_start + self.pad_len, :]
@@ -96,10 +86,10 @@ class SegmentLinearEmbed(nn.Module):
         # Flatten time: [B, total_len, C]
         x = x.reshape(B, self.total_len, C)
         
-        # Transpose to [B, C, total_len] (TimeBase/DLinear style)
+        # Transpose to [B, C, total_len] 
         x = x.permute(0, 2, 1)
         
-        # Per-feature processing (TimeBase individual=True)
+        # Per-feature processing 
         output = torch.zeros([B, C, self.output_dim], 
                             dtype=x.dtype, device=x.device)
         
@@ -107,23 +97,13 @@ class SegmentLinearEmbed(nn.Module):
             feature_i = x[:, i, :]  # [B, total_len]
             output[:, i, :] = self.feature_linears[i](feature_i)  # [B, output_dim]
         
-            self.dropout(output)
+        self.dropout(output)
 
-        # Compute orthogonal loss (TimeBase style)
-        if self.use_orthogonal_loss and return_orthogonal_loss:
-            # output: [B, C, output_dim]
-            # We want orthogonality across output_dim for each feature
-            orthogonal_loss = cal_orthogonal_loss(output)
-        else:
-            orthogonal_loss = None
         
         # Average across features
         output = output.mean(dim=1)  # [B, output_dim]
         
-        if return_orthogonal_loss:
-            return output, orthogonal_loss
-        else:
-            return output
+        return output
 
 
 
