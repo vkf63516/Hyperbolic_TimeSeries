@@ -12,21 +12,24 @@ from spec import safe_expmap, safe_expmap0
 # --------------------------
 class SegmentMLPEmbed(nn.Module):
     """
-    MLP encoder for segmented data - follows same logic as MLPEmbed but operates on segments.
+    MLP encoder for segmented data with per-feature projections (TimeBase-style).
     
-    Key difference: Instead of pooling across time points, we:
-    1. Divide sequence into segments
-    2. Encode each segment 
-    3. Pool across segments
+    Key improvements:
+    1. Per-feature projections (respects feature heterogeneity)
+    2. TimeBase initialization (stable training start)
+    3. Feature fusion layer (learns inter-feature relationships)
     """
     def __init__(self, input_dim, hidden_dim, output_dim, n_layer=3, dropout=0.5, 
                  lookback=None, segment_length=24, use_attention_pooling=False, 
-                 use_segment_norm=True):
+                 use_segment_norm=True, use_per_feature=True):  # ← NEW
         super().__init__()
         self.lookback = lookback
         self.segment_length = segment_length
+        self.input_dim = input_dim
         self.use_attention_pooling = use_attention_pooling
         self.use_segment_norm = use_segment_norm
+        self.use_per_feature = use_per_feature  # NEW
+        self.hidden_dim=hidden_dim
         
         # Calculate number of segments (with padding if needed)
         if lookback is not None:
@@ -39,22 +42,48 @@ class SegmentMLPEmbed(nn.Module):
             self.num_segments = None
             self.pad_len = 0
         
-        # Instead of projecting single points, we project flattened segments
-        # Each segment: [segment_length * input_dim] → [hidden_dim]
-        self.input_proj = nn.Linear(input_dim * segment_length, hidden_dim)
+        # ========================================
+        # NEW: Per-Feature Projections
+        # ========================================
+        if use_per_feature:
+            # Each feature gets its own projection: [segment_length] → [hidden_dim]
+            self.feature_projections = nn.ModuleList([
+                nn.Linear(segment_length, hidden_dim)
+                for _ in range(input_dim)
+            ])
+            
+            # TimeBase-style initialization: start with mean
+            for proj in self.feature_projections:
+                with torch.no_grad():
+                    proj.weight.data = (1.0 / segment_length) * torch.ones_like(proj.weight.data)
+                    proj.bias.data.zero_()
+            
+            # Feature fusion: [input_dim * hidden_dim] → [hidden_dim]
+            self.feature_fusion = nn.Sequential(
+                nn.Linear(input_dim * hidden_dim, hidden_dim),
+                nn.LayerNorm(hidden_dim),
+                nn.GELU(),
+                nn.Dropout(dropout)
+            )
+        else:
+            # Original: Shared projection across all features
+            self.input_proj = nn.Linear(input_dim * segment_length, hidden_dim)
         
-        # Same layer structure as MLPEmbed
+        # ========================================
+        # Existing: Processing Layers
+        # ========================================
         self.layers = nn.ModuleList([
             nn.Sequential(
                 nn.Linear(hidden_dim, hidden_dim),
-                nn.ReLU(),
+                nn.LayerNorm(hidden_dim),
+                nn.GELU(),
                 nn.Dropout(dropout)
             ) for _ in range(n_layer)
         ])
         
         self.output_proj = nn.Linear(hidden_dim, output_dim)
         
-        # Attention over segments (instead of time points)
+        # Attention over segments
         if self.use_attention_pooling:
             self.attention = nn.Sequential(
                 nn.Linear(hidden_dim, max(1, hidden_dim // 2)),
@@ -64,40 +93,71 @@ class SegmentMLPEmbed(nn.Module):
     
     def _normalize_segments(self, x):
         """
-        Normalize each segment independently (critical for hyperbolic stability).
+        Normalize each segment independently.
         x: [B, N_seg, seg_len, C]
         Returns: normalized x
         """
         if self.use_segment_norm:
-            # Per-segment z-score normalization
-            seg_mean = x.mean(dim=2, keepdim=True)  # [B, N_seg, seg_lem, C]
+            seg_mean = x.mean(dim=2, keepdim=True)
             seg_std = x.std(dim=2, keepdim=True).clamp_min(1e-5)
             x_norm = (x - seg_mean) / seg_std
             return x_norm
         else:
-            # Global normalization across all segments
             B, N_seg, seg_len, C = x.shape
             x_flat = x.reshape(B, -1, C)
             global_mean = x_flat.mean(dim=1, keepdim=True)
             global_std = x_flat.std(dim=1, keepdim=True).clamp_min(1e-5)
             x_norm = (x_flat - global_mean) / global_std
             return x_norm.reshape(B, N_seg, seg_len, C)
-
+    
+    def _project_per_feature(self, x):
+        """
+        Project each feature separately using per-feature projections.
+        
+        Args:
+            x: [B, N_seg, seg_len, input_dim]
+        
+        Returns:
+            x_proj: [B, N_seg, hidden_dim]
+        """
+        B, N_seg, seg_len, C = x.shape
+        
+        # Process each feature with its own projection
+        feature_embeds = []
+        for feat_idx in range(C):
+            # Extract this feature: [B, N_seg, seg_len]
+            x_feat = x[:, :, :, feat_idx]
+            
+            # Flatten batch and segments: [B*N_seg, seg_len]
+            x_feat_flat = x_feat.reshape(B * N_seg, seg_len)
+            
+            # Project with feature-specific layer
+            feat_embed = self.feature_projections[feat_idx](x_feat_flat)  # [B*N_seg, hidden_dim]
+            
+            # Reshape back: [B, N_seg, hidden_dim]
+            feat_embed = feat_embed.reshape(B, N_seg, self.hidden_dim)
+            
+            feature_embeds.append(feat_embed)
+        
+        # Stack all features: [B, N_seg, input_dim, hidden_dim]
+        x_all_features = torch.stack(feature_embeds, dim=2)
+        
+        # Flatten features: [B, N_seg, input_dim * hidden_dim]
+        x_concat = x_all_features.reshape(B, N_seg, C * self.hidden_dim)
+        
+        # Fuse features: [B, N_seg, input_dim * hidden_dim] → [B, N_seg, hidden_dim]
+        x_fused = self.feature_fusion(x_concat)
+        
+        return x_fused
+    
     def forward(self, x):
         """
         x: [B, seq_len, input_dim]
-        returns: [B, output_dim]  (tangent vectors for Poincaré)
-        
-        Follows same logic as MLPEmbed but operates on segments:
-        1. Segment the sequence
-        2. Project each segment to hidden_dim
-        3. Process through layers
-        4. Pool across segments (attention or mean)
-        5. Project to output_dim
+        returns: [B, output_dim]
         """
         B, seq_len, C = x.shape
         
-        # 1. Padding if needed (like orthogonal)
+        # 1. Padding if needed
         if self.pad_len > 0:
             pad_start = max(0, seq_len - self.pad_len)
             pad_data = x[:, pad_start:pad_start + self.pad_len, :]
@@ -106,31 +166,32 @@ class SegmentMLPEmbed(nn.Module):
         # 2. Reshape to segments: [B, seq_len, C] → [B, N_seg, seg_len, C]
         x = x.reshape(B, self.num_segments, self.segment_length, C)
         
-        # 3. Normalize segments (CRITICAL for hyperbolic!)
+        # 3. Normalize segments
         x = self._normalize_segments(x)
         
-        # 4. Flatten each segment: [B, N_seg, seg_len, C] → [B, N_seg, seg_len*C]
-        x = x.reshape(B, self.num_segments, self.segment_length * C)
+        # 4. Project segments
+        if self.use_per_feature:
+            # NEW: Per-feature projection
+            x = self._project_per_feature(x)  # [B, N_seg, hidden_dim]
+        else:
+            # Original: Shared projection
+            x = x.reshape(B, self.num_segments, self.segment_length * C)
+            x = self.input_proj(x)  # [B, N_seg, hidden_dim]
         
-        # 5. Project segments (analogous to input_proj in MLPEmbed)
-        x = self.input_proj(x)  # [B, N_seg, hidden_dim]
-        
-        # 6. Process through layers (same as MLPEmbed)
+        # 5. Process through layers
         for layer in self.layers:
             x = layer(x)
         
-        # 7. Pool across segments (analogous to pooling across time in MLPEmbed)
+        # 6. Pool across segments
         if self.use_attention_pooling:
-            attn_scores = self.attention(x)  # [B, N_seg, 1]
-            attn_weights = torch.softmax(attn_scores, dim=1)  # [B, N_seg, 1]
-            x_pooled = (x * attn_weights).sum(dim=1)  # [B, hidden_dim]
+            attn_scores = self.attention(x)
+            attn_weights = torch.softmax(attn_scores, dim=1)
+            x_pooled = (x * attn_weights).sum(dim=1)
         else:
-            x_pooled = x.mean(dim=1)  # mean pooling across segments
+            x_pooled = x.mean(dim=1)
         
-        # 8. Output projection (same as MLPEmbed)
-        return self.output_proj(x_pooled)  # [B, output_dim]
-
-
+        # 7. Output projection
+        return self.output_proj(x_pooled)
 # --------------------------
 # Segmented Parallel Poincaré Encoder
 # --------------------------

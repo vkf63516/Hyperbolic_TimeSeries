@@ -3,8 +3,6 @@ torch
 numpy
 pandas
 
-torchvision
-torchaudio
 # Scientific computing
 scipy
 scikit-learn

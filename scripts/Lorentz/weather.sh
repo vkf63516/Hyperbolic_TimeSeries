@@ -69,5 +69,7 @@ python run.py \
   --manifold_type "Lorentzian" \
   --curvature 1.0 \
   --use_decomposition \
-  --use_wandb  
+  --use_wandb \
+  --use_revin \
+  --use_segments 
 

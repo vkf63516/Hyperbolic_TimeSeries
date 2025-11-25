@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import geoopt
 from embed.Linear.segment_linear_embed_poincare import SegmentedParallelPoincare
-from embed.segment_mlp_embed_lorentz import SegmentedParallelLorentz
+from embed.Linear.segment_linear_embed_lorentz import SegmentedParallelLorentz
 from DynamicsMvar.Poincare_Residual_Dynamics import HyperbolicPoincareDynamics
 from DynamicsMvar.Lorentz_Residual_Dynamics import HyperbolicLorentzDynamics
 from Lifting.hyperbolic_segment_reconstructor import HyperbolicSegmentReconstructionHead  # NEW
@@ -82,25 +82,19 @@ class SegmentedHyperbolicForecaster(nn.Module):
                 use_segment_norm=use_segment_norm,
                 embed_dropout=self.embed_dropout
             )
-        elif manifold_type == "Lorentzian":  # Lorentzian
+        if manifold_type == "Lorentzian":  # Lorentzian
             self.embed_hyperbolic = SegmentedParallelLorentz(
                 lookback=lookback,
                 input_dim=n_features,
                 embed_dim=embed_dim,
-                hidden_dim=hidden_dim,
                 curvature=curvature,
                 segment_length=segment_length,
-                n_layer=num_layers,
-                use_attention_pooling=use_attention_pooling,
-                use_segment_norm=use_segment_norm
+                use_segment_norm=use_segment_norm,
+                embed_dropout=self.embed_dropout
             )
         self.manifold = self.embed_hyperbolic.manifold
         self.dynamics = self._create_dynamics()
 
-        # Dynamics network
-        
-        
-    
         self.reconstructor = HyperbolicSegmentReconstructionHead(
             embed_dim=embed_dim,
             output_dim=n_features,
@@ -179,6 +173,21 @@ class SegmentedHyperbolicForecaster(nn.Module):
 
         # Autoregressive rollout over SEGMENTS
         for seg_step in range(self.num_pred_segments):
+            x_pred_norm_seg = self.reconstructor(z_current)  # [B, segment_length, n_features]
+            predictions_norm.append(x_pred_norm_seg)
+
+            trend_pred_seg = self.reconstructor(z_current_trend)
+            trend_predictions.append(trend_pred_seg)
+
+            coarse_pred_seg = self.reconstructor(z_current_coarse)
+            coarse_predictions.append(coarse_pred_seg)
+
+            fine_pred_seg = self.reconstructor(z_current_fine)
+            fine_predictions.append(fine_pred_seg)
+
+            residual_pred_seg = self.reconstructor(z_current_resid)
+            residual_predictions.append(residual_pred_seg)
+            
             # Predict next state via Dynamics
             z_current, z_previous = self.dynamics(z_current, z_previous)
             z_current_trend, z_previous_trend = self.dynamics(z_current_trend, z_previous_trend)
@@ -202,20 +211,7 @@ class SegmentedHyperbolicForecaster(nn.Module):
                 z_previous_resid = z_previous_resid.detach()
 
             # Reconstruct entire SEGMENTS (not single points!)
-            x_pred_norm_seg = self.reconstructor(z_current)  # [B, segment_length, n_features]
-            predictions_norm.append(x_pred_norm_seg)
-
-            trend_pred_seg = self.reconstructor(z_current_trend)
-            trend_predictions.append(trend_pred_seg)
-
-            coarse_pred_seg = self.reconstructor(z_current_coarse)
-            coarse_predictions.append(coarse_pred_seg)
-
-            fine_pred_seg = self.reconstructor(z_current_fine)
-            fine_predictions.append(fine_pred_seg)
-
-            residual_pred_seg = self.reconstructor(z_current_resid)
-            residual_predictions.append(residual_pred_seg)
+            
         
         # Stack segments and reshape to [B, pred_len, n_features]
         # predictions: list of [B, segment_length, n_features] → [B, num_segments, segment_length, n_features]

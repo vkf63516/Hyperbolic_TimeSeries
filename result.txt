@@ -320,3 +320,15 @@ mse:0.4734005331993103, mae:0.47760745882987976, rmse:0.688041090965271
 ETTh1_96_96_Poincare_type_exp1_Segment_HyperbolicForecasting_ETTh1_decomposition_ETTh1.csv_ftM_sl96_pl96_exp_ebfixed_Poincare_0_seed2023  
 mse:0.37601014971733093, mae:0.4194715917110443, rmse:0.6131966710090637
 
+ETTh1_96_192_Poincare_exp1_Segment_HyperbolicForecasting_ETTh1_decomposition_ETTh1.csv_ftM_sl96_pl192_exp_ebfixed_Poincare_0_seed2023  
+mse:0.4180925190448761, mae:0.4423733055591583, rmse:0.6466007232666016
+
+ETTh1_96_336_Poincare_exp1_Segment_HyperbolicForecasting_ETTh1_decomposition_ETTh1.csv_ftM_sl96_pl336_exp_ebfixed_Poincare_0_seed2023  
+mse:0.4580991268157959, mae:0.45960304141044617, rmse:0.6768302321434021
+
+ETTh1_96_720_Poincare_exp1_segment_HyperbolicForecasting_ETTh1_decomposition_ETTh1.csv_ftM_sl96_pl720_exp_ebfixed_Poincare_0_seed2023  
+mse:0.4734005331993103, mae:0.47760745882987976, rmse:0.688041090965271
+
+ETTh1_96_96_Poincare_type_exp1_Segment_HyperbolicForecasting_custom_decomposition_weather.csv_ftM_sl96_pl96_exp_ebfixed_Poincare_0_seed2023  
+mse:0.17567181587219238, mae:0.22726014256477356, rmse:0.41913220286369324
+

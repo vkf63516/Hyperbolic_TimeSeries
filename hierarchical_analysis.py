@@ -858,7 +858,7 @@ if __name__ == '__main__':
     parser.add_argument('--orthogonal_lr', type=float, default=1e-3)
     parser.add_argument('--orthogonal_iters', type=int, default=300)
     parser.add_argument('--use_segments', action='store_true', default=False)
-    parser.add_argument('--mstl_period', type=int, default=144)
+    parser.add_argument('--mstl_period', type=int, default=24)
     
     # Loader parameters
     parser.add_argument('--num_workers', type=int, default=0)

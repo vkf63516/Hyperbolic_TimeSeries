@@ -1,14 +1,17 @@
 seq_len=96
 train_epochs=30
 patience=6
+enc_in=137
+manifold_type="Euclidean"
+data_path=Solar.csv
 
 python run.py \
   --is_training 1 \
-  --model_id Solar_$seq_len'_'96_exp1_HScales \
+  --model_id Solar_$seq_len'_'$manifold_type'_'96_exp1_Segment \
   --model HyperbolicForecasting \
   --data custom_decomposition \
   --root_path ./time-series-dataset/dataset/ \
-  --data_path Solar.csv \
+  --data_path $data_path \
   --features M \
   --num_basis 10 \
   --label_len 0 \
@@ -22,19 +25,20 @@ python run.py \
   --learning_rate 1e-4 \
   --train_epochs $train_epochs \
   --use_decomposition \
-  --enc_in 137 \
+  --enc_in $enc_in \
   --patience $patience \
-  --manifold_type "Euclidean" \
-  --use_revin 
+  --manifold_type $manifold_type \
+  --use_revin \
+  --use_segments
 
 
 python run.py \
   --is_training 1 \
-  --model_id Solar_$seq_len'_'192_exp1_HScales \
+  --model_id Solar_$seq_len'_'$manifold'_'192_exp1_Segment \
   --model HyperbolicForecasting \
   --data custom_decomposition \
   --root_path ./time-series-dataset/dataset/ \
-  --data_path Solar.csv \
+  --data_path $data_path \
   --features M \
   --num_basis 10 \
   --label_len 0 \
@@ -48,18 +52,19 @@ python run.py \
   --learning_rate 1e-4 \
   --train_epochs $train_epochs \
   --use_decomposition \
-  --enc_in 137 \
+  --enc_in $enc_in \
   --patience $patience \
-  --manifold_type "Euclidean" \
-  --use_revin 
+  --manifold_type $manifold_type \
+  --use_revin \
+  --use_segments
 
 python run.py \
   --is_training 1 \
-  --model_id Solar_$seq_len'_'336_exp1_HScales \
+  --model_id Solar_$seq_len'_'$manifold_type'_'336_exp1_Segment \
   --model HyperbolicForecasting \
   --data custom_decomposition \
   --root_path ./time-series-dataset/dataset/ \
-  --data_path Solar.csv \
+  --data_path $data_path \
   --features M \
   --num_basis 10 \
   --label_len 0 \
@@ -73,22 +78,21 @@ python run.py \
   --learning_rate 1e-4 \
   --train_epochs $train_epochs \
   --use_decomposition \
-  --enc_in 137 \
+  --enc_in $enc_in \
   --patience $patience \
-  --manifold_type "Euclidean" \
-  --use_revin 
-
-
+  --manifold_type $manifold_type \
+  --use_revin \
+  --use_segments
 
 python run.py \
   --is_training 1 \
-  --model_id Solar_$seq_len'_'720_exp1_HScales \
+  --model_id Solar_$seq_len'_'$manifold_type'_'720_exp1_Segment \
   --model HyperbolicForecasting \
   --data custom_decomposition \
   --root_path ./time-series-dataset/dataset/ \
-  --data_path Solar.csv \
+  --data_path $data_path \
   --features M \
-  --num_basis 15 \
+  --num_basis 10 \
   --label_len 0 \
   --seq_len $seq_len \
   --pred_len 720 \
@@ -100,7 +104,8 @@ python run.py \
   --learning_rate 1e-4 \
   --train_epochs $train_epochs \
   --use_decomposition \
-  --enc_in 137 \
+  --enc_in $enc_in \
   --patience $patience \
-  --manifold_type "Euclidean" \
-  --use_revin 
+  --manifold_type $manifold_type \
+  --use_revin \
+  --use_segments

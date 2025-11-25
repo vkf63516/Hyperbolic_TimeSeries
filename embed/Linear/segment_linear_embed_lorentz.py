@@ -2,9 +2,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import geoopt
-from pathlib import Path
+# from pathlib import Path
 import sys 
-sys.path.append(str(Path(__file__).resolve().parents[0]))
+# sys.path.append(str(Path(__file__).resolve().parents[0]))
 from spec import safe_expmap, safe_expmap0
 
 class SegmentLinearEmbed(nn.Module):
@@ -103,17 +103,20 @@ class SegmentLinearEmbed(nn.Module):
         
         return output
 
-class SegmentedParallelPoincare(nn.Module):
+# --------------------------
+# Segmented Parallel Lorentz Encoder
+# --------------------------
+class SegmentedParallelLorentz(nn.Module):
     """
-    Segmented version of ParallelPoincare - follows exact same logic but uses segments.
+    Segmented version of ParallelLorentz - follows exact same logic but uses segments.
     
     Instead of encoding entire sequences point-by-point, we:
     1. Divide sequences into segments
     2. Encode each segment as a unit
     3. Pool across segments
-    4. Map to Poincaré ball
+    4. Map to Lorentz curvature
     
-    Everything else (Möbius fusion, scaling, projection) is IDENTICAL to ParallelPoincare.
+    Everything else (Lorentz fusion, scaling, projection) is IDENTICAL to ParallelLorentz.
     """
     def __init__(self, lookback, input_dim, embed_dim=32,
                  curvature=1.0, segment_length=24, embed_dropout=0.1,
@@ -123,7 +126,7 @@ class SegmentedParallelPoincare(nn.Module):
             lookback: int - lookback window size
             input_dim: int - number of input features
             embed_dim: int - dimension of hyperbolic embeddings
-            curvature: float - curvature of Poincaré ball (c parameter)
+            curvature: float - curvature of Lorentz  (k parameter)
             segment_length: int - length of each segment (e.g., 24 for daily segments in hourly data)
             n_layer: int - number of linear layers
             use_attention_pooling: bool - use attention pooling over segments
@@ -131,7 +134,6 @@ class SegmentedParallelPoincare(nn.Module):
         """
         super().__init__()
         
-        # Segment-aware Linear encoders 
         self.trend_embed = SegmentLinearEmbed(
             input_dim=input_dim,
             output_dim=embed_dim,
@@ -164,97 +166,127 @@ class SegmentedParallelPoincare(nn.Module):
             use_segment_norm=use_segment_norm,
             dropout=embed_dropout
         )
+
         
-        # Poincaré ball manifold (SAME as ParallelPoincare)
-        self.manifold = geoopt.manifolds.PoincareBall(c=curvature)
+        # Lorentz ball manifold (SAME as ParallelLorentz)
+        self.manifold = geoopt.manifolds.Lorentz(k=curvature)
         
-        # Scaling parameter (SAME as ParallelPoincare)
+        # Scaling parameter (SAME as ParallelLorentz)
         self.effective_scale = nn.Parameter(torch.tensor(0.1))
         
-        # Learnable weights for Möbius combination (SAME as ParallelPoincare)
-        self.mobius_weights = nn.Parameter(torch.ones(4) * 0.25)
+        # Learnable weights for Lorentz combination (SAME as ParallelLorentz)
+        self.lorentz_weights = nn.Parameter(torch.ones(4) * 0.25)
 
-    def mobius_fusion(self, z_trend_h, z_coarse_h, z_fine_h, z_residual_h):
+    def weighted_lorentz_mean(self, points, weights):
         """
-        IDENTICAL to ParallelPoincare.mobius_fusion
+        Compute weighted Einstein midpoint (Fréchet mean) in Lorentz manifold.
+        This is the proper way to combine multiple points in hyperbolic space.
         
-        Non-hierarchical fusion using weighted Möbius addition.
-        Properly combines points in Poincaré ball using gyrovector space operations.
+        Uses iterative algorithm to find the point that minimizes weighted distances.
         
-        Uses the formula: result = w₁⊗x₁ ⊕ w₂⊗x₂ ⊕ w₃⊗x₃ ⊕ w₄⊗x₄
-        where ⊗ is Möbius scalar multiplication and ⊕ is Möbius addition
+        Args:
+            points: list of [B, embed_dim+1] - points on Lorentz manifold
+            weights: [num_points] - normalized weights
+        
+        Returns:
+            mean_point: [B, embed_dim+1] - weighted mean on manifold
+        """
+        # Initialize at weighted tangent space mean
+        tangents = [self.manifold.logmap0(p) for p in points]
+        weighted_tangent = sum(w * t for w, t in zip(weights, tangents))
+        current_mean = safe_expmap0(self.manifold, weighted_tangent)
+        current_mean = self.manifold.projx(current_mean)
+        
+        # Iterative refinement (Karcher flow)
+        # Usually converges in 5-10 iterations
+        for _ in range(10):
+            # Compute tangent vectors from current mean to each point
+            tangent_vecs = [self.manifold.logmap(current_mean, p) for p in points]
+            
+            # Weighted sum in tangent space at current mean
+            weighted_vec = sum(w * v for w, v in zip(weights, tangent_vecs))
+            
+            # Check convergence
+            if torch.norm(weighted_vec, dim=-1).max() < 1e-5:
+                break
+            
+            # Move along weighted direction
+            current_mean = safe_expmap(self.manifold, current_mean, 0.5 * weighted_vec)
+            current_mean = self.manifold.projx(current_mean)
+        
+        return current_mean
+
+    def lorentz_fusion(self, z_trend_h, z_coarse_h, z_fine_h, z_residual_h):
+        """
+        Non-hierarchical fusion using weighted Einstein midpoint in Lorentz space.
+        This is the geometrically correct way to combine points in hyperbolic space.
+        
+        Args:
+            z_trend_h, z_coarse_h, z_fine_h, z_residual_h: [B, embed_dim+1]
+        
+        Returns:
+            combined_h: [B, embed_dim+1] - combined point on manifold
+            combined_tangent: [B, embed_dim] - tangent vector representation at origin
         """
         # Normalize weights to sum to 1
-        weights = torch.softmax(self.mobius_weights, dim=0)
+        weights = torch.softmax(self.lorentz_weights, dim=0)
         
-        # Sequential Möbius addition with weights
-        # Start with scaled trend: w₁ ⊗ x₁
-        combined_h = self.manifold.mobius_scalar_mul(weights[0], z_trend_h)
+        # Collect all points
+        points = [z_trend_h, z_coarse_h, z_fine_h, z_residual_h]
         
-        # Add scaled coarse: (w₁⊗x₁) ⊕ (w₂⊗x₂)
-        scaled_coarse = self.manifold.mobius_scalar_mul(weights[1], z_coarse_h)
-        combined_h = self.manifold.mobius_add(combined_h, scaled_coarse)
-        
-        # Add scaled fine: (...) ⊕ (w₃⊗x₃)
-        scaled_fine = self.manifold.mobius_scalar_mul(weights[2], z_fine_h)
-        combined_h = self.manifold.mobius_add(combined_h, scaled_fine)
-        
-        # Add scaled residual: (...) ⊕ (w₄⊗x₄)
-        scaled_residual = self.manifold.mobius_scalar_mul(weights[3], z_residual_h)
-        combined_h = self.manifold.mobius_add(combined_h, scaled_residual)
-        
-        # Ensure numerical stability
-        combined_h = self.manifold.projx(combined_h)
-        
-        # Get tangent representation for downstream tasks
-        
+        # Compute weighted Einstein midpoint
+        combined_h = self.weighted_lorentz_mean(points, weights)
+                
         return combined_h
 
     def forward(self, trend, seasonal_coarse, seasonal_fine, residual):
         """
-        IDENTICAL logic to ParallelPoincare.forward, just uses segment encoders.
-        
-        Encode decomposed time series components to Poincaré ball.
+        Encode decomposed time series components to Lorentz hyperbolic space.
         
         Args:
-            trend: [B, seq_len, input_dim]
-            seasonal_coarse: [B, seq_len, input_dim]
-            seasonal_fine: [B, seq_len, input_dim]
-            residual: [B, seq_len, input_dim]
+            trend: [B, seq_len, input_dim] 
+            seasonal_coarse: [B, seq_len, input_dim] 
+            seasonal_fine: [B, seq_len, input_dim] 
+            residual: [B, seq_len, input_dim] 
         
         Returns:
             dict with:
-                - trend_h, seasonal_coarse_h, seasonal_fine_h, residual_h: [B, embed_dim]
-                - combined_h: [B, embed_dim]
+                - trend_tangent, seasonal_coarse_tangent, seasonal_fine_tangent, residual_tangent: [B, embed_dim]
+                - trend_h, seasonal_coarse_h, seasonal_fine_h, residual_h: [B, embed_dim+1]
+                - combined_tangent: [B, embed_dim]
+                - combined_h: [B, embed_dim+1]
         """
         # 1) Encode to Euclidean latent (tangent vectors at origin)
-        # ONLY DIFFERENCE: Uses SegmentMLPEmbed instead of MLPEmbed
         z_trend_t = self.trend_embed(trend)  # [B, embed_dim]
         z_seasonal_coarse_t = self.seasonal_coarse_embed(seasonal_coarse)
         z_seasonal_fine_t = self.seasonal_fine_embed(seasonal_fine)
         z_residual_t = self.residual_embed(residual)
         
-        # 2) Scaling (SAME as ParallelPoincare)
+        # 2) Scaling to prevent numerical instability
         effective_scale = torch.tanh(self.effective_scale)  # [-1, 1]
         scaled_trend_embed = z_trend_t * effective_scale
         scaled_coarse_embed = z_seasonal_coarse_t * effective_scale
         scaled_fine_embed = z_seasonal_fine_t * effective_scale
         scaled_residual_embed = z_residual_t * effective_scale
 
-        # 3) Map to hyperbolic space (SAME as ParallelPoincare)
+        # 3) Map to hyperbolic space (Lorentz model)
+        # expmap0: tangent space at origin → manifold
+        # Result: [B, embed_dim+1] (extra dimension for Lorentz constraint)
         z_trend_h = safe_expmap0(self.manifold, scaled_trend_embed)
         z_seasonal_coarse_h = safe_expmap0(self.manifold, scaled_coarse_embed)
         z_seasonal_fine_h = safe_expmap0(self.manifold, scaled_fine_embed)
         z_residual_h = safe_expmap0(self.manifold, scaled_residual_embed)
 
-        # 4) Project to manifold (SAME as ParallelPoincare)
+        # 4) Project to manifold (ensure numerical stability)
+        # Ensures points satisfy Lorentz constraint: -x_0^2 + x_1^2 + ... = -1/k
         z_trend_h = self.manifold.projx(z_trend_h)
         z_seasonal_coarse_h = self.manifold.projx(z_seasonal_coarse_h)
         z_seasonal_fine_h = self.manifold.projx(z_seasonal_fine_h)
         z_residual_h = self.manifold.projx(z_residual_h)
-        
-        # 5) Möbius fusion (SAME as ParallelPoincare)
-        combined_h = self.mobius_fusion(
+
+    
+        # Non-hierarchical: Use weighted Einstein midpoint (Fréchet mean)
+        combined_h = self.lorentz_fusion(
             z_trend_h, z_seasonal_coarse_h, z_seasonal_fine_h, z_residual_h
         )
 
