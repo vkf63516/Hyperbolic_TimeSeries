@@ -3,15 +3,17 @@ import torch.nn as nn
 import torch.nn.functional as f
 import geoopt
 
+
 class SegmentLinearEmbed(nn.Module):
     def __init__(self, input_dim, output_dim, segment_length, dropout=0.1,
-                 lookback=None, use_segment_norm=True):
+                 lookback=None, use_segment_norm=True, share_feature_weights=False):
         super().__init__()
         
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.segment_length = segment_length
         self.use_segment_norm = use_segment_norm
+        self.share_feature_weights = share_feature_weights
         
         # Calculate segments
         if lookback is not None:
@@ -23,19 +25,21 @@ class SegmentLinearEmbed(nn.Module):
         
         self.total_len = self.num_segments * segment_length
         
-        print(f"TimeBaseInspiredEmbed: {input_dim} features, {self.num_segments} segments")
-        
-        # Per-feature projections (from TimeBase individual=True & DLinear)
-        self.feature_linears = nn.ModuleList([
-            nn.Linear(self.total_len, output_dim)
-            for _ in range(input_dim)
-        ])
-        
-        # Initialize like TimeBase (helps training)
-        for linear in self.feature_linears:
-            linear.weight = nn.Parameter(
+        if share_feature_weights:
+            self.shared_linear = nn.Linear(self.total_len, output_dim)
+            self.shared_linear.weight = nn.Parameter(
                 (1 / self.total_len) * torch.ones([output_dim, self.total_len])
             )
+            print(f"SegmentLinearEmbed (SHARED): {input_dim} features → {self.total_len * output_dim} params")
+        else:
+            self.feature_linears = nn.ModuleList([
+                nn.Linear(self.total_len, output_dim) for _ in range(input_dim)
+            ])
+            for linear in self.feature_linears:
+                linear.weight = nn.Parameter(
+                    (1 / self.total_len) * torch.ones([output_dim, self.total_len])
+                )
+            print(f"SegmentLinearEmbed (PER-FEATURE): {input_dim} features → {input_dim * self.total_len * output_dim} params")
         
         self.dropout = nn.Dropout(dropout)
     
@@ -85,22 +89,22 @@ class SegmentLinearEmbed(nn.Module):
         # Transpose to [B, C, total_len] (TimeBase/DLinear style)
         x = x.permute(0, 2, 1)
         
-        # Per-feature processing (TimeBase individual=True)
-        output = torch.zeros([B, C, self.output_dim], 
-                            dtype=x.dtype, device=x.device)
+        if self.share_feature_weights:
+            x_flat = x.reshape(-1, self.total_len)
+            output_flat = self.shared_linear(x_flat)
+            output = output_flat.reshape(B, C, self.output_dim)
+        else:
+            output = torch.zeros([B, C, self.output_dim], dtype=x.dtype, device=x.device)
+            for i in range(self.input_dim):
+                feature_i = x[:, i, :]
+                output[:, i, :] = self.feature_linears[i](feature_i)
         
-        for i in range(self.input_dim):
-            feature_i = x[:, i, :]  # [B, total_len]
-            output[:, i, :] = self.feature_linears[i](feature_i)  # [B, output_dim]
-        
-        self.dropout(output)
-        
-        # Average across features
-        output = output.mean(dim=1)  # [B, output_dim]
-        return output 
+        output = self.dropout(output)
+        output = output.mean(dim=1)
+        return output
 
 class SegmentParallelEuclidean(nn.Module):
-    def __init__(self, lookback, input_dim, embed_dim=32,
+    def __init__(self, lookback, input_dim, embed_dim=32, share_feature_weights=False,
                 segment_length=24, embed_dropout=0.1, use_segment_norm=False):
         super().__init__()
         # 5 parallel Mamba encoder blocks
@@ -111,7 +115,8 @@ class SegmentParallelEuclidean(nn.Module):
             lookback=lookback, 
             segment_length=segment_length,
             dropout=embed_dropout,
-            use_segment_norm=use_segment_norm
+            use_segment_norm=use_segment_norm,
+            share_feature_weights=share_feature_weights
         )
         self.fine_embed = SegmentLinearEmbed(
             input_dim=input_dim, 
@@ -119,7 +124,8 @@ class SegmentParallelEuclidean(nn.Module):
             lookback=lookback, 
             segment_length=segment_length,
             dropout=embed_dropout,
-            use_segment_norm=use_segment_norm
+            use_segment_norm=use_segment_norm,
+            share_feature_weights=share_feature_weights
         )
         self.coarse_embed = SegmentLinearEmbed(
             input_dim=input_dim, 
@@ -127,7 +133,8 @@ class SegmentParallelEuclidean(nn.Module):
             lookback=lookback, 
             segment_length=segment_length,
             dropout=embed_dropout,
-            use_segment_norm=use_segment_norm
+            use_segment_norm=use_segment_norm,
+            share_feature_weights=share_feature_weights
         )
         self.residual_embed = SegmentLinearEmbed(
             input_dim=input_dim, 
@@ -135,7 +142,8 @@ class SegmentParallelEuclidean(nn.Module):
             lookback=lookback, 
             segment_length=segment_length,
             dropout=embed_dropout,
-            use_segment_norm=use_segment_norm
+            use_segment_norm=use_segment_norm,
+            share_feature_weights=share_feature_weights
         )
 
     
@@ -171,3 +179,30 @@ class SegmentParallelEuclidean(nn.Module):
             "combined_e": combined_e
         }
 
+import torch
+import torch.nn as nn
+
+class SegmentParallelEuclidean(nn.Module):
+    def __init__(self, lookback, input_dim, embed_dim=32, segment_length=24, 
+                 embed_dropout=0.1, use_segment_norm=False, share_feature_weights=False):
+        super().__init__()
+        
+        kwargs = {
+            'input_dim': input_dim, 'output_dim': embed_dim, 'segment_length': segment_length,
+            'dropout': embed_dropout, 'lookback': lookback, 'use_segment_norm': use_segment_norm,
+            'share_feature_weights': share_feature_weights
+        }
+        
+        self.trend_embed = SegmentLinearEmbed(**kwargs)
+        self.fine_embed = SegmentLinearEmbed(**kwargs)
+        self.coarse_embed = SegmentLinearEmbed(**kwargs)
+        self.residual_embed = SegmentLinearEmbed(**kwargs)
+    
+    def forward(self, trend, fine, coarse, residual):
+        return {
+            "trend_e": self.trend_embed(trend),
+            "seasonal_fine_e": self.fine_embed(fine),
+            "seasonal_coarse_e": self.coarse_embed(coarse),
+            "residual_e": self.residual_embed(residual),
+            "combined_e": self.trend_embed(trend) + self.fine_embed(fine) + self.coarse_embed(coarse) + self.residual_embed(residual)
+        }

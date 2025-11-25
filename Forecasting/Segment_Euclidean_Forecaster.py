@@ -11,7 +11,7 @@ class SegmentForecastEuclidean(nn.Module):
          hidden_dim, manifold_type, segment_length=24, 
          use_attention_pooling=False, use_revin=False,
          use_truncated_bptt=False, truncate_every=4,  # Truncate every N segments
-         dynamic_dropout=0.3, embed_dropout=0.5, recon_dropout=0.2, 
+         dynamic_dropout=0.3, embed_dropout=0.5, recon_dropout=0.2, share_feature_weights=False,
          num_layers=2, use_segment_norm=True):
         """
         Args:
@@ -56,6 +56,7 @@ class SegmentForecastEuclidean(nn.Module):
         self.dynamic_dropout = dynamic_dropout
         self.recon_dropout=recon_dropout
         self.num_layers=num_layers
+        self.share_feature_weights = share_feature_weights
         if self.use_revin:
             self.revin = RevIN(num_features=n_features, eps=1e-5, affine=True)
         
@@ -67,7 +68,8 @@ class SegmentForecastEuclidean(nn.Module):
             embed_dim=embed_dim,
             segment_length=segment_length,
             embed_dropout=embed_dropout,
-            use_segment_norm=use_segment_norm
+            use_segment_norm=use_segment_norm,
+            share_feature_weights=share_feature_weights
         )
         self.step_size = nn.Parameter(torch.tensor(0.1))
 
@@ -121,18 +123,9 @@ class SegmentForecastEuclidean(nn.Module):
             self.revin(x_combined, mode='norm')
         
         embed_e = self.embed_euclidean(trend, seasonal_coarse, seasonal_fine, residual)
-        
-        z_current_trend = embed_e["trend_e"]
-        z_current_coarse = embed_e["seasonal_coarse_e"]
-        z_current_fine = embed_e["seasonal_fine_e"]
-        z_current_resid = embed_e["residual_e"]
         z_current = embed_e["combined_e"]
         
         # Storage for SEGMENT predictions (not point predictions!)
-        trend_predictions = []
-        coarse_predictions = []
-        fine_predictions = []
-        residual_predictions = []
         predictions_norm = []
         step_size = torch.sigmoid(self.step_size)
 
@@ -146,40 +139,14 @@ class SegmentForecastEuclidean(nn.Module):
             predictions_norm.append(x_pred_norm_seg)
             # print(x_pred_norm_seg.shape)
 
-            trend_pred_seg = self.reconstructor(z_current_trend)
-            trend_predictions.append(trend_pred_seg)
-
-            coarse_pred_seg = self.reconstructor(z_current_coarse)
-            coarse_predictions.append(coarse_pred_seg)
-
-            fine_pred_seg = self.reconstructor(z_current_fine)
-            fine_predictions.append(fine_pred_seg)
-
-            residual_pred_seg = self.reconstructor(z_current_resid)
-            residual_predictions.append(residual_pred_seg)
 
             z_next = self.dynamics(z_current)
             z_current = z_current + step_size * (z_next - z_current)
 
-            z_next_trend = self.dynamics(z_current_trend)
-            z_current_trend = z_current_trend + step_size * (z_next_trend - z_current_trend)
-
-            z_next_coarse = self.dynamics(z_current_coarse)
-            z_current_coarse = z_current_coarse + step_size * (z_next_coarse - z_current_coarse)
-
-            z_next_fine  = self.dynamics(z_current_fine)
-            z_current_fine = z_current_fine + step_size * (z_next_fine - z_current_fine)
-
-            z_next_resid = self.dynamics(z_current_resid)
-            z_current_resid = z_current_resid + step_size * (z_next_resid - z_current_resid)
             
             # Truncated BPTT (every N segments, not every N points!)
             if (seg_step + 1) % self.truncate_every == 0 and seg_step < self.num_pred_segments - 1:
                 z_current = z_current.detach()
-                z_current_trend = z_current_trend.detach()
-                z_current_coarse = z_current_coarse.detach()
-                z_current_fine = z_current_fine.detach()
-                z_current_resid = z_current_resid.detach()
             
         
         # Stack segments and reshape to [B, pred_len, n_features]
@@ -190,18 +157,7 @@ class SegmentForecastEuclidean(nn.Module):
         predictions_norm = predictions_norm.reshape(-1, self.pred_len, self.n_features)
         # print(f"Reshape Predictions shape {predictions_norm.shape}")
         
-        trend_predictions = torch.stack(trend_predictions, dim=1)
-        trend_predictions = trend_predictions.reshape(-1, self.pred_len, self.n_features)
         
-        coarse_predictions = torch.stack(coarse_predictions, dim=1)
-        coarse_predictions = coarse_predictions.reshape(-1, self.pred_len, self.n_features)
-        
-        fine_predictions = torch.stack(fine_predictions, dim=1)
-        fine_predictions = fine_predictions.reshape(-1, self.pred_len, self.n_features)
-        
-        residual_predictions = torch.stack(residual_predictions, dim=1)
-        residual_predictions = residual_predictions.reshape(-1, self.pred_len, self.n_features)
-
         if self.use_revin:
             predictions = self.revin(predictions_norm, mode='denorm')
         else:
@@ -210,9 +166,6 @@ class SegmentForecastEuclidean(nn.Module):
         
         return {
             'predictions': predictions,  # [B, pred_len, n_features]
-            'trend_predictions': trend_predictions,
-            'coarse_predictions': coarse_predictions,
-            'fine_predictions': fine_predictions,
-            'residual_predictions': residual_predictions,
+
         }
        

@@ -271,15 +271,6 @@ class orthogonalMSTL:
                 trend = result.trend
                 residual = result.resid
                 seasonal_total = result.seasonal.sum(axis=1)
-            
-            # # Handle seasonal component(s)
-            #     if isinstance(result.seasonal, pd.DataFrame):
-            #     # Multiple seasonal components - sum them
-            #         seasonal_total = result.seasonal.sum(axis=1).values
-            #     else:
-            #     # Single seasonal component
-            #         seasonal_total = result.seasonal.sum(axis=1)
-            
                 decomposed_basis[f"basis_{i}"] = {
                     "trend": trend,
                     seasonal_type: seasonal_total,

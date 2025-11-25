@@ -9,13 +9,14 @@ from spec import safe_expmap, safe_expmap0
 
 class SegmentLinearEmbed(nn.Module):
     def __init__(self, input_dim, output_dim, segment_length, dropout=0.1,
-                 lookback=None, use_segment_norm=True):
+                 lookback=None, use_segment_norm=True, share_feature_weights=False):
         super().__init__()
         
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.segment_length = segment_length
         self.use_segment_norm = use_segment_norm
+        self.share_feature_weights = share_feature_weights
         
         # Calculate segments
         if lookback is not None:
@@ -27,26 +28,28 @@ class SegmentLinearEmbed(nn.Module):
         
         self.total_len = self.num_segments * segment_length
         
-        print(f"TimeBaseInspiredEmbed: {input_dim} features, {self.num_segments} segments")
-        
-        # Per-feature projections 
-        self.feature_linears = nn.ModuleList([
-            nn.Linear(self.total_len, output_dim)
-            for _ in range(input_dim)
-        ])
-        
-        # Initialize (helps training)
-        for linear in self.feature_linears:
-            linear.weight = nn.Parameter(
+        if share_feature_weights:
+            self.shared_linear = nn.Linear(self.total_len, output_dim)
+            self.shared_linear.weight = nn.Parameter(
                 (1 / self.total_len) * torch.ones([output_dim, self.total_len])
             )
+            print(f"SegmentLinearEmbed (SHARED): {input_dim} features → {self.total_len * output_dim} params")
+        else:
+            self.feature_linears = nn.ModuleList([
+                nn.Linear(self.total_len, output_dim) for _ in range(input_dim)
+            ])
+            for linear in self.feature_linears:
+                linear.weight = nn.Parameter(
+                    (1 / self.total_len) * torch.ones([output_dim, self.total_len])
+                )
+            print(f"SegmentLinearEmbed (PER-FEATURE): {input_dim} features → {input_dim * self.total_len * output_dim} params")
         
         self.dropout = nn.Dropout(dropout)
     
     def _normalize_segments(self, x):
         """Period normalization (from TimeBase)"""
         if self.use_segment_norm:
-            # Per-period normalization 
+            # Per-period normalization (TimeBase style)
             period_mean = x.mean(dim=2, keepdim=True)
             x = x - period_mean
             return x, period_mean
@@ -59,17 +62,19 @@ class SegmentLinearEmbed(nn.Module):
     
     def forward(self, x):
         """
-        Forward
+        Forward with optional orthogonal loss.
         
         Args:
             x: [B, seq_len, C]
+            return_orthogonal_loss: bool
         
         Returns:
             output: [B, output_dim]
+            orthogonal_loss: scalar (if return_orthogonal_loss=True)
         """
         B, seq_len, C = x.shape
         
-        # Padding 
+        # Padding (TimeBase style)
         if self.pad_len > 0:
             pad_start = max(0, seq_len - self.pad_len)
             pad_data = x[:, pad_start:pad_start + self.pad_len, :]
@@ -84,23 +89,21 @@ class SegmentLinearEmbed(nn.Module):
         # Flatten time: [B, total_len, C]
         x = x.reshape(B, self.total_len, C)
         
-        # Transpose to [B, C, total_len] 
+        # Transpose to [B, C, total_len] (TimeBase/DLinear style)
         x = x.permute(0, 2, 1)
         
-        # Per-feature processing 
-        output = torch.zeros([B, C, self.output_dim], 
-                            dtype=x.dtype, device=x.device)
+        if self.share_feature_weights:
+            x_flat = x.reshape(-1, self.total_len)
+            output_flat = self.shared_linear(x_flat)
+            output = output_flat.reshape(B, C, self.output_dim)
+        else:
+            output = torch.zeros([B, C, self.output_dim], dtype=x.dtype, device=x.device)
+            for i in range(self.input_dim):
+                feature_i = x[:, i, :]
+                output[:, i, :] = self.feature_linears[i](feature_i)
         
-        for i in range(self.input_dim):
-            feature_i = x[:, i, :]  # [B, total_len]
-            output[:, i, :] = self.feature_linears[i](feature_i)  # [B, output_dim]
-        
-        self.dropout(output)
-
-        
-        # Average across features
-        output = output.mean(dim=1)  # [B, output_dim]
-        
+        output = self.dropout(output)
+        output = output.mean(dim=1)
         return output
 
 class SegmentedParallelPoincare(nn.Module):
@@ -117,7 +120,7 @@ class SegmentedParallelPoincare(nn.Module):
     """
     def __init__(self, lookback, input_dim, embed_dim=32,
                  curvature=1.0, segment_length=24, embed_dropout=0.1,
-                 use_segment_norm=True):
+                 use_segment_norm=True, share_feature_weights=False):
         """
         Args:
             lookback: int - lookback window size
@@ -138,7 +141,8 @@ class SegmentedParallelPoincare(nn.Module):
             lookback=lookback,
             segment_length=segment_length,
             use_segment_norm=use_segment_norm,
-            dropout=embed_dropout
+            dropout=embed_dropout,
+            share_feature_weights=share_feature_weights
         )
         self.seasonal_coarse_embed = SegmentLinearEmbed(
             input_dim=input_dim,
@@ -146,7 +150,8 @@ class SegmentedParallelPoincare(nn.Module):
             lookback=lookback,
             segment_length=segment_length,
             use_segment_norm=use_segment_norm,
-            dropout=embed_dropout
+            dropout=embed_dropout,
+            share_feature_weights=share_feature_weights
         )
         self.seasonal_fine_embed = SegmentLinearEmbed(
             input_dim=input_dim,
@@ -154,7 +159,8 @@ class SegmentedParallelPoincare(nn.Module):
             lookback=lookback,
             segment_length=segment_length,
             use_segment_norm=use_segment_norm,
-            dropout=embed_dropout
+            dropout=embed_dropout,
+            share_feature_weights=share_feature_weights
         )
         self.residual_embed = SegmentLinearEmbed(
             input_dim=input_dim,
@@ -162,7 +168,8 @@ class SegmentedParallelPoincare(nn.Module):
             lookback=lookback,
             segment_length=segment_length,
             use_segment_norm=use_segment_norm,
-            dropout=embed_dropout
+            dropout=embed_dropout,
+            share_feature_weights=share_feature_weights
         )
         
         # Poincaré ball manifold (SAME as ParallelPoincare)

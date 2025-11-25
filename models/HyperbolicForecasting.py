@@ -39,6 +39,7 @@ class Model(nn.Module):
         # Model dimensions
         # Number of input features
         self.enc_in = configs.enc_in
+        self.share_feature_weights = configs.share_feature_weights
         
         # Embedding: Maps decomposed components to hyperbolic space
         
@@ -57,6 +58,7 @@ class Model(nn.Module):
                     embed_dropout=0.5,
                     dynamic_dropout=0.3,
                     recon_dropout=0.2,
+                    share_feature_weights=self.share_feature_weights,
                     num_layers=2
                 )
             else:
@@ -87,8 +89,8 @@ class Model(nn.Module):
                     embed_dropout=0.5,
                     dynamic_dropout=0.3,
                     recon_dropout=0.2,
-                    num_layers=2
-
+                    num_layers=2,
+                    share_feature_weights=self.share_feature_weights
 
                 )
             else:
@@ -124,10 +126,6 @@ class Model(nn.Module):
 
         forecasts = self.forecaster(trend, seasonal_coarse, seasonal_fine, residual)
         # Get individual hyperbolic representations
-        trend_xhat = forecasts["trend_predictions"]
-        coarse_xhat = forecasts["coarse_predictions"]
-        fine_xhat = forecasts["fine_predictions"]
-        residual_xhat = forecasts["residual_predictions"]
         x_hat = forecasts["predictions"]
         
-        return x_hat, trend_xhat, coarse_xhat, fine_xhat, residual_xhat
+        return x_hat

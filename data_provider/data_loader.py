@@ -411,18 +411,12 @@ class Dataset_ETT_hour_Decomposition(Dataset):
             'seasonal_fine': self.decomposed_components['seasonal_fine'][s_begin:s_end],
             'residual': self.decomposed_components['residual'][s_begin:s_end]
         }
-        Y_dict = {
-            'trend': self.decomposed_components['trend'][r_begin:r_end],
-            'seasonal_coarse': self.decomposed_components['seasonal_coarse'][r_begin:r_end],
-            'seasonal_fine': self.decomposed_components['seasonal_fine'][r_begin:r_end],
-            'residual': self.decomposed_components['residual'][r_begin:r_end]
-        }
         
         seq_x_mark = self.data_stamp[s_begin:s_end]
         seq_y_mark = self.data_stamp[r_begin:r_end]
         seq_y = self.data_y[r_begin:r_end]
 
-        return X_dict, seq_y, seq_x_mark, seq_y_mark, Y_dict
+        return X_dict, seq_y, seq_x_mark, seq_y_mark
 
     def __len__(self):
         """
@@ -662,18 +656,12 @@ class Dataset_ETT_minute_Decomposition(Dataset):
             'seasonal_fine': self.decomposed_components['seasonal_fine'][s_begin:s_end],
             'residual': self.decomposed_components['residual'][s_begin:s_end]
         }
-        Y_dict = {
-            'trend': self.decomposed_components['trend'][r_begin:r_end],
-            'seasonal_coarse': self.decomposed_components['seasonal_coarse'][r_begin:r_end],
-            'seasonal_fine': self.decomposed_components['seasonal_fine'][r_begin:r_end],
-            'residual': self.decomposed_components['residual'][r_begin:r_end]
-        }
         
         seq_x_mark = self.data_stamp[s_begin:s_end]
         seq_y_mark = self.data_stamp[r_begin:r_end]
         seq_y = self.data_y[r_begin:r_end]
 
-        return X_dict, seq_y, seq_x_mark, seq_y_mark, Y_dict
+        return X_dict, seq_y, seq_x_mark, seq_y_mark
 
     def __len__(self):
         """
@@ -1039,18 +1027,11 @@ class Dataset_Custom_Decomposition(Dataset):
             'seasonal_fine': self.decomposed_components['seasonal_fine'][s_begin:s_end],
             'residual': self.decomposed_components['residual'][s_begin:s_end]
         }
-        # Y_dict is just to act as ground truth for each component individually
-        Y_dict = {
-            'trend': self.decomposed_components['trend'][r_begin:r_end],
-            'seasonal_coarse': self.decomposed_components['seasonal_coarse'][r_begin:r_end],
-            'seasonal_fine': self.decomposed_components['seasonal_fine'][r_begin:r_end],
-            'residual': self.decomposed_components['residual'][r_begin:r_end]
-        }
         seq_x_mark = self.data_stamp[s_begin:s_end]
         seq_y_mark = self.data_stamp[r_begin:r_end]
         seq_y = self.data_y[r_begin:r_end]
 
-        return X_dict, seq_y, seq_x_mark, seq_y_mark, Y_dict
+        return X_dict, seq_y, seq_x_mark, seq_y_mark
 
     def __len__(self):
         """

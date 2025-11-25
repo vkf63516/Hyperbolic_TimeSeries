@@ -1,6 +1,6 @@
 seq_len=96
 train_epochs=30
-patience=6
+patience=3
 enc_in=862
 manifold_type="Euclidean"
 data_path=traffic.csv
@@ -29,7 +29,8 @@ python run.py \
   --patience $patience \
   --manifold_type $manifold_type \
   --use_revin \
-  --use_segments
+  --use_segments \
+  --share_feature_weights
 
 
 python run.py \
@@ -56,7 +57,8 @@ python run.py \
   --patience $patience \
   --manifold_type $manifold_type \
   --use_revin \
-  --use_segments
+  --use_segments \
+  --share_feature_weights
 
 python run.py \
   --is_training 1 \
@@ -82,7 +84,8 @@ python run.py \
   --patience $patience \
   --manifold_type $manifold_type \
   --use_revin \
-  --use_segments
+  --use_segments \
+  --share_feature_weights
 
 python run.py \
   --is_training 1 \
@@ -108,4 +111,5 @@ python run.py \
   --patience $patience \
   --manifold_type $manifold_type \
   --use_revin \
-  --use_segments
+  --use_segments \
+  --share_feature_weights
