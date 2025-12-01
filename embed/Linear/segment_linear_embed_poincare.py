@@ -66,11 +66,9 @@ class SegmentLinearEmbed(nn.Module):
         
         Args:
             x: [B, seq_len, C]
-            return_orthogonal_loss: bool
         
         Returns:
             output: [B, output_dim]
-            orthogonal_loss: scalar (if return_orthogonal_loss=True)
         """
         B, seq_len, C = x.shape
         
@@ -102,7 +100,7 @@ class SegmentLinearEmbed(nn.Module):
                 feature_i = x[:, i, :]
                 output[:, i, :] = self.feature_linears[i](feature_i)
         
-        output = self.dropout(output)
+        self.dropout(output)
         output = output.mean(dim=1)
         return output
 

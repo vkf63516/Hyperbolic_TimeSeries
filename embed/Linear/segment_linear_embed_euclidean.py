@@ -63,11 +63,9 @@ class SegmentLinearEmbed(nn.Module):
         
         Args:
             x: [B, seq_len, C]
-            return_orthogonal_loss: bool
         
         Returns:
             output: [B, output_dim]
-            orthogonal_loss: scalar (if return_orthogonal_loss=True)
         """
         B, seq_len, C = x.shape
         
@@ -99,7 +97,7 @@ class SegmentLinearEmbed(nn.Module):
                 feature_i = x[:, i, :]
                 output[:, i, :] = self.feature_linears[i](feature_i)
         
-        output = self.dropout(output)
+        self.dropout(output) # Make sure not to have output = dropout
         output = output.mean(dim=1)
         return output
 
@@ -177,32 +175,4 @@ class SegmentParallelEuclidean(nn.Module):
             "seasonal_coarse_e": e_coarse,
             "residual_e": e_residual,
             "combined_e": combined_e
-        }
-
-import torch
-import torch.nn as nn
-
-class SegmentParallelEuclidean(nn.Module):
-    def __init__(self, lookback, input_dim, embed_dim=32, segment_length=24, 
-                 embed_dropout=0.1, use_segment_norm=False, share_feature_weights=False):
-        super().__init__()
-        
-        kwargs = {
-            'input_dim': input_dim, 'output_dim': embed_dim, 'segment_length': segment_length,
-            'dropout': embed_dropout, 'lookback': lookback, 'use_segment_norm': use_segment_norm,
-            'share_feature_weights': share_feature_weights
-        }
-        
-        self.trend_embed = SegmentLinearEmbed(**kwargs)
-        self.fine_embed = SegmentLinearEmbed(**kwargs)
-        self.coarse_embed = SegmentLinearEmbed(**kwargs)
-        self.residual_embed = SegmentLinearEmbed(**kwargs)
-    
-    def forward(self, trend, fine, coarse, residual):
-        return {
-            "trend_e": self.trend_embed(trend),
-            "seasonal_fine_e": self.fine_embed(fine),
-            "seasonal_coarse_e": self.coarse_embed(coarse),
-            "residual_e": self.residual_embed(residual),
-            "combined_e": self.trend_embed(trend) + self.fine_embed(fine) + self.coarse_embed(coarse) + self.residual_embed(residual)
         }

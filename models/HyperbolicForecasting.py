@@ -102,7 +102,6 @@ class Model(nn.Module):
                     hidden_dim=self.hidden_dim,
                     curvature=self.curvature,
                     manifold_type=self.manifold_type,
-                    use_attention_pooling=self.use_attention_pooling                
                 )
 
             # Forecaster: Autoregressively predicts in hyperbolic space

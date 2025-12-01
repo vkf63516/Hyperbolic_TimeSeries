@@ -39,7 +39,7 @@ print(f"Using device: {device}")
 # -------------------------------------------------------------
 # 2. Load dataset
 # -------------------------------------------------------------
-df = pd.read_csv("time-series-dataset/dataset/weather.csv", parse_dates=["date"], index_col="date")
+df = pd.read_csv("time-series-dataset/dataset/traffic.csv", parse_dates=["date"], index_col="date")
 df = df.select_dtypes(include=[np.number])
 
 train_val_df, test_df = train_test_split(df, test_size=0.2, shuffle=False)

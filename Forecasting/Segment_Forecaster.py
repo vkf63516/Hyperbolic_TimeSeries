@@ -84,7 +84,7 @@ class SegmentedHyperbolicForecaster(nn.Module):
                 embed_dropout=self.embed_dropout,
                 share_feature_weights=self.share_feature_weights
             )
-        if manifold_type == "Lorentzian":  # Lorentzian
+        elif manifold_type == "Lorentzian":  # Lorentzian
             self.embed_hyperbolic = SegmentedParallelLorentz(
                 lookback=lookback,
                 input_dim=n_features,
@@ -96,7 +96,7 @@ class SegmentedHyperbolicForecaster(nn.Module):
             )
         self.manifold = self.embed_hyperbolic.manifold
         self.dynamics = self._create_dynamics()
-
+    
         self.reconstructor = HyperbolicSegmentReconstructionHead(
             embed_dim=embed_dim,
             output_dim=n_features,
@@ -165,13 +165,16 @@ class SegmentedHyperbolicForecaster(nn.Module):
         z_previous_coarse = None
         z_previous_fine = None
         z_previous_resid = None
+        
+        # Storage for SEGMENT predictions (not point predictions!)
+        trend_predictions = []
+        coarse_predictions = []
+        fine_predictions = []
+        residual_predictions = []
         predictions_norm = []
 
         # Autoregressive rollout over SEGMENTS
         for seg_step in range(self.num_pred_segments):
-            x_pred_norm_seg = self.reconstructor(z_current)  # [B, segment_length, n_features]
-            predictions_norm.append(x_pred_norm_seg)
-
             # Predict next state via Dynamics
             z_current, z_previous = self.dynamics(z_current, z_previous)
             z_current_trend, z_previous_trend = self.dynamics(z_current_trend, z_previous_trend)
@@ -182,13 +185,33 @@ class SegmentedHyperbolicForecaster(nn.Module):
             # Truncated BPTT (every N segments, not every N points!)
             if (seg_step + 1) % self.truncate_every == 0 and seg_step < self.num_pred_segments - 1:
                 z_current = z_current.detach()
-
+                z_current_trend = z_current_trend.detach()
+                z_current_coarse = z_current_coarse.detach()
+                z_current_fine = z_current_fine.detach()
+                z_current_resid = z_current_resid.detach()
             
             if z_previous is not None:
                 z_previous = z_previous.detach()
+                z_previous_trend = z_previous_trend.detach()
+                z_previous_coarse = z_previous_coarse.detach()
+                z_previous_fine = z_previous_fine.detach()
+                z_previous_resid = z_previous_resid.detach()
 
             # Reconstruct entire SEGMENTS (not single points!)
-            
+            x_pred_norm_seg = self.reconstructor(z_current)  # [B, segment_length, n_features]
+            predictions_norm.append(x_pred_norm_seg)
+
+            trend_pred_seg = self.reconstructor(z_current_trend)
+            trend_predictions.append(trend_pred_seg)
+
+            coarse_pred_seg = self.reconstructor(z_current_coarse)
+            coarse_predictions.append(coarse_pred_seg)
+
+            fine_pred_seg = self.reconstructor(z_current_fine)
+            fine_predictions.append(fine_pred_seg)
+
+            residual_pred_seg = self.reconstructor(z_current_resid)
+            residual_predictions.append(residual_pred_seg)
         
         # Stack segments and reshape to [B, pred_len, n_features]
         # predictions: list of [B, segment_length, n_features] → [B, num_segments, segment_length, n_features]
@@ -197,11 +220,27 @@ class SegmentedHyperbolicForecaster(nn.Module):
         predictions_norm = predictions_norm.reshape(-1, self.pred_len, self.n_features)
         # print(f"Reshape Predictions shape {predictions_norm.shape}")
         
+        trend_predictions = torch.stack(trend_predictions, dim=1)
+        trend_predictions = trend_predictions.reshape(-1, self.pred_len, self.n_features)
+        
+        coarse_predictions = torch.stack(coarse_predictions, dim=1)
+        coarse_predictions = coarse_predictions.reshape(-1, self.pred_len, self.n_features)
+        
+        fine_predictions = torch.stack(fine_predictions, dim=1)
+        fine_predictions = fine_predictions.reshape(-1, self.pred_len, self.n_features)
+        
+        residual_predictions = torch.stack(residual_predictions, dim=1)
+        residual_predictions = residual_predictions.reshape(-1, self.pred_len, self.n_features)
+
         if self.use_revin:
             predictions = self.revin(predictions_norm, mode='denorm')
         else:
             predictions = predictions_norm
 
         return {
-            'predictions': predictions  # [B, pred_len, n_features]
+            'predictions': predictions,  # [B, pred_len, n_features]
+            'trend_predictions': trend_predictions,
+            'coarse_predictions': coarse_predictions,
+            'fine_predictions': fine_predictions,
+            'residual_predictions': residual_predictions,
         }

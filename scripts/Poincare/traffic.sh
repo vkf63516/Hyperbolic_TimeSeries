@@ -1,13 +1,13 @@
 seq_len=96
 train_epochs=30
 patience=6
-enc_in=137
-manifold_type="Euclidean"
-data_path=Solar.csv
+enc_in=862
+manifold_type="Poincare"
+data_path=traffic.csv
 
 python run.py \
   --is_training 1 \
-  --model_id Solar_$seq_len'_'$manifold_type'_'96_exp1_Segment \
+  --model_id Traffic_$seq_len'_'$manifold_type'_'96_exp1_Segment \
   --model HyperbolicForecasting \
   --data custom_decomposition \
   --root_path ./time-series-dataset/dataset/ \
@@ -35,7 +35,7 @@ python run.py \
 
 python run.py \
   --is_training 1 \
-  --model_id Solar_$seq_len'_'$manifold'_'192_exp1_Segment \
+  --model_id Traffic_$seq_len'_'$manifold'_'192_exp1_Segment \
   --model HyperbolicForecasting \
   --data custom_decomposition \
   --root_path ./time-series-dataset/dataset/ \
@@ -62,7 +62,7 @@ python run.py \
 
 python run.py \
   --is_training 1 \
-  --model_id Solar_$seq_len'_'$manifold_type'_'336_exp1_Segment \
+  --model_id Traffic_$seq_len'_'$manifold_type'_'336_exp1_Segment \
   --model HyperbolicForecasting \
   --data custom_decomposition \
   --root_path ./time-series-dataset/dataset/ \
@@ -89,7 +89,7 @@ python run.py \
 
 python run.py \
   --is_training 1 \
-  --model_id Solar_$seq_len'_'$manifold_type'_'720_exp1_Segment \
+  --model_id Traffic_$seq_len'_'$manifold_type'_'720_exp1_Segment \
   --model HyperbolicForecasting \
   --data custom_decomposition \
   --root_path ./time-series-dataset/dataset/ \

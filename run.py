@@ -67,7 +67,7 @@ parser.add_argument('--enc_in', type=int, default=7, help='encoder input size')
 parser.add_argument('--embed', type=str, default='fixed',help='time features encoding, options:[timeF, fixed, learned]')
 # optimization
 parser.add_argument('--use_revin', action='store_true', default=False, help='RevIN')
-parser.add_argument('--num_workers', type=int, default=10, help='data loader num workers')
+parser.add_argument('--num_workers', type=int, default=0, help='data loader num workers')
 parser.add_argument('--itr', type=int, default=1, help='experiment runs')
 parser.add_argument('--train_epochs', type=int, default=100, help='train epochs')
 parser.add_argument('--batch_size', type=int, default=128, help='batch size')

@@ -137,7 +137,7 @@ class Exp_Main(Exp_Basic):
                 coarse_x = X_dict['seasonal_coarse'].float().to(self.device, non_blocking=True)
                 fine_x = X_dict['seasonal_fine'].float().to(self.device, non_blocking=True)
                 resid_x = X_dict['residual'].float().to(self.device, non_blocking=True)
-
+            
                 outputs = self.model(
                     trend=trend_x,
                     seasonal_coarse=coarse_x,
@@ -149,16 +149,6 @@ class Exp_Main(Exp_Basic):
 
                 outputs = outputs[:, -self.args.pred_len:, f_dim:]
 
-                if self.args.use_segments:
-                    # outputs: [B, num_pred_segs, seg_len] → [B, pred_len]
-                    if outputs.dim() == 3:
-                        B, num_pred_segs, seg_len = outputs.shape
-                        outputs = outputs.reshape(B, num_pred_segs * seg_len)
-                
-                    if batch_y.dim() == 3:
-                        B, num_pred_segs, seg_len = batch_y.shape
-                        batch_y = batch_y.reshape(B, num_pred_segs * seg_len)
-                
 
                 preds = outputs.detach()
                 trues = batch_y.detach()
@@ -172,7 +162,6 @@ class Exp_Main(Exp_Basic):
         avg_total_loss = np.average(total_loss)
         self.model.train()
         return avg_total_loss
-
     def train(self, setting):
         train_data, train_loader = self._get_data(flag='train')
         vali_data, vali_loader = self._get_data(flag='val')
@@ -235,10 +224,10 @@ class Exp_Main(Exp_Basic):
 
                         outputs = outputs[:, -self.args.pred_len:, f_dim:]
 
-
                         loss = criterion(outputs, batch_y)
 
                         train_loss.append(loss.item())
+
                 else:
                     outputs = self.model(
                         trend=trend_x,
@@ -255,7 +244,7 @@ class Exp_Main(Exp_Basic):
                     loss = criterion(outputs, batch_y)
 
                     train_loss.append(loss.item())
-                
+
                 # Log iteration metrics
                 if i % 100 == 0 and self.wandb_logger is not None:
                     self.wandb_logger.log_losses(
@@ -387,7 +376,6 @@ class Exp_Main(Exp_Basic):
                 coarse_x = X_dict['seasonal_coarse'].float().to(self.device, non_blocking=True)
                 fine_x = X_dict['seasonal_fine'].float().to(self.device, non_blocking=True)
                 resid_x = X_dict['residual'].float().to(self.device, non_blocking=True)
-
                 # ========================================
                 # Load Ground Truth (SAME AS TRAIN)
                 # ========================================
@@ -407,6 +395,7 @@ class Exp_Main(Exp_Basic):
                 )
                 f_dim = -1 if self.args.features == 'MS' else 0
                 batch_y = batch_y[:, -self.args.pred_len:, f_dim:]
+                # outputs = trend_outputs + coarse_outputs + fine_outputs + resid_outputs
                 outputs = outputs[:, -self.args.pred_len:, f_dim:]
 
             # ========================================
