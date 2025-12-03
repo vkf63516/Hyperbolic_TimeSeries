@@ -77,47 +77,19 @@ def segment_safe_expmap0(manifold, u, max_norm=10.0, eps=1e-6):
     x = x.reshape(B, N, manifold_dim)
     return x
 
-
-def safe_expmap(manifold, base_point, v, eps=1e-15, max_norm=3.0):
-    """Similar to safe_expmap0 but for non-origin base points"""
+def safe_expmap(manifold, base_point, v, eps=1e-15, max_norm=5.0):
     v_norm = torch.norm(v, dim=-1, keepdim=True).clamp(min=eps)
-    # print(f"V_norm ")
-    scale_factor = max_norm * torch.tanh(v_norm / max_norm)
-    # print(f"Scale Factor {scale_factor}")
-    v_safe = v / v_norm * scale_factor
-        
-    # Expmap
-    result = manifold.expmap(base_point, v_safe)
-    
-    # ADD THIS: Check result
-    if torch.isnan(result).any():
-        nan_mask = torch.isnan(result).any(dim=-1)
-        result = torch.where(nan_mask.unsqueeze(-1), base_point, result)
-    
-    return result
-    
+    coef = torch.clamp(v_norm, max=max_norm) / v_norm
+    v_safe = v * coef
+    return manifold.expmap(base_point, v_safe)
 
-def safe_expmap0(manifold, v, eps=1e-15, max_norm=0.99):
-    """
-    Safely map tangent vector v to manifold point.
-    
-    For Lorentz: ensures norm(v) < max_norm to avoid overflow
-    For Poincaré: ensures ||v|| < max_norm for stability
-    
-    Args:
-        manifold: geoopt.Lorentz or geoopt.PoincareBall
-        v: tangent vector [B, D]
-        eps: numerical stability epsilon
-        max_norm: maximum allowed norm (default 0.99 keeps safe margin)
-    
-    Returns:
-        Point on manifold [B, D+1] for Lorentz, [B, D] for Poincaré
-    """
-    # Clip norm to safe region
+
+def safe_expmap0(manifold, v, eps=1e-15, max_norm=5.0):
     v_norm = torch.norm(v, dim=-1, keepdim=True).clamp(min=eps)
-    v_safe = v / v_norm * torch.clamp(v_norm, max=max_norm)
-    
+    coef = torch.clamp(v_norm, max=max_norm) / v_norm
+    v_safe = v * coef
     return manifold.expmap0(v_safe)
+
 
 class RevIN(nn.Module):
     def __init__(self, num_features: int, eps=1e-5, affine=True, subtract_last=False):

@@ -38,10 +38,10 @@ class SegmentLinearEmbed(nn.Module):
             self.feature_linears = nn.ModuleList([
                 nn.Linear(self.total_len, output_dim) for _ in range(input_dim)
             ])
-            for linear in self.feature_linears:
-                linear.weight = nn.Parameter(
-                    (1 / self.total_len) * torch.ones([output_dim, self.total_len])
-                )
+            # for linear in self.feature_linears:
+            #     linear.weight = nn.Parameter(
+            #         (1 / self.total_len) * torch.ones([output_dim, self.total_len])
+            #     )
             print(f"SegmentLinearEmbed (PER-FEATURE): {input_dim} features → {input_dim * self.total_len * output_dim} params")
         
         self.dropout = nn.Dropout(dropout)
@@ -240,7 +240,7 @@ class SegmentedParallelPoincare(nn.Module):
         z_residual_t = self.residual_embed(residual)
         
         # 2) Scaling (SAME as ParallelPoincare)
-        effective_scale = torch.tanh(self.effective_scale)  # [-1, 1]
+        effective_scale = F.softplus(self.effective_scale)
         scaled_trend_embed = z_trend_t * effective_scale
         scaled_coarse_embed = z_seasonal_coarse_t * effective_scale
         scaled_fine_embed = z_seasonal_fine_t * effective_scale

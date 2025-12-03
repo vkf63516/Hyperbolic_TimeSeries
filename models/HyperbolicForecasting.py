@@ -126,5 +126,6 @@ class Model(nn.Module):
         forecasts = self.forecaster(trend, seasonal_coarse, seasonal_fine, residual)
         # Get individual hyperbolic representations
         x_hat = forecasts["predictions"]
+        x_hyp = forecasts["hyperbolic_states"]["combined_h"]
         
-        return x_hat
+        return x_hat, x_hyp

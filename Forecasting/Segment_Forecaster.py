@@ -82,7 +82,7 @@ class SegmentedHyperbolicForecaster(nn.Module):
                 segment_length=segment_length,
                 use_segment_norm=use_segment_norm,
                 embed_dropout=self.embed_dropout,
-                share_feature_weights=self.share_feature_weights
+                share_feature_weights=self.share_feature_weights,
             )
         elif manifold_type == "Lorentzian":  # Lorentzian
             self.embed_hyperbolic = SegmentedParallelLorentz(
@@ -92,7 +92,8 @@ class SegmentedHyperbolicForecaster(nn.Module):
                 curvature=curvature,
                 segment_length=segment_length,
                 use_segment_norm=use_segment_norm,
-                embed_dropout=self.embed_dropout
+                embed_dropout=self.embed_dropout,
+                share_feature_weights=self.share_feature_weights
             )
         self.manifold = self.embed_hyperbolic.manifold
         self.dynamics = self._create_dynamics()
@@ -165,13 +166,18 @@ class SegmentedHyperbolicForecaster(nn.Module):
         z_previous_coarse = None
         z_previous_fine = None
         z_previous_resid = None
-        
         # Storage for SEGMENT predictions (not point predictions!)
         trend_predictions = []
         coarse_predictions = []
         fine_predictions = []
         residual_predictions = []
         predictions_norm = []
+
+        latent_z = []
+        latent_trend   = []
+        latent_coarse  = []
+        latent_fine    = []
+        latent_resid   = []
 
         # Autoregressive rollout over SEGMENTS
         for seg_step in range(self.num_pred_segments):
@@ -180,8 +186,12 @@ class SegmentedHyperbolicForecaster(nn.Module):
             z_current_trend, z_previous_trend = self.dynamics(z_current_trend, z_previous_trend)
             z_current_coarse, z_previous_coarse = self.dynamics(z_current_coarse, z_previous_coarse)
             z_current_fine, z_previous_fine = self.dynamics(z_current_fine, z_previous_fine)
-            z_current_resid, z_previous_resid = self.dynamics(z_current_resid, z_previous_resid)
-            
+            z_current_resid, z_previous_resid = self.dynamics(z_current_resid, z_previous_resid)   
+            latent_z.append(z_current)
+            latent_trend.append(z_current_trend)
+            latent_coarse.append(z_current_coarse)
+            latent_fine.append(z_current_fine)
+            latent_resid.append(z_current_resid)
             # Truncated BPTT (every N segments, not every N points!)
             if (seg_step + 1) % self.truncate_every == 0 and seg_step < self.num_pred_segments - 1:
                 z_current = z_current.detach()
@@ -236,6 +246,20 @@ class SegmentedHyperbolicForecaster(nn.Module):
             predictions = self.revin(predictions_norm, mode='denorm')
         else:
             predictions = predictions_norm
+        
+        # ---- NEW: Stack hyperbolic latent states ----
+        def stack_latents(lst):
+            segs = torch.stack(lst, dim=1)  # [B, num_segments, embed_dim+1]
+            return segs
+
+        hyperbolic_states = {
+            "combined_h": stack_latents(latent_z),
+            "trend_h":    stack_latents(latent_trend),
+            "coarse_h":   stack_latents(latent_coarse),
+            "fine_h":     stack_latents(latent_fine),
+            "resid_h":    stack_latents(latent_resid),
+        }
+
 
         return {
             'predictions': predictions,  # [B, pred_len, n_features]
@@ -243,4 +267,5 @@ class SegmentedHyperbolicForecaster(nn.Module):
             'coarse_predictions': coarse_predictions,
             'fine_predictions': fine_predictions,
             'residual_predictions': residual_predictions,
+            'hyperbolic_states': hyperbolic_states
         }

@@ -138,7 +138,7 @@ class Exp_Main(Exp_Basic):
                 fine_x = X_dict['seasonal_fine'].float().to(self.device, non_blocking=True)
                 resid_x = X_dict['residual'].float().to(self.device, non_blocking=True)
             
-                outputs = self.model(
+                outputs, hyp_outputs = self.model(
                     trend=trend_x,
                     seasonal_coarse=coarse_x,
                     seasonal_fine=fine_x,
@@ -148,7 +148,6 @@ class Exp_Main(Exp_Basic):
                 batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
 
                 outputs = outputs[:, -self.args.pred_len:, f_dim:]
-
 
                 preds = outputs.detach()
                 trues = batch_y.detach()
@@ -213,7 +212,7 @@ class Exp_Main(Exp_Basic):
                 # Forward pass
                 if self.args.use_amp:
                     with torch.cuda.amp.autocast():
-                        outputs = self.model(
+                        outputs, hyp_outputs = self.model(
                             trend=trend_x,
                             seasonal_coarse=coarse_x,
                             seasonal_fine=fine_x,
@@ -229,7 +228,7 @@ class Exp_Main(Exp_Basic):
                         train_loss.append(loss.item())
 
                 else:
-                    outputs = self.model(
+                    outputs, hyp_outputs = self.model(
                         trend=trend_x,
                         seasonal_coarse=coarse_x,
                         seasonal_fine=fine_x,
@@ -362,6 +361,7 @@ class Exp_Main(Exp_Basic):
 
         preds = []
         trues = []
+        hypers = []
         folder_path = './test_results/' + setting + '/'
         if not os.path.exists(folder_path):
             os.makedirs(folder_path)
@@ -387,7 +387,7 @@ class Exp_Main(Exp_Basic):
                 # ========================================
                 # Forward Pass (SAME AS TRAIN, but no AMP)
                 # ========================================                
-                outputs = self.model(
+                outputs, hyp_outputs = self.model(
                     trend=trend_x,
                     seasonal_coarse=coarse_x,
                     seasonal_fine=fine_x,
@@ -397,6 +397,7 @@ class Exp_Main(Exp_Basic):
                 batch_y = batch_y[:, -self.args.pred_len:, f_dim:]
                 # outputs = trend_outputs + coarse_outputs + fine_outputs + resid_outputs
                 outputs = outputs[:, -self.args.pred_len:, f_dim:]
+                # hyp_outputs = hyp_outputs[:, -self.args.pred_len:, f_dim:]
 
             # ========================================
             # For Segment-Level: Flatten for Metrics
@@ -416,17 +417,20 @@ class Exp_Main(Exp_Basic):
             # ========================================
                 outputs = outputs.detach().cpu().numpy()
                 batch_y = batch_y.detach().cpu().numpy()
+                hyper = hyp_outputs.detach().cpu().numpy()
             
                 preds.append(outputs)
                 trues.append(batch_y)
+                hypers.append(hyper)
 
         # ========================================
         # Concatenate All Batches
         # ========================================
         preds = np.concatenate(preds, axis=0)
         trues = np.concatenate(trues, axis=0)
+        hypers = np.concatenate(hypers, axis=0)
     
-        print('test shape:', preds.shape, trues.shape)
+        print('test shape:', preds.shape, trues.shape, hypers.shape)
 
     # ========================================
     # Calculate Metrics
@@ -461,7 +465,10 @@ class Exp_Main(Exp_Basic):
             # Finish wandb run
             self.wandb_logger.finish()
             print("Wandb logging complete. View results at: https://wandb.ai")
-
+        np.save(folder_path + 'metrics.npy', np.array([mae, mse, rmse, mape, mspe,rse, corr]))
+        np.save(folder_path + 'pred.npy', preds)
+        np.save(folder_path + 'true.npy', trues)
+        np.save(folder_path + 'hyper.npy', hypers)
 
         return
 

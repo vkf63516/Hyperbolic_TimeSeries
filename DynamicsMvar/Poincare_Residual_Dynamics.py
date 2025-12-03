@@ -79,7 +79,7 @@ class HyperbolicPoincareDynamics(nn.Module):
         
         # Learnable residual weight (initialized to 0.7)
         self.alpha = nn.Parameter(torch.tensor(0.7))
-        self.velocity_scale = nn.Parameter(torch.tensor(0.1))
+        self.velocity_scale = nn.Parameter(torch.tensor(1.0))
 
         
         # Velocity network: predicts update in tangent space
@@ -127,11 +127,11 @@ class HyperbolicPoincareDynamics(nn.Module):
         # velocity = torch.clamp(velocity, min=-5.0, max=5.0)
 
         scale = torch.sigmoid(self.velocity_scale)  # 0.5 initially
-        velocity = velocity * scale * 0.2
+        # velocity = velocity * scale 
         # print(velocity)
         # Map velocity to manifold
         x_update = safe_expmap(self.manifold, x_current, velocity)  # [B, embed_dim+1]
-        
+        x_update = self.manifold.expmap(x_current, velocity)
         x_update = self.manifold.projx(x_update)
         # Apply Poincare residual update
         alpha = torch.sigmoid(self.alpha)  # Constrain to (0, 1)
