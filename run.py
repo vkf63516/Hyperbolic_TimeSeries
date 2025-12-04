@@ -22,6 +22,8 @@ parser.add_argument('--share_feature_weights', action='store_true', default=Fals
                     help='share weights across features (for high-D data)')
 parser.add_argument('--mstl_period', type=int, default=24,
                     help='MSTL period for segmentation (None=auto-detect from data frequency)')
+parser.add_argument('--use_moving_window', action='store_true', default=False,
+                    help='use moving window approach (True) or regular approach (False)')
 
 parser.add_argument('--use_segments', action='store_true', default=False,
                     help='use segment-level hyperbolic embeddings (True) or point-level (False)')

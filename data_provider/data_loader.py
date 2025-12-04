@@ -913,7 +913,7 @@ class Dataset_Custom_Decomposition(Dataset):
         self.data_y = data[border1:border2]
             # ADD THIS:
         print(f"\n{'='*60}")
-        print(f"[{self.flag}] DECOMPOSITION DIAGNOSTICS FOR Weather")
+        print(f"[{self.flag}] DECOMPOSITION DIAGNOSTICS")
         print(f"{'='*60}")
         print(f"Data shape: {self.data_x.shape}")
         print(f"Temporal length: {self.temporal_length}")

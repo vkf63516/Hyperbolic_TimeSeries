@@ -32,15 +32,14 @@ def poincare_residual_update(x_current, x_update, manifold, alpha=0.7):
         x_update: [B, n] predicted update in Poincaré ball
         manifold: geoopt.PoincareBall instance
         alpha: weight for current state (0 < alpha < 1)
-        eps: numerical stability
     
     Returns:
         x_next: [B, n] updated state in Poincaré ball
+        x_current: [B, n] current state (for next iteration)
     """
     # Ensure inputs are on manifold
     x_current = manifold.projx(x_current)
     x_update = manifold.projx(x_update)
-    
     
     # Möbius scalar multiplications
     alpha_x = manifold.mobius_scalar_mul(alpha, x_current)
@@ -56,18 +55,15 @@ def poincare_residual_update(x_current, x_update, manifold, alpha=0.7):
     
 class HyperbolicPoincareDynamics(nn.Module):
     """
-    Hyperbolic dynamics network using Lorentzian residual updates.
+    Hyperbolic dynamics network using Poincaré residual updates.
     
-    Properly respects hyperbolic geometry by:
-    1. Predicting velocity in tangent space
-    2. Mapping velocity to manifold
-    3. Applying Lorentzian residual update
+    Supports optional avg_velocity parameter for trajectory-aware prediction.
     """
     
     def __init__(self, embed_dim, hidden_dim, manifold, n_layers=3, dropout=0.3):
         """
         Args:
-            embed_dim: dimension of tangent space (manifold has embed_dim+1)
+            embed_dim: dimension of tangent space (manifold has embed_dim)
             hidden_dim: hidden layer size
             manifold: geoopt.Lorentz or geoopt.PoincareBall instance
             n_layers: number of layers in velocity network
@@ -103,37 +99,42 @@ class HyperbolicPoincareDynamics(nn.Module):
         
         self.velocity_net = nn.Sequential(*layers)
     
-    def forward(self, x_current, x_previous=None):
+    def forward(self, x_current, x_previous=None, avg_velocity=None):
         """
-        Compute next state using Lorentzian residual update.
+        Compute next state using Poincaré residual update.
         
         Args:
-            x_current: [B, embed_dim+1] current state on manifold
-            x_previous: [B, embed_dim+1] previous state on manifold
+            x_current: [B, embed_dim] current state on manifold
+            x_previous: [B, embed_dim] previous state on manifold (for velocity computation)
+            avg_velocity: [B, embed_dim] average velocity from trajectory (optional, for moving window)
         
         Returns:
-            x_next: [B, embed_dim+1] next state on manifold
+            x_next: [B, embed_dim] next state on manifold
+            x_current: [B, embed_dim] current state (to use as previous in next iteration)
         """
-        # Map to tangent space at origin]
-        if x_previous is None:
-            backward_trajectory = self.manifold.logmap0(x_current)  # [B, embed_dim]
+        # Compute backward trajectory (velocity input to network)
+        if avg_velocity is not None:
+            # Use provided average velocity from moving window
+            backward_trajectory = avg_velocity
+        elif x_previous is None:
+            # First iteration: velocity from origin to current
+            backward_trajectory = self.manifold.logmap0(x_current)
         else:
-             # Map to tangent space from current step
-            dist = self.manifold.dist(x_current, x_previous)
-        
+            # Compute velocity from previous to current
             backward_trajectory = self.manifold.logmap(x_previous, x_current)
+        
         # Predict velocity in tangent space
         velocity = self.velocity_net(backward_trajectory)  # [B, embed_dim]
-        # velocity = torch.clamp(velocity, min=-5.0, max=5.0)
-
-        scale = torch.sigmoid(self.velocity_scale)  # 0.5 initially
-        # velocity = velocity * scale 
-        # print(velocity)
-        # Map velocity to manifold
-        x_update = safe_expmap(self.manifold, x_current, velocity)  # [B, embed_dim+1]
-        x_update = self.manifold.expmap(x_current, velocity)
+        
+        # Scale velocity
+        scale = torch.sigmoid(self.velocity_scale)
+        velocity = velocity * scale 
+        
+        # Map velocity to manifold via exponential map
+        x_update = self.manifold.expmap(x_current, velocity)  # [B, embed_dim]
         x_update = self.manifold.projx(x_update)
-        # Apply Poincare residual update
+        
+        # Apply Poincaré residual update (blending)
         alpha = torch.sigmoid(self.alpha)  # Constrain to (0, 1)
         x_next, x_current = poincare_residual_update(
             x_current, x_update, self.manifold, alpha=alpha

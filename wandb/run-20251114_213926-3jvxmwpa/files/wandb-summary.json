@@ -1,1 +1,0 @@
-{"system/epoch_time_seconds":533.1535186767578,"_timestamp":1.7631752557847974e+09,"system/speed_seconds_per_iter":1.4424110380808512,"_wandb":{"runtime":922},"system/estimated_time_left_seconds":42846.81988619169,"_runtime":922,"step":1645,"train_loss":0.5893126726150513,"loss/mse":0.5893126726150513,"val_loss":1.398647144746356,"_step":53,"learning_rate/group_0":0.001}

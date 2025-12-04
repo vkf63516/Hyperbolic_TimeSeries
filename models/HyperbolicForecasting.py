@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[0]))
 
-
+from Forecasting.Moving_Window_Segment_Forecaster import MovingWindowHyperbolicForecaster
 from Forecasting.Euclidean_Forecaster import PointForecastEuclidean
 from Forecasting.Segment_Euclidean_Forecaster import SegmentForecastEuclidean
 from Forecasting.Forecaster import HyperbolicForecaster
@@ -36,6 +36,7 @@ class Model(nn.Module):
         self.manifold_type = configs.manifold_type
         self.use_attention_pooling = configs.use_attention_pooling
         self.use_revin = configs.use_revin
+        self.use_moving_window = configs.use_moving_window
         # Model dimensions
         # Number of input features
         self.enc_in = configs.enc_in
@@ -55,7 +56,7 @@ class Model(nn.Module):
                     segment_length=self.mstl_period,
                     use_segment_norm=True,
                     use_revin=self.use_revin,
-                    embed_dropout=0.5,
+                    embed_dropout=0.3,
                     dynamic_dropout=0.3,
                     recon_dropout=0.2,
                     share_feature_weights=self.share_feature_weights,
@@ -75,24 +76,42 @@ class Model(nn.Module):
                 )
         else:
             if self.use_segments:
-                self.forecaster = SegmentedHyperbolicForecaster(
-                    lookback=self.seq_len,
-                    pred_len=self.pred_len,
-                    n_features=self.enc_in,
-                    embed_dim=self.embed_dim,
-                    hidden_dim=self.hidden_dim,
-                    curvature=self.curvature,
-                    manifold_type=self.manifold_type,
-                    segment_length=self.mstl_period,
-                    use_segment_norm=True,
-                    use_revin=self.use_revin,
-                    embed_dropout=0.5,
-                    dynamic_dropout=0.3,
-                    recon_dropout=0.2,
-                    num_layers=2,
-                    share_feature_weights=self.share_feature_weights
+                if self.use_moving_window:
+                    self.forecaster = MovingWindowHyperbolicForecaster(
+                        lookback=self.seq_len,
+                        pred_len=self.pred_len,
+                        n_features=self.enc_in,
+                        embed_dim=self.embed_dim,
+                        hidden_dim=self.hidden_dim,
+                        curvature=self.curvature,
+                        manifold_type=self.manifold_type,
+                        segment_length=self.mstl_period,
+                        use_segment_norm=True,
+                        use_revin=self.use_revin,
+                        embed_dropout=0.1,
+                        dynamic_dropout=0.3,
+                        num_layers=2,
+                        share_feature_weights=self.share_feature_weights
+                    )
+                else:
 
-                )
+                    self.forecaster = SegmentedHyperbolicForecaster(
+                        lookback=self.seq_len,
+                        pred_len=self.pred_len,
+                        n_features=self.enc_in,
+                        embed_dim=self.embed_dim,
+                        hidden_dim=self.hidden_dim,
+                        curvature=self.curvature,
+                        manifold_type=self.manifold_type,
+                        segment_length=self.mstl_period,
+                        use_segment_norm=True,
+                        use_revin=self.use_revin,
+                        embed_dropout=0.5,
+                        dynamic_dropout=0.3,
+                        recon_dropout=0.2,
+                        num_layers=2,
+                        share_feature_weights=self.share_feature_weights
+                    )
             else:
                 self.forecaster = HyperbolicForecaster(
                     lookback=self.seq_len,

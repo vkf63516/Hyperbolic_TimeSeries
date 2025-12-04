@@ -1,1 +1,0 @@
-{"val_loss":0.6008550393506416,"_wandb":{"runtime":2597},"learning_rate/group_0":8e-05,"_step":158,"step":4864,"loss/mse":0.5605080723762512,"_timestamp":1.7632263098538601e+09,"system/epoch_time_seconds":565.2494912147522,"system/estimated_time_left_seconds":240302.92217146236,"train_loss":0.5605080723762512,"system/speed_seconds_per_iter":8.183032151858011,"_runtime":2597}
