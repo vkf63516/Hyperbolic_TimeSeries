@@ -60,7 +60,7 @@ parser.add_argument("--manifold_type", type=str, default="Lorentzian", help="use
 parser.add_argument('--features', type=str, default='M', help="forecasting task, options:[M, S, MS]; M:multivariate predict multivariate, S:univariate predict univariate, MS:multivariate predict univariate")
 parser.add_argument('--target', type=str, default='OT', help='target feature')
 parser.add_argument('--checkpoints', type=str, default='./checkpoints/', help='location of model checkpoints')
-
+parser.add_argument("--result_file", type=str, default='result.txt', help='where to save results in project')
 # forecasting task
 parser.add_argument('--seq_len', type=int, default=720, help='input sequence length')
 parser.add_argument('--label_len', type=int, default=48, help='start token length')

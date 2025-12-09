@@ -226,9 +226,7 @@ class SegmentedHyperbolicForecaster(nn.Module):
         # Stack segments and reshape to [B, pred_len, n_features]
         # predictions: list of [B, segment_length, n_features] → [B, num_segments, segment_length, n_features]
         predictions_norm = torch.stack(predictions_norm, dim=1)  # [B, num_segments, segment_length, n_features]
-        # print(f"Predictions shape {predictions_norm.shape}")
         predictions_norm = predictions_norm.reshape(-1, self.pred_len, self.n_features)
-        # print(f"Reshape Predictions shape {predictions_norm.shape}")
         
         trend_predictions = torch.stack(trend_predictions, dim=1)
         trend_predictions = trend_predictions.reshape(-1, self.pred_len, self.n_features)

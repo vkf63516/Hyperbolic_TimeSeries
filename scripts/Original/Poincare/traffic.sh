@@ -1,13 +1,13 @@
 seq_len=96
 train_epochs=30
 patience=6
-enc_in=321
+enc_in=862
 manifold_type="Poincare"
-data_path=electricity.csv
+data_path=traffic.csv
 
 python run.py \
   --is_training 1 \
-  --model_id Electricity_$seq_len'_'$manifold_type'_'96_exp1_Segment \
+  --model_id Traffic_$seq_len'_'$manifold_type'_'96_exp1_Segment \
   --model HyperbolicForecasting \
   --data custom_decomposition \
   --root_path ./time-series-dataset/dataset/ \
@@ -22,19 +22,18 @@ python run.py \
   --hidden_dim 64 \
   --batch_size 32 \
   --use_wandb \
-  --learning_rate 1e-3 \
+  --learning_rate 1e-4 \
   --train_epochs $train_epochs \
   --use_decomposition \
   --enc_in $enc_in \
   --patience $patience \
   --manifold_type $manifold_type \
   --use_revin \
-  --use_segments
-
+  --use_segments 
 
 python run.py \
   --is_training 1 \
-  --model_id Electricity_$seq_len'_'$manifold'_'192_exp1_Segment \
+  --model_id Traffic_$seq_len'_'$manifold'_'192_exp1_Segment \
   --model HyperbolicForecasting \
   --data custom_decomposition \
   --root_path ./time-series-dataset/dataset/ \
@@ -49,18 +48,18 @@ python run.py \
   --hidden_dim 64 \
   --batch_size 32 \
   --use_wandb \
-  --learning_rate 1e-3 \
+  --learning_rate 1e-4 \
   --train_epochs $train_epochs \
   --use_decomposition \
   --enc_in $enc_in \
   --patience $patience \
   --manifold_type $manifold_type \
   --use_revin \
-  --use_segments
+  --use_segments 
 
 python run.py \
   --is_training 1 \
-  --model_id Electricity_$seq_len'_'$manifold_type'_'336_exp1_Segment \
+  --model_id Traffic_$seq_len'_'$manifold_type'_'336_exp1_Segment \
   --model HyperbolicForecasting \
   --data custom_decomposition \
   --root_path ./time-series-dataset/dataset/ \
@@ -75,7 +74,7 @@ python run.py \
   --hidden_dim 64 \
   --batch_size 32 \
   --use_wandb \
-  --learning_rate 1e-3 \
+  --learning_rate 1e-4 \
   --train_epochs $train_epochs \
   --use_decomposition \
   --enc_in $enc_in \
@@ -86,7 +85,7 @@ python run.py \
 
 python run.py \
   --is_training 1 \
-  --model_id Electricity_$seq_len'_'$manifold_type'_'720_exp1_Segment \
+  --model_id Traffic_$seq_len'_'$manifold_type'_'720_exp1_Segment \
   --model HyperbolicForecasting \
   --data custom_decomposition \
   --root_path ./time-series-dataset/dataset/ \
@@ -101,11 +100,11 @@ python run.py \
   --hidden_dim 64 \
   --batch_size 32 \
   --use_wandb \
-  --learning_rate 1e-3 \
+  --learning_rate 1e-4 \
   --train_epochs $train_epochs \
   --use_decomposition \
   --enc_in $enc_in \
   --patience $patience \
   --manifold_type $manifold_type \
   --use_revin \
-  --use_segments
+  --use_segments 

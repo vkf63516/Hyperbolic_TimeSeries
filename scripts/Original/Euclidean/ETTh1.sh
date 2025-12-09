@@ -1,15 +1,15 @@
 seq_len=96
 train_epochs=30
-patience=6
-enc_in=137
-manifold_type="Poincare"
-data_path=Solar.csv
+patience=5
+enc_in=7
+manifold_type="Euclidean"
+data_path=ETTh1.csv
 
 python run.py \
   --is_training 1 \
-  --model_id Solar_$seq_len'_'$manifold_type'_'96_exp1_Segment \
+  --model_id ETTh1_$seq_len'_'96_$manifold_type'_'type_exp1_Segment \
   --model HyperbolicForecasting \
-  --data custom_decomposition \
+  --data ETTh1_decomposition \
   --root_path ./time-series-dataset/dataset/ \
   --data_path $data_path \
   --features M \
@@ -18,7 +18,7 @@ python run.py \
   --seq_len $seq_len \
   --pred_len 96 \
   --lradj "type3" \
-  --embed_dim 32 \
+  --embed_dim 128 \
   --hidden_dim 64 \
   --batch_size 32 \
   --use_wandb \
@@ -29,21 +29,19 @@ python run.py \
   --patience $patience \
   --manifold_type $manifold_type \
   --use_revin \
-  --use_segments \
-  --share_feature_weights
-
+  --use_segments
 
 python run.py \
   --is_training 1 \
-  --model_id Solar_$seq_len'_'$manifold'_'192_exp1_Segment \
+  --model_id ETTh1_$seq_len'_'192_$manifold_type'_'exp1_Segment \
   --model HyperbolicForecasting \
-  --data custom_decomposition \
+  --data ETTh1_decomposition \
   --root_path ./time-series-dataset/dataset/ \
   --data_path $data_path \
   --features M \
   --num_basis 10 \
-  --label_len 0 \
   --seq_len $seq_len \
+  --label_len 0 \
   --pred_len 192 \
   --lradj "type3" \
   --embed_dim 32 \
@@ -53,24 +51,24 @@ python run.py \
   --learning_rate 1e-3 \
   --train_epochs $train_epochs \
   --use_decomposition \
-  --enc_in $enc_in \
+  --enc_in 7 \
   --patience $patience \
   --manifold_type $manifold_type \
   --use_revin \
-  --use_segments \
-  --share_feature_weights
+  --use_segments
+
 
 python run.py \
   --is_training 1 \
-  --model_id Solar_$seq_len'_'$manifold_type'_'336_exp1_Segment \
+  --model_id ETTh1_$seq_len'_'336_$manifold_type'_'exp1_Segment \
   --model HyperbolicForecasting \
-  --data custom_decomposition \
+  --data ETTh1_decomposition \
   --root_path ./time-series-dataset/dataset/ \
   --data_path $data_path \
   --features M \
   --num_basis 10 \
-  --label_len 0 \
   --seq_len $seq_len \
+  --label_len 0 \
   --pred_len 336 \
   --lradj "type3" \
   --embed_dim 32 \
@@ -84,20 +82,20 @@ python run.py \
   --patience $patience \
   --manifold_type $manifold_type \
   --use_revin \
-  --use_segments \
-  --share_feature_weights
+  --use_segments
+
 
 python run.py \
   --is_training 1 \
-  --model_id Solar_$seq_len'_'$manifold_type'_'720_exp1_Segment \
+  --model_id ETTh1_$seq_len'_'720_$manifold_type'_'exp1_segment \
   --model HyperbolicForecasting \
-  --data custom_decomposition \
+  --data ETTh1_decomposition \
   --root_path ./time-series-dataset/dataset/ \
   --data_path $data_path \
   --features M \
   --num_basis 10 \
-  --label_len 0 \
   --seq_len $seq_len \
+  --label_len 0 \
   --pred_len 720 \
   --lradj "type3" \
   --embed_dim 32 \
@@ -111,5 +109,4 @@ python run.py \
   --patience $patience \
   --manifold_type $manifold_type \
   --use_revin \
-  --use_segments \
-  --share_feature_weights
+  --use_segments

@@ -1,13 +1,14 @@
 seq_len=720
 train_epochs=30
 patience=5
-enc_in=11
-manifold_type="Euclidean"
-data_path=AQWan.csv
+enc_in=321
+embed_dim=128
+manifold_type="Poincare"
+data_path=electricity.csv
 
 python run.py \
   --is_training 1 \
-  --model_id AQWan_$seq_len'_'$manifold_type'_'96_exp1_Segment \
+  --model_id Electricity_$seq_len'_'$manifold_type'_'96_exp1_Segment \
   --model HyperbolicForecasting \
   --data custom_decomposition \
   --root_path ./time-series-dataset/dataset/ \
@@ -29,12 +30,13 @@ python run.py \
   --patience $patience \
   --manifold_type $manifold_type \
   --use_revin \
-  --use_segments
+  --use_segments \
+  --use_moving_window \
 
 
 python run.py \
   --is_training 1 \
-  --model_id AQWan_$seq_len'_'$manifold'_'192_exp1_Segment \
+  --model_id Electricity_$seq_len'_'$manifold'_'192_exp1_Segment \
   --model HyperbolicForecasting \
   --data custom_decomposition \
   --root_path ./time-series-dataset/dataset/ \
@@ -56,11 +58,12 @@ python run.py \
   --patience $patience \
   --manifold_type $manifold_type \
   --use_revin \
-  --use_segments
+  --use_segments \
+  --use_moving_window
 
 python run.py \
   --is_training 1 \
-  --model_id AQWan_$seq_len'_'$manifold_type'_'336_exp1_Segment \
+  --model_id Electricity_$seq_len'_'$manifold_type'_'336_exp1_Segment \
   --model HyperbolicForecasting \
   --data custom_decomposition \
   --root_path ./time-series-dataset/dataset/ \
@@ -82,11 +85,12 @@ python run.py \
   --patience $patience \
   --manifold_type $manifold_type \
   --use_revin \
-  --use_segments
+  --use_segments \
+  --use_moving_window
 
 python run.py \
   --is_training 1 \
-  --model_id AQWan_$seq_len'_'$manifold_type'_'720_exp1_Segment \
+  --model_id Electricity_$seq_len'_'$manifold_type'_'720_exp1_Segment \
   --model HyperbolicForecasting \
   --data custom_decomposition \
   --root_path ./time-series-dataset/dataset/ \
@@ -108,4 +112,5 @@ python run.py \
   --patience $patience \
   --manifold_type $manifold_type \
   --use_revin \
-  --use_segments
+  --use_segments \
+  --use_moving_window

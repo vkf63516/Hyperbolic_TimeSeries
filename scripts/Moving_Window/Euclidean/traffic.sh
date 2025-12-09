@@ -1,8 +1,8 @@
-seq_len=96
+seq_len=720
 train_epochs=30
-patience=6
+patience=3
 enc_in=862
-manifold_type="Poincare"
+manifold_type="Euclidean"
 data_path=traffic.csv
 
 python run.py \

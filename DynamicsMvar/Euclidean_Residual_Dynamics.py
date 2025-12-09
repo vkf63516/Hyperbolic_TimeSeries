@@ -34,15 +34,19 @@ class ResidualDynamics(nn.Module):
         # Learnable residual weight (initialized near 0 for stability)
         self.residual_weight = nn.Parameter(torch.tensor(0.1))
     
-    def forward(self, z):
+    def forward(self, z, average_velocity=None):
         """
         Args:
             z: [B, embed_dim] - current state
         Returns:
             z_next: [B, embed_dim] - next state with residual connection
         """
-        residual = self.residual_net(z)
+        if average_velocity is not None:
+            backward_trajectory = average_velocity
+        else:
+            backward_trajectory = z
+        residual = self.residual_net(backward_trajectory)
         # Residual connection: z_next = z + α * f(z)
         # where α is learnable and starts small
-        return z + self.residual_weight * residual
+        return backward_trajectory + self.residual_weight * residual
 

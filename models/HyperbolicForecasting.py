@@ -5,12 +5,9 @@ import geoopt
 import os
 import sys
 from pathlib import Path
-sys.path.append(str(Path(__file__).resolve().parents[0]))
-
+from Forecasting.Moving_Window_Segment_Euclidean_Forecaster import MovingWindowEuclideanForecaster
 from Forecasting.Moving_Window_Segment_Forecaster import MovingWindowHyperbolicForecaster
-from Forecasting.Euclidean_Forecaster import PointForecastEuclidean
 from Forecasting.Segment_Euclidean_Forecaster import SegmentForecastEuclidean
-from Forecasting.Forecaster import HyperbolicForecaster
 from Forecasting.Segment_Forecaster import SegmentedHyperbolicForecaster
 
 class Model(nn.Module):
@@ -40,12 +37,27 @@ class Model(nn.Module):
         # Model dimensions
         # Number of input features
         self.enc_in = configs.enc_in
-        self.share_feature_weights = configs.share_feature_weights
         
         # Embedding: Maps decomposed components to hyperbolic space
         
         if self.manifold_type == "Euclidean":
-            if self.use_segments:
+            if self.use_moving_window:
+                self.forecaster = MovingWindowEuclideanForecaster(
+                    lookback=self.seq_len,
+                    pred_len=self.pred_len,
+                    n_features=self.enc_in,
+                    embed_dim=self.embed_dim,
+                    hidden_dim=self.hidden_dim,
+                    manifold_type=self.manifold_type,
+                    segment_length=self.mstl_period,
+                    use_segment_norm=True,
+                    use_revin=self.use_revin,
+                    embed_dropout=0.1,
+                    dynamic_dropout=0.3,
+                    num_layers=2,
+                )
+            else:
+
                 self.forecaster = SegmentForecastEuclidean(
                     lookback=self.seq_len,
                     pred_len=self.pred_len,
@@ -59,61 +71,11 @@ class Model(nn.Module):
                     embed_dropout=0.3,
                     dynamic_dropout=0.3,
                     recon_dropout=0.2,
-                    share_feature_weights=self.share_feature_weights,
                     num_layers=2
                 )
-            else:
-                self.forecaster = PointForecastEuclidean(
-                    lookback=self.seq_len,
-                    pred_len=self.pred_len,
-                    n_features=self.enc_in,
-                    embed_dim=self.embed_dim,
-                    hidden_dim=self.hidden_dim,
-                    use_attention_pooling=self.use_attention_pooling,
-                    use_revin=self.use_revin,
-                    use_truncated_bptt=True,
-                    truncate_every=16
-                )
         else:
-            if self.use_segments:
-                if self.use_moving_window:
-                    self.forecaster = MovingWindowHyperbolicForecaster(
-                        lookback=self.seq_len,
-                        pred_len=self.pred_len,
-                        n_features=self.enc_in,
-                        embed_dim=self.embed_dim,
-                        hidden_dim=self.hidden_dim,
-                        curvature=self.curvature,
-                        manifold_type=self.manifold_type,
-                        segment_length=self.mstl_period,
-                        use_segment_norm=True,
-                        use_revin=self.use_revin,
-                        embed_dropout=0.1,
-                        dynamic_dropout=0.3,
-                        num_layers=2,
-                        share_feature_weights=self.share_feature_weights
-                    )
-                else:
-
-                    self.forecaster = SegmentedHyperbolicForecaster(
-                        lookback=self.seq_len,
-                        pred_len=self.pred_len,
-                        n_features=self.enc_in,
-                        embed_dim=self.embed_dim,
-                        hidden_dim=self.hidden_dim,
-                        curvature=self.curvature,
-                        manifold_type=self.manifold_type,
-                        segment_length=self.mstl_period,
-                        use_segment_norm=True,
-                        use_revin=self.use_revin,
-                        embed_dropout=0.5,
-                        dynamic_dropout=0.3,
-                        recon_dropout=0.2,
-                        num_layers=2,
-                        share_feature_weights=self.share_feature_weights
-                    )
-            else:
-                self.forecaster = HyperbolicForecaster(
+            if self.use_moving_window:
+                self.forecaster = MovingWindowHyperbolicForecaster(
                     lookback=self.seq_len,
                     pred_len=self.pred_len,
                     n_features=self.enc_in,
@@ -121,6 +83,31 @@ class Model(nn.Module):
                     hidden_dim=self.hidden_dim,
                     curvature=self.curvature,
                     manifold_type=self.manifold_type,
+                    segment_length=self.mstl_period,
+                    use_segment_norm=True,
+                    use_revin=self.use_revin,
+                    embed_dropout=0.1,
+                    dynamic_dropout=0.3,
+                    window_size=15,
+                    num_layers=2,
+                )
+            else:
+
+                self.forecaster = SegmentedHyperbolicForecaster(
+                    lookback=self.seq_len,
+                    pred_len=self.pred_len,
+                    n_features=self.enc_in,
+                    embed_dim=self.embed_dim,
+                    hidden_dim=self.hidden_dim,
+                    curvature=self.curvature,
+                    manifold_type=self.manifold_type,
+                    segment_length=self.mstl_period,
+                    use_segment_norm=True,
+                    use_revin=self.use_revin,
+                    embed_dropout=0.5,
+                    dynamic_dropout=0.3,
+                    recon_dropout=0.2,
+                    num_layers=2
                 )
 
             # Forecaster: Autoregressively predicts in hyperbolic space
@@ -145,6 +132,8 @@ class Model(nn.Module):
         forecasts = self.forecaster(trend, seasonal_coarse, seasonal_fine, residual)
         # Get individual hyperbolic representations
         x_hat = forecasts["predictions"]
+        if self.manifold_type == "Euclidean":
+            return x_hat, []
         x_hyp = forecasts["hyperbolic_states"]["combined_h"]
         
         return x_hat, x_hyp

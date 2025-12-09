@@ -128,7 +128,7 @@ class HyperbolicPoincareDynamics(nn.Module):
         
         # Scale velocity
         scale = torch.sigmoid(self.velocity_scale)
-        velocity = velocity * scale 
+        # velocity = velocity * scale 
         
         # Map velocity to manifold via exponential map
         x_update = self.manifold.expmap(x_current, velocity)  # [B, embed_dim]
@@ -141,65 +141,3 @@ class HyperbolicPoincareDynamics(nn.Module):
         )
         
         return x_next, x_current
-
-
-class HyperbolicPoincareMultiStepDynamics(nn.Module):
-    """
-    Apply multiple Poinc residual updates for iterative refinement.
-    
-    Useful for:
-    - Building up complex predictions gradually
-    - Refining embeddings before decoding
-    - Capturing multi-scale temporal patterns
-    """
-    
-    def __init__(self, embed_dim, hidden_dim, manifold, num_steps=4, 
-                 n_layers=3, dropout=0.3, shared_weights=False):
-        """
-        Args:
-            num_steps: number of residual update steps
-            shared_weights: if True, use same network for all steps
-        """
-        super().__init__()
-        self.manifold = manifold
-        self.num_steps = num_steps
-        self.shared_weights = shared_weights
-        
-        if shared_weights:
-            # Single dynamics network shared across all steps
-            self.dynamics = HyperbolicPoincareDynamics(
-                embed_dim, hidden_dim, manifold, n_layers, dropout
-            )
-        else:
-            # Separate dynamics network for each step
-            self.dynamics_list = nn.ModuleList([
-                HyperbolicPoincareDynamics(embed_dim, hidden_dim, manifold, n_layers, dropout)
-                for _ in range(num_steps)
-            ])
-    
-    def forward(self, x_init):
-        """
-        Apply multiple residual updates.
-        
-        Args:
-            x_init: [B, embed_dim+1] initial state
-        
-        Returns:
-            x_final: [B, embed_dim+1] final refined state
-            trajectory: list of intermediate states
-        """
-        x_current = x_init
-        trajectory = [x_init]
-        
-        for step in range(self.num_steps):
-            # Get dynamics network for this step
-            if self.shared_weights:
-                dynamics = self.dynamics
-            else:
-                dynamics = self.dynamics_list[step]
-            
-            # Apply residual update
-            x_current = dynamics(x_current)
-            trajectory.append(x_current)
-        
-        return x_current, trajectory

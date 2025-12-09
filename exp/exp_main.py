@@ -133,10 +133,10 @@ class Exp_Main(Exp_Basic):
                 # ========================================
                 # IDENTICAL to train loop up to forward pass
                 # ========================================
-                trend_x = X_dict['trend'].float().to(self.device, non_blocking=True)
-                coarse_x = X_dict['seasonal_coarse'].float().to(self.device, non_blocking=True)
-                fine_x = X_dict['seasonal_fine'].float().to(self.device, non_blocking=True)
-                resid_x = X_dict['residual'].float().to(self.device, non_blocking=True)
+                trend_x = X_dict['trend'].float().to(self.device)
+                coarse_x = X_dict['seasonal_coarse'].float().to(self.device)
+                fine_x = X_dict['seasonal_fine'].float().to(self.device)
+                resid_x = X_dict['residual'].float().to(self.device)
             
                 outputs, hyp_outputs = self.model(
                     trend=trend_x,
@@ -161,6 +161,7 @@ class Exp_Main(Exp_Basic):
         avg_total_loss = np.average(total_loss)
         self.model.train()
         return avg_total_loss
+        
     def train(self, setting):
         train_data, train_loader = self._get_data(flag='train')
         vali_data, vali_loader = self._get_data(flag='val')
@@ -202,12 +203,12 @@ class Exp_Main(Exp_Basic):
                 model_geooptim.zero_grad()
             
                 # Load components
-                trend_x = X_dict['trend'].float().to(self.device, non_blocking=True)
-                coarse_x = X_dict['seasonal_coarse'].float().to(self.device, non_blocking=True)
-                fine_x = X_dict['seasonal_fine'].float().to(self.device, non_blocking=True)
-                resid_x = X_dict['residual'].float().to(self.device, non_blocking=True)
+                trend_x = X_dict['trend'].float().to(self.device)
+                coarse_x = X_dict['seasonal_coarse'].float().to(self.device)
+                fine_x = X_dict['seasonal_fine'].float().to(self.device)
+                resid_x = X_dict['residual'].float().to(self.device)
                 # Ground truth
-                batch_y = batch_y.float().to(self.device, non_blocking=True)
+                batch_y = batch_y.float().to(self.device)
             
                 # Forward pass
                 if self.args.use_amp:
@@ -372,14 +373,14 @@ class Exp_Main(Exp_Basic):
                 # ========================================
                 # Load Input Components (SAME AS TRAIN)
                 # ========================================
-                trend_x = X_dict['trend'].float().to(self.device, non_blocking=True)
-                coarse_x = X_dict['seasonal_coarse'].float().to(self.device, non_blocking=True)
-                fine_x = X_dict['seasonal_fine'].float().to(self.device, non_blocking=True)
-                resid_x = X_dict['residual'].float().to(self.device, non_blocking=True)
+                trend_x = X_dict['trend'].float().to(self.device)
+                coarse_x = X_dict['seasonal_coarse'].float().to(self.device)
+                fine_x = X_dict['seasonal_fine'].float().to(self.device)
+                resid_x = X_dict['residual'].float().to(self.device)
                 # ========================================
                 # Load Ground Truth (SAME AS TRAIN)
                 # ========================================
-                batch_y = batch_y.float().to(self.device, non_blocking=True)
+                batch_y = batch_y.float().to(self.device)
             
                 # For point-level, extract only prediction part
             
@@ -397,7 +398,6 @@ class Exp_Main(Exp_Basic):
                 batch_y = batch_y[:, -self.args.pred_len:, f_dim:]
                 # outputs = trend_outputs + coarse_outputs + fine_outputs + resid_outputs
                 outputs = outputs[:, -self.args.pred_len:, f_dim:]
-                # hyp_outputs = hyp_outputs[:, -self.args.pred_len:, f_dim:]
 
             # ========================================
             # For Segment-Level: Flatten for Metrics
@@ -417,20 +417,17 @@ class Exp_Main(Exp_Basic):
             # ========================================
                 outputs = outputs.detach().cpu().numpy()
                 batch_y = batch_y.detach().cpu().numpy()
-                hyper = hyp_outputs.detach().cpu().numpy()
             
                 preds.append(outputs)
                 trues.append(batch_y)
-                hypers.append(hyper)
 
         # ========================================
         # Concatenate All Batches
         # ========================================
         preds = np.concatenate(preds, axis=0)
         trues = np.concatenate(trues, axis=0)
-        hypers = np.concatenate(hypers, axis=0)
     
-        print('test shape:', preds.shape, trues.shape, hypers.shape)
+        print('test shape:', preds.shape, trues.shape)
 
     # ========================================
     # Calculate Metrics
@@ -442,7 +439,7 @@ class Exp_Main(Exp_Basic):
         mae, mse, rmse, mape, mspe, rse, corr = metric(preds, trues)
         print('mse:{}, mae:{}, rmse:{}'.format(mse, mae, rmse))
         
-        f = open("result.txt", 'a')
+        f = open(self.args.result_file, 'a')
         f.write(setting + "  \n")
         f.write('mse:{}, mae:{}, rmse:{}'.format(mse, mae, rmse))
         f.write('\n\n')
@@ -468,7 +465,7 @@ class Exp_Main(Exp_Basic):
         np.save(folder_path + 'metrics.npy', np.array([mae, mse, rmse, mape, mspe,rse, corr]))
         np.save(folder_path + 'pred.npy', preds)
         np.save(folder_path + 'true.npy', trues)
-        np.save(folder_path + 'hyper.npy', hypers)
+        # np.save(folder_path + 'hyper.npy', hypers)
 
         return
 

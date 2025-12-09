@@ -38,10 +38,6 @@ class SegmentLinearEmbed(nn.Module):
             self.feature_linears = nn.ModuleList([
                 nn.Linear(self.total_len, output_dim) for _ in range(input_dim)
             ])
-            # for linear in self.feature_linears:
-            #     linear.weight = nn.Parameter(
-            #         (1 / self.total_len) * torch.ones([output_dim, self.total_len])
-            #     )
             print(f"SegmentLinearEmbed (PER-FEATURE): {input_dim} features → {input_dim * self.total_len * output_dim} params")
         
         self.dropout = nn.Dropout(dropout)
@@ -59,7 +55,7 @@ class SegmentLinearEmbed(nn.Module):
             mean = x_flat.mean(dim=1, keepdim=True)
             x = x_flat - mean
             return x.reshape(B, N_seg, seg_len, C), mean
-    
+
     def forward(self, x):
         """
         Forward with optional orthogonal loss.
@@ -94,13 +90,15 @@ class SegmentLinearEmbed(nn.Module):
             x_flat = x.reshape(-1, self.total_len)
             output_flat = self.shared_linear(x_flat)
             output = output_flat.reshape(B, C, self.output_dim)
+        # Instead of looping
         else:
-            output = torch.zeros([B, C, self.output_dim], dtype=x.dtype, device=x.device)
-            for i in range(self.input_dim):
-                feature_i = x[:, i, :]
-                output[:, i, :] = self.feature_linears[i](feature_i)
+            # Stack all linear weights: [C, output_dim, total_len]
+            weights = torch.stack([self.feature_linears[i].weight for i in range(self.input_dim)], dim=0)
+            biases = torch.stack([self.feature_linears[i].bias for i in range(self.input_dim)], dim=0)
+            
+            # Batch matrix multiply: [B, C, total_len] @ [C, total_len, output_dim] -> [B, C, output_dim]
+            output = torch.einsum('bci,cio->bco', x, weights.transpose(1, 2)) + biases.unsqueeze(0)
         
-        self.dropout(output)
         output = output.mean(dim=1)
         return output
 
@@ -240,7 +238,7 @@ class SegmentedParallelPoincare(nn.Module):
         z_residual_t = self.residual_embed(residual)
         
         # 2) Scaling (SAME as ParallelPoincare)
-        effective_scale = F.softplus(self.effective_scale)
+        effective_scale = torch.tanh(self.effective_scale)
         scaled_trend_embed = z_trend_t * effective_scale
         scaled_coarse_embed = z_seasonal_coarse_t * effective_scale
         scaled_fine_embed = z_seasonal_fine_t * effective_scale

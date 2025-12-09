@@ -17,22 +17,26 @@ import argparse
 def parse_result_file(result_file='result.txt'):
     """Parse latest result from result.txt"""
     if not os.path.exists(result_file):
+        print("Cant find file")
         return None
     
     with open(result_file, 'r') as f:
         lines = f.readlines()
     
     non_empty = [line.strip() for line in lines if line.strip()]
+    print(len(non_empty))
     
     if len(non_empty) >= 2:
+        print(non_empty[-3])
         try:
-            metrics_line = non_empty[-2]
+            metrics_line = non_empty[-3]
+            print(metrics_line)
             if 'mse:' in metrics_line:
                 parts = metrics_line.split(',')
                 mse = float(parts[0].split(':')[1])
                 mae = float(parts[1].split(':')[1])
-                rse = float(parts[2].split(':')[1])
-                return {'mse': mse, 'mae': mae, 'rse': rse}
+                rmse = float(parts[2].split(':')[1])
+                return {'mse': mse, 'mae': mae, 'rmse': rmse}
         except Exception as e:
             print(f"Warning: Could not parse result - {e}")
     return None
@@ -47,16 +51,16 @@ def objective(trial, pred_len, manifold_type='Euclidean'):
     """
     
     # ONLY sample these 4 core hyperparameters
-    embed_dim = trial.suggest_categorical('embed_dim', [32, 48, 64, 80, 96])
-    hidden_dim = trial.suggest_categorical('hidden_dim', [64, 96, 128, 160, 192, 256])
-    learning_rate = trial.suggest_loguniform('learning_rate', 1e-5, 1e-3)
-    batch_size = trial.suggest_categorical('batch_size', [16, 32, 64])
+    embed_dim = trial.suggest_categorical('embed_dim', [32, 64])
+    hidden_dim = trial.suggest_categorical('hidden_dim', [64, 128, 256])
+    learning_rate = trial.suggest_loguniform('learning_rate', 1e-3, 1e-2)
+    batch_size = trial.suggest_categorical('batch_size', [16, 32, 64, 128, 256])
     
     # Optional: Add curvature for hyperbolic manifolds
-    if manifold_type in ['Lorentzian', 'Poincare']:
-        curvature = trial.suggest_uniform('curvature', 0.5, 2.0)
-    else:
+    if manifold_type in ['Poincare']:
         curvature = 1.0
+    else:
+        curvature = 0.0
     
     # Constraint: hidden_dim should be >= embed_dim
     if hidden_dim < embed_dim:
@@ -77,10 +81,10 @@ def objective(trial, pred_len, manifold_type='Euclidean'):
         'python', 'run.py',
         '--is_training', '1',
         '--model', 'HyperbolicForecasting',
-        '--model_id', f"Weather_{manifold_type}_{pred_len}_optuna_trial{trial.number}",
-        '--data', 'custom_decomposition',
+        '--model_id', f"ETTh1_{manifold_type}_{pred_len}_optuna_trial{trial.number}",
+        '--data', 'ETTh1_decomposition',
         '--root_path', './time-series-dataset/dataset/',
-        '--data_path', 'weather.csv',
+        '--data_path', 'ETTh1.csv',
         '--features', 'M',
         '--seq_len', '96',
         '--pred_len', str(pred_len),
@@ -90,11 +94,15 @@ def objective(trial, pred_len, manifold_type='Euclidean'):
         '--batch_size', str(batch_size),
         '--curvature', f'{curvature:.3f}',
         '--manifold_type', manifold_type,
-        '--train_epochs', '20',
+        '--train_epochs', '30',
         '--patience', '5',
         '--use_decomposition',
-        '--enc_in', '21',
-        '--num_basis', '10'
+        '--enc_in', '7',
+        '--num_basis', '10',
+        '--use_revin',
+        '--use_segments', 
+        '--result_file', 'result_optuna.txt' 
+        '--use_moving_window'
         # FIXED settings
     ]
     
@@ -102,7 +110,7 @@ def objective(trial, pred_len, manifold_type='Euclidean'):
     print(f"[Trial {trial.number}] {manifold_type} manifold, pred_len={pred_len}")
     print(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC")
     print("SEARCHING: embed_dim, hidden_dim, learning_rate, batch_size")
-    print(json.dumps({k: v for k, v in config.items() if k in ['embed_dim', 'hidden_dim', 'learning_rate', 'batch_size', 'curvature']}, indent=2))
+    print(json.dumps({k: v for k, v in config.items() if k in ['embed_dim', 'hidden_dim', 'learning_rate', 'batch_size']}, indent=2))
     print("="*80)
     
     # Run experiment
@@ -115,14 +123,13 @@ def objective(trial, pred_len, manifold_type='Euclidean'):
         # Parse result
         metrics = parse_result_file()
         
-        if metrics and result.returncode == 0:
+        if metrics or result.returncode == 0:
             mse = metrics['mse']
             print(f"✅ Success! MSE: {mse:.6f}, MAE: {metrics['mae']:.6f}, Duration: {duration/60:.1f}min")
             
             # Log additional metrics
             trial.set_user_attr('mae', metrics['mae'])
-            trial.set_user_attr('rse', metrics['rse'])
-            trial.set_user_attr('duration_seconds', duration)
+            trial.set_user_attr('rmse', metrics['rmse'])
             
             return mse
         else:
@@ -144,7 +151,7 @@ def main():
     parser.add_argument('--pred_lens', type=int, nargs='+', default=[96, 192, 336, 720],
                         help='Prediction horizons to optimize')
     parser.add_argument('--manifold_types', type=str, nargs='+', 
-                        default=['Euclidean'],
+                        default=['Poincare'],
                         choices=['Euclidean', 'Lorentzian', 'Poincare'],
                         help='Manifold types to test')
     parser.add_argument('--seed', type=int, default=42,
@@ -166,7 +173,7 @@ def main():
     print(f"Start time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC")
     print(f"\nSEARCHING:")
     print(f"  - embed_dim: [32, 48, 64, 80, 96]")
-    print(f"  - hidden_dim: [64, 96, 128, 160, 192, 256]")
+    print(f"  - hidden_dim: [64, 128, 256]")
     print(f"  - learning_rate: [1e-5, 1e-3] (log uniform)")
     print(f"  - batch_size: [16, 32, 64]")
     print(f"\nFIXED:")
@@ -236,7 +243,7 @@ def main():
                         'trial_number': trial.number,
                         'mse': trial.value,
                         'mae': trial.user_attrs.get('mae', None),
-                        'rse': trial.user_attrs.get('rse', None),
+                        'rmse': trial.user_attrs.get('rmse', None),
                         'duration_seconds': trial.user_attrs.get('duration_seconds', None),
                         **trial.params,
                         # Add fixed params for reference
@@ -270,10 +277,10 @@ def main():
         print(f"{manifold_type.upper()} MANIFOLD")
         print(f"{'='*60}")
         
-        df_m = df[df['manifold_type'] == manifold_type]
+        df_m = df.loc[df['manifold_type'] == manifold_type]
         
         for pred_len in sorted(df_m['pred_len'].unique()):
-            df_h = df_m[df_m['pred_len'] == pred_len]
+            df_h = df_m.loc[df_m['pred_len'] == pred_len]
             best = df_h.loc[df_h['mse'].idxmin()]
             print(f"\npred_len={pred_len}:")
             print(f"  Best MSE: {best['mse']:.6f}, MAE: {best['mae']:.6f}")

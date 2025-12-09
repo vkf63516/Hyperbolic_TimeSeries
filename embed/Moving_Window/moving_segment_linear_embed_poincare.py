@@ -7,130 +7,89 @@ from spec import safe_expmap0
 
 class SegmentLinearEmbedMovingWindow(nn.Module):
     """
-    Produces ONE embedding per segment (not aggregated).
-    Input:  [B, seq_len, C]
+    This done for each feature 
+    Produces ONE embedding per segment.
+    Input:  [B, seq_len]
     Output: [B, num_segments, embed_dim]  # One embedding per segment
     """
     
-    def __init__(self, input_dim, embed_dim, lookback, segment_length=24, 
-                 dropout=0.1, use_segment_norm=True, share_feature_weights=False):
+    def __init__(self, lookback, embed_dim, segment_length=24, dropout=0.1, 
+                 use_segment_norm=True):
         super().__init__()
         
-        self.input_dim = input_dim
         self.embed_dim = embed_dim
         self.segment_length = segment_length
         self.lookback = lookback
         self.num_segments = lookback // segment_length
         self.use_segment_norm = use_segment_norm
         self.pad_seq_len = 0
-        self.share_feature_weights = share_feature_weights
         
         if self.lookback > self.num_segments * self.segment_length:
             self.pad_seq_len = (self.num_segments + 1) * self.segment_length - self.lookback
             self.num_segments += 1
         
-        if share_feature_weights:
-            self.temporal_linear = nn.Linear(self.segment_length, self.embed_dim)
-        else:
-            self.temporal_linears = nn.ModuleList(
-                [nn.Linear(self.segment_length, self.embed_dim) for _ in range(self.input_dim)]
-            )
+        self.temporal_linears = nn.Linear(segment_length, embed_dim)
         
         self.dropout = nn.Dropout(dropout)
     
     def forward(self, x):
         """
         Args:
-            x: [B, lookback, input_dim]
-        
+            x: [B, seq_len] - single feature
         Returns:
-            seg_embeds: [B, num_segments, embed_dim]  # One embedding per segment
+            z: [B, num_segments, embed_dim] - trajectory
         """
-        B, T, C = x.shape
-        total_len = self.num_segments * self.segment_length
+        B = x.shape[0]
         
         # Pad if necessary
-        if T < total_len:
-            pad_length = total_len - T
-            pad = torch.zeros(B, pad_length, C, device=x.device, dtype=x.dtype)
+        if self.pad_seq_len > 0:
+            pad = torch.zeros(B, self.pad_seq_len, device=x.device, dtype=x.dtype)
             x = torch.cat([x, pad], dim=1)
         
-        # Reshape into segments: [B, num_segments, segment_length, C]
-        x_seg = x.view(B, self.num_segments, self.segment_length, C)
+        # Reshape into segments
+        x_seg = x.view(B, self.num_segments, self.segment_length)  # [B, num_seg, seg_len]
         
-        # Optional segment normalization
+        # Segment normalization
         if self.use_segment_norm:
-            mean = x_seg.mean(dim=2, keepdim=True)
+            mean = x_seg.mean(dim=2, keepdim=True)  # [B, num_seg, 1]
             std = x_seg.std(dim=2, keepdim=True) + 1e-6
-            x_seg_norm = (x_seg - mean) / std
-        else:
-            x_seg_norm = x_seg
+            x_seg = (x_seg - mean) / std
         
-        if self.share_feature_weights:
-            # Process all segments and features with shared weights
-            x_flat = x_seg_norm.reshape(B * self.num_segments * C, self.segment_length)
-            embeds_flat = self.temporal_linear(x_flat)
-            embeds = embeds_flat.view(B, self.num_segments, C, self.embed_dim)
-            
-            # Pool across features for each segment: [B, num_segments, embed_dim]
-            seg_embeds = embeds.mean(dim=2)
-        else:
-            # Process each feature independently, then aggregate
-            seg_embeds = []
-            for seg_idx in range(self.num_segments):
-                feature_embeds = []
-                for feat_idx in range(C):
-                    # Extract feature data for this segment: [B, segment_length]
-                    feat_data = x_seg_norm[:, seg_idx, :, feat_idx]
-                    # Embed: [B, embed_dim]
-                    embed = self.temporal_linears[feat_idx](feat_data)
-                    feature_embeds.append(embed)
-                # Average across features for this segment: [B, embed_dim]
-                seg_embed_single = torch.stack(feature_embeds, dim=1).mean(dim=1)
-                seg_embeds.append(seg_embed_single)
-            # Stack across segments: [B, num_segments, embed_dim]
-            seg_embeds = torch.stack(seg_embeds, dim=1)
+        # Embed each segment (KEEP segment structure!)
+        seg_embed = self.temporal_linears(x_seg)  # [B, num_segments, embed_dim]
+        seg_embed = self.dropout(seg_embed)
         
-        # Apply dropout
-        seg_embeds = self.dropout(seg_embeds)
-        
-        return seg_embeds
+        return seg_embed
 
 
 class SegmentedParallelPoincareMovingWindow(nn.Module):
     """
-    Encoder for moving window that outputs [B, num_segments, embed_dim].
+    Encode each feature for moving window that outputs [B, num_segments, embed_dim].
     Each segment is independently mapped to hyperbolic space.
     """
     
-    def __init__(self, lookback, input_dim, embed_dim=32, curvature=1.0, 
-                 segment_length=24, embed_dropout=0.1, use_segment_norm=True, 
-                 share_feature_weights=False):
+    def __init__(self, lookback, embed_dim=32, curvature=1.0, segment_length=24,
+                 embed_dropout=0.1, use_segment_norm=True):
         super().__init__()
         
-        self.input_dim = input_dim
         self.embed_dim = embed_dim
         
         # Segment-aware encoders (output per-segment embeddings)
         self.trend_embed = SegmentLinearEmbedMovingWindow(
-            input_dim=input_dim, embed_dim=embed_dim, lookback=lookback,
-            segment_length=segment_length, use_segment_norm=use_segment_norm,
-            dropout=embed_dropout, share_feature_weights=share_feature_weights
+            embed_dim=embed_dim, lookback=lookback, segment_length=segment_length,
+            use_segment_norm=use_segment_norm, dropout=embed_dropout
         )
         self.seasonal_coarse_embed = SegmentLinearEmbedMovingWindow(
-            input_dim=input_dim, embed_dim=embed_dim, lookback=lookback,
-            segment_length=segment_length, use_segment_norm=use_segment_norm,
-            dropout=embed_dropout, share_feature_weights=share_feature_weights
+            embed_dim=embed_dim, lookback=lookback, segment_length=segment_length,
+            use_segment_norm=use_segment_norm, dropout=embed_dropout
         )
         self.seasonal_fine_embed = SegmentLinearEmbedMovingWindow(
-            input_dim=input_dim, embed_dim=embed_dim, lookback=lookback,
-            segment_length=segment_length, use_segment_norm=use_segment_norm,
-            dropout=embed_dropout, share_feature_weights=share_feature_weights
+            embed_dim=embed_dim, lookback=lookback, segment_length=segment_length, 
+            use_segment_norm=use_segment_norm, dropout=embed_dropout
         )
         self.residual_embed = SegmentLinearEmbedMovingWindow(
-            input_dim=input_dim, embed_dim=embed_dim, lookback=lookback,
-            segment_length=segment_length, use_segment_norm=use_segment_norm,
-            dropout=embed_dropout, share_feature_weights=share_feature_weights
+            embed_dim=embed_dim, lookback=lookback, segment_length=segment_length,
+            use_segment_norm=use_segment_norm, dropout=embed_dropout
         )
         
         # Poincaré ball manifold
@@ -158,7 +117,7 @@ class SegmentedParallelPoincareMovingWindow(nn.Module):
         embeds_flat = segment_embeds.reshape(B * N, D)  # [B*N, embed_dim]
         
         # Scale
-        effective_scale = F.softplus(self.effective_scale)
+        effective_scale = torch.tanh(self.effective_scale)
         scaled_embeds = embeds_flat * effective_scale
         
         # Map to hyperbolic space
@@ -217,8 +176,8 @@ class SegmentedParallelPoincareMovingWindow(nn.Module):
         """
         Encode with segment structure preserved.
         
-        Args:
-            trend, seasonal_coarse, seasonal_fine, residual: [B, seq_len, input_dim]
+        Args
+            trend, seasonal_coarse, seasonal_fine, residual: [B, seq_len]
         
         Returns:
             dict with hyperbolic embeddings [B, num_segments, embed_dim] for each component
