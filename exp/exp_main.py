@@ -7,7 +7,7 @@ Controlled by args.use_segments flag:
 from wandb_logger import WandbLogger
 from data_provider.data_factory import data_provider
 from exp.exp_basic import Exp_Basic
-from models import HyperbolicForecasting, PoincareTimeBase
+from models import HyperbolicForecasting
 from utils.tools import adjust_learning_rate, visual
 from utils.metrics import metric
 from geoopt import optim as geooptim
@@ -82,7 +82,6 @@ class Exp_Main(Exp_Basic):
     def _build_model(self):
         model_dict = {
             "HyperbolicForecasting": HyperbolicForecasting,
-            "PoincareTimeBase": PoincareTimeBase
         }
         model = model_dict[self.args.model].Model(self.args).float()
         total_params = sum(p.numel() for p in model.parameters())
