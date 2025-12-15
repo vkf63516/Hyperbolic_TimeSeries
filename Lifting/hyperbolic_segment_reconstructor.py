@@ -44,6 +44,7 @@ class HyperbolicSegmentReconstructionHead(nn.Module):
         v = self.manifold.logmap0(z_t)
         segment_flat = self.fc(v)
         segment = segment_flat.reshape(B, self.segment_length, self.output_dim)
+        segment.squeeze(-1)
         return segment
 
 

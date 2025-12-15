@@ -18,6 +18,7 @@ parser.add_argument('--model', type=str, required=True, default='HyperbolicForec
 parser.add_argument('--gradient_truncation_K', type=int, default=6, 
                     help='truncation steps for BPTT in hyperbolic forecasting')
 # NEW: Segment-level vs Point-level hyperbolic embeddings
+parser.add_argument('--orthogonal_weight', type=float, default=0.2, help='orthogonal')
 parser.add_argument('--share_feature_weights', action='store_true', default=False,
                     help='share weights across features (for high-D data)')
 parser.add_argument('--mstl_period', type=int, default=24,
@@ -68,6 +69,7 @@ parser.add_argument('--pred_len', type=int, default=96, help='prediction sequenc
 parser.add_argument('--enc_in', type=int, default=7, help='encoder input size')
 parser.add_argument('--embed', type=str, default='fixed',help='time features encoding, options:[timeF, fixed, learned]')
 # optimization
+parser.add_argument('--use_orthogonal', action='store_true', default=False, help='orthogonal loss')
 parser.add_argument('--use_revin', action='store_true', default=False, help='RevIN')
 parser.add_argument('--num_workers', type=int, default=0, help='data loader num workers')
 parser.add_argument('--itr', type=int, default=1, help='experiment runs')

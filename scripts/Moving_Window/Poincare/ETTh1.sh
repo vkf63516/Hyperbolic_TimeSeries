@@ -13,16 +13,15 @@ python run.py \
   --root_path ./time-series-dataset/dataset/ \
   --data_path $data_path \
   --features M \
-  --num_basis 10 \
+  --num_basis 6 \
   --label_len 0 \
   --seq_len $seq_len \
   --pred_len 96 \
   --lradj "type3" \
-  --embed_dim 64 \
-  --hidden_dim 64 \
+  --embed_dim 32 \
+  --hidden_dim 32 \
   --batch_size 32 \
-  --use_wandb \
-  --learning_rate 1e-2 \
+  --learning_rate 1e-3 \
   --train_epochs $train_epochs \
   --use_decomposition \
   --enc_in $enc_in \
@@ -40,16 +39,15 @@ python run.py \
   --root_path ./time-series-dataset/dataset/ \
   --data_path $data_path \
   --features M \
-  --num_basis 10 \
+  --num_basis 6 \
   --seq_len $seq_len \
   --label_len 0 \
   --pred_len 192 \
   --lradj "type3" \
-  --embed_dim 64 \
-  --hidden_dim 64 \
+  --embed_dim 32 \
+  --hidden_dim 32 \
   --batch_size 32 \
-  --use_wandb \
-  --learning_rate 1e-2 \
+  --learning_rate 1e-3 \
   --train_epochs $train_epochs \
   --use_decomposition \
   --enc_in 7 \
@@ -68,16 +66,15 @@ python run.py \
   --root_path ./time-series-dataset/dataset/ \
   --data_path $data_path \
   --features M \
-  --num_basis 10 \
+  --num_basis 6 \
   --seq_len $seq_len \
   --label_len 0 \
   --pred_len 336 \
   --lradj "type3" \
-  --embed_dim 64 \
-  --hidden_dim 64 \
+  --embed_dim 32 \
+  --hidden_dim 32 \
   --batch_size 32 \
-  --use_wandb \
-  --learning_rate 1e-2 \
+  --learning_rate 1e-3 \
   --train_epochs $train_epochs \
   --use_decomposition \
   --enc_in $enc_in \
@@ -96,16 +93,15 @@ python run.py \
   --root_path ./time-series-dataset/dataset/ \
   --data_path $data_path \
   --features M \
-  --num_basis 10 \
+  --num_basis 6 \
   --seq_len $seq_len \
   --label_len 0 \
   --pred_len 720 \
   --lradj "type3" \
-  --embed_dim 64 \
-  --hidden_dim 64 \
+  --embed_dim 32 \
+  --hidden_dim 32 \
   --batch_size 32 \
-  --use_wandb \
-  --learning_rate 1e-2 \
+  --learning_rate 1e-3 \
   --train_epochs $train_epochs \
   --use_decomposition \
   --enc_in $enc_in \

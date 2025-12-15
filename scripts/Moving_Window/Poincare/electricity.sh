@@ -21,9 +21,9 @@ python run.py \
   --lradj "type3" \
   --embed_dim 32 \
   --hidden_dim 64 \
-  --batch_size 32 \
+  --batch_size 128 \
   --use_wandb \
-  --learning_rate 1e-3 \
+  --learning_rate 2e-2 \
   --train_epochs $train_epochs \
   --use_decomposition \
   --enc_in $enc_in \
@@ -49,9 +49,9 @@ python run.py \
   --lradj "type3" \
   --embed_dim 32 \
   --hidden_dim 64 \
-  --batch_size 32 \
+  --batch_size 128 \
   --use_wandb \
-  --learning_rate 1e-3 \
+  --learning_rate 2e-2 \
   --train_epochs $train_epochs \
   --use_decomposition \
   --enc_in $enc_in \

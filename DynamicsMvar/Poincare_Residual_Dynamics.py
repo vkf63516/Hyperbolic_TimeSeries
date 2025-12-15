@@ -6,21 +6,6 @@ from spec import safe_expmap
 # Poincaré Ball Operations
 # ============================================
 
-def poincare_norm(x, c=1.0, eps=1e-8):
-    """
-    Compute Euclidean norm for Poincaré ball.
-    
-    Args:
-        x: [B, n] points in Poincaré ball
-        c: curvature (positive)
-        eps: numerical stability
-    
-    Returns:
-        norm: [B] Euclidean norms
-    """
-    return torch.sqrt((x ** 2).sum(dim=-1) + eps)
-
-
 def poincare_residual_update(x_current, x_update, manifold, alpha=0.7):
     """
     Poincaré ball residual update using Möbius operations:
@@ -141,3 +126,4 @@ class HyperbolicPoincareDynamics(nn.Module):
         )
         
         return x_next, x_current
+        

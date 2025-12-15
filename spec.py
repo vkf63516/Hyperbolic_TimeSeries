@@ -78,7 +78,7 @@ def segment_safe_expmap0(manifold, u, max_norm=10.0, eps=1e-6):
     return x
 
 
-def safe_expmap(manifold, base_point, v, eps=1e-15, max_norm=3.0):
+def safe_expmap(manifold, base_point, v, eps=1e-15, max_norm=7.0):
     """Similar to safe_expmap0 but for non-origin base points"""
     v_norm = torch.norm(v, dim=-1, keepdim=True).clamp(min=eps)
     # print(f"V_norm ")
@@ -97,7 +97,7 @@ def safe_expmap(manifold, base_point, v, eps=1e-15, max_norm=3.0):
     return result
     
 
-def safe_expmap0(manifold, v, eps=1e-15, max_norm=0.99):
+def safe_expmap0(manifold, v, eps=1e-15, max_norm=7.0):
     """
     Safely map tangent vector v to manifold point.
     

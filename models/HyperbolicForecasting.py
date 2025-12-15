@@ -34,6 +34,7 @@ class Model(nn.Module):
         self.use_attention_pooling = configs.use_attention_pooling
         self.use_revin = configs.use_revin
         self.use_moving_window = configs.use_moving_window
+        self.num_basis = configs.num_basis
         # Model dimensions
         # Number of input features
         self.enc_in = configs.enc_in
@@ -84,12 +85,11 @@ class Model(nn.Module):
                     curvature=self.curvature,
                     manifold_type=self.manifold_type,
                     segment_length=self.mstl_period,
-                    use_segment_norm=True,
                     use_revin=self.use_revin,
-                    embed_dropout=0.1,
+                    embed_dropout=0.2,
                     dynamic_dropout=0.3,
                     window_size=15,
-                    num_layers=2,
+                    num_layers=3,
                 )
             else:
 
@@ -102,7 +102,6 @@ class Model(nn.Module):
                     curvature=self.curvature,
                     manifold_type=self.manifold_type,
                     segment_length=self.mstl_period,
-                    use_segment_norm=True,
                     use_revin=self.use_revin,
                     embed_dropout=0.5,
                     dynamic_dropout=0.3,

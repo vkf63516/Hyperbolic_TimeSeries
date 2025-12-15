@@ -13,15 +13,13 @@ class SegmentLinearEmbedMovingWindow(nn.Module):
     Output: [B, num_segments, embed_dim]  # One embedding per segment
     """
     
-    def __init__(self, lookback, embed_dim, segment_length=24, dropout=0.1, 
-                 use_segment_norm=True):
+    def __init__(self, lookback, embed_dim, segment_length=24, dropout=0.1):
         super().__init__()
         
         self.embed_dim = embed_dim
         self.segment_length = segment_length
         self.lookback = lookback
         self.num_segments = lookback // segment_length
-        self.use_segment_norm = use_segment_norm
         self.pad_seq_len = 0
         
         if self.lookback > self.num_segments * self.segment_length:
@@ -49,12 +47,6 @@ class SegmentLinearEmbedMovingWindow(nn.Module):
         # Reshape into segments
         x_seg = x.view(B, self.num_segments, self.segment_length)  # [B, num_seg, seg_len]
         
-        # Segment normalization
-        if self.use_segment_norm:
-            mean = x_seg.mean(dim=2, keepdim=True)  # [B, num_seg, 1]
-            std = x_seg.std(dim=2, keepdim=True) + 1e-6
-            x_seg = (x_seg - mean) / std
-        
         # Embed each segment (KEEP segment structure!)
         seg_embed = self.temporal_linears(x_seg)  # [B, num_segments, embed_dim]
         seg_embed = self.dropout(seg_embed)
@@ -69,34 +61,30 @@ class SegmentedParallelPoincareMovingWindow(nn.Module):
     """
     
     def __init__(self, lookback, embed_dim=32, curvature=1.0, segment_length=24,
-                 embed_dropout=0.1, use_segment_norm=True):
+                 embed_dropout=0.1):
         super().__init__()
         
         self.embed_dim = embed_dim
         
         # Segment-aware encoders (output per-segment embeddings)
         self.trend_embed = SegmentLinearEmbedMovingWindow(
-            embed_dim=embed_dim, lookback=lookback, segment_length=segment_length,
-            use_segment_norm=use_segment_norm, dropout=embed_dropout
+            embed_dim=embed_dim, lookback=lookback, segment_length=segment_length, dropout=embed_dropout
         )
         self.seasonal_coarse_embed = SegmentLinearEmbedMovingWindow(
-            embed_dim=embed_dim, lookback=lookback, segment_length=segment_length,
-            use_segment_norm=use_segment_norm, dropout=embed_dropout
+            embed_dim=embed_dim, lookback=lookback, segment_length=segment_length,dropout=embed_dropout
         )
         self.seasonal_fine_embed = SegmentLinearEmbedMovingWindow(
-            embed_dim=embed_dim, lookback=lookback, segment_length=segment_length, 
-            use_segment_norm=use_segment_norm, dropout=embed_dropout
+            embed_dim=embed_dim, lookback=lookback, segment_length=segment_length, dropout=embed_dropout
         )
         self.residual_embed = SegmentLinearEmbedMovingWindow(
-            embed_dim=embed_dim, lookback=lookback, segment_length=segment_length,
-            use_segment_norm=use_segment_norm, dropout=embed_dropout
+            embed_dim=embed_dim, lookback=lookback, segment_length=segment_length, dropout=embed_dropout
         )
         
         # Poincaré ball manifold
         self.manifold = geoopt.manifolds.PoincareBall(c=curvature)
         
         # Scaling parameter
-        self.effective_scale = nn.Parameter(torch.tensor(0.1))
+        self.effective_scale = nn.Parameter(torch.tensor(1.0))
         
         # Möbius fusion weights
         self.mobius_weights = nn.Parameter(torch.ones(4) * 0.25)

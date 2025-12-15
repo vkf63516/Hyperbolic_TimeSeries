@@ -24,7 +24,7 @@ class SegmentedHyperbolicForecaster(nn.Module):
                  use_attention_pooling=False, use_revin=False,
                  use_truncated_bptt=False, truncate_every=4,  # Truncate every N segments
                  dynamic_dropout=0.3, embed_dropout=0.5, recon_dropout=0.2, 
-                 num_layers=2, use_segment_norm=True, share_feature_weights=False):
+                 num_layers=2, share_feature_weights=False):
         """
         Args:
             lookback: int - lookback window (should be divisible by segment_length)
@@ -80,7 +80,6 @@ class SegmentedHyperbolicForecaster(nn.Module):
                 embed_dim=embed_dim,
                 curvature=curvature,
                 segment_length=segment_length,
-                use_segment_norm=use_segment_norm,
                 embed_dropout=self.embed_dropout,
                 share_feature_weights=self.share_feature_weights,
             )
