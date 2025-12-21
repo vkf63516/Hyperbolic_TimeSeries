@@ -50,59 +50,40 @@ class HyperbolicLorentzDynamics(nn.Module):
     3. Applying Lorentzian residual update
     """
     
-    def __init__(self, embed_dim, hidden_dim, manifold, n_layers=3, dropout=0.3):
+    def __init__(self, encode_dim, segment_length, manifold):
         """
         Args:
-            embed_dim: dimension of tangent space (manifold has embed_dim+1)
+            encode_dim: dimension of tangent space (manifold has encode_dim+1)
             hidden_dim: hidden layer size
             manifold: geoopt.Lorentz or geoopt.PoincareBall instance
             n_layers: number of layers in velocity network
             dropout: dropout probability
         """
-        super().__init__()
+        super().__init__()    
         self.manifold = manifold
-        self.embed_dim = embed_dim
+        self.encode_dim = encode_dim
         
-        # Learnable residual weight (initialized to 0.7)
+        # Only 2 learnable parameters!
         self.alpha = nn.Parameter(torch.tensor(0.7))
-        self.velocity_scale = nn.Parameter(torch.tensor(0.1))
-
-        
-        # Velocity network: predicts update in tangent space
-        layers = []
-        
-        # Input layer
-        layers.append(nn.Linear(embed_dim, hidden_dim))
-        layers.append(nn.LayerNorm(hidden_dim))
-        layers.append(nn.GELU())
-        layers.append(nn.Dropout(dropout))
-        
-        # Hidden layers
-        for _ in range(n_layers - 1):
-            layers.append(nn.Linear(hidden_dim, hidden_dim))
-            layers.append(nn.LayerNorm(hidden_dim))
-            layers.append(nn.GELU())
-            layers.append(nn.Dropout(dropout))
-        
-        # Output layer
-        layers.append(nn.Linear(hidden_dim, embed_dim))
-        
-        self.velocity_net = nn.Sequential(*layers)
+        self.step_size = nn.Parameter(torch.tensor(1.0))
+        self.temp_lin = nn.Linear(encode_dim, segment_length)
+        self.lin_temp = nn.Linear(segment_length, encode_dim)
     
+         
     def forward(self, x_current, x_previous=None):
         """
         Compute next state using Lorentzian residual update.
         
         Args:
-            x_current: [B, embed_dim+1] current state on manifold
-            x_previous: [B, embed_dim+1] previous state on manifold
+            x_current: [B, encode_dim+1] current state on manifold
+            x_previous: [B, encode_dim+1] previous state on manifold
         
         Returns:
-            x_next: [B, embed_dim+1] next state on manifold
+            x_next: [B, encode_dim+1] next state on manifold
         """
         # Map to tangent space at origin]
         if x_previous is None:
-            backward_trajectory = self.manifold.logmap0(x_current)  # [B, embed_dim]
+            backward_trajectory = self.manifold.logmap0(x_current)  # [B, encode_dim]
         else:
              # Map to tangent space from current step
             dist = self.manifold.dist(x_current, x_previous)
@@ -110,7 +91,8 @@ class HyperbolicLorentzDynamics(nn.Module):
             backward_trajectory = self.manifold.logmap(x_previous, x_current)
         # Predict velocity in tangent space
         # print(f"backward trajectoru: {backward_trajectory}")
-        velocity = self.velocity_net(backward_trajectory)  # [B, embed_dim]
+        basis = self.temp_lin(backward_trajectory)  # [B, encode_dim]
+        velocity = self.lin_temp(backward_trajectory)
         print(f"velocity net: {velocity}")
         velocity = torch.clamp(velocity, min=-5.0, max=5.0)
 
@@ -118,7 +100,7 @@ class HyperbolicLorentzDynamics(nn.Module):
         velocity = velocity * scale * 0.3
         print(f"Velocity: {velocity}")
         # Map velocity to manifold
-        x_update = safe_expmap(self.manifold, x_current, velocity)  # [B, embed_dim+1]
+        x_update = safe_expmap(self.manifold, x_current, velocity)  # [B, encode_dim+1]
         print(f"X update {x_update}")
         x_update = self.manifold.projx(x_update)
         print(f"X update after projx {x_update}")

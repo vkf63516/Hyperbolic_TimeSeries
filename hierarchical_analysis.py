@@ -851,7 +851,7 @@ if __name__ == '__main__':
     parser.add_argument('--pred_len', type=int, default=96)
     parser.add_argument('--enc_in', type=int, default=21)
     parser.add_argument('--freq', type=str, default='h')
-    parser.add_argument('--embed', type=str, default='timeF')
+    parser.add_argument('--encode', type=str, default='timeF')
     
     # MSTL parameters
     parser.add_argument('--num_basis', type=int, default=10)

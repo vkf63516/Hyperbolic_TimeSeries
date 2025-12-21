@@ -5,18 +5,18 @@ import geoopt
 from spec import safe_expmap0
 
 
-class SegmentLinearEmbedMovingWindow(nn.Module):
+class SegmentLinearencodeMovingWindow(nn.Module):
     """
     This done for each feature 
-    Produces ONE embedding per segment.
+    Produces ONE encodeding per segment.
     Input:  [B, seq_len]
-    Output: [B, num_segments, embed_dim]  # One embedding per segment
+    Output: [B, num_segments, encode_dim]  # One encodeding per segment
     """
     
-    def __init__(self, lookback, embed_dim, segment_length=24, dropout=0.1):
+    def __init__(self, lookback, encode_dim, segment_length=24, dropout=0.1):
         super().__init__()
         
-        self.embed_dim = embed_dim
+        self.encode_dim = encode_dim
         self.segment_length = segment_length
         self.lookback = lookback
         self.num_segments = lookback // segment_length
@@ -25,8 +25,7 @@ class SegmentLinearEmbedMovingWindow(nn.Module):
         if self.lookback > self.num_segments * self.segment_length:
             self.pad_seq_len = (self.num_segments + 1) * self.segment_length - self.lookback
             self.num_segments += 1
-        
-        self.temporal_linears = nn.Linear(segment_length, embed_dim)
+        self.temporal_linears = nn.Linear(segment_length, encode_dim)
         
         self.dropout = nn.Dropout(dropout)
     
@@ -35,7 +34,7 @@ class SegmentLinearEmbedMovingWindow(nn.Module):
         Args:
             x: [B, seq_len] - single feature
         Returns:
-            z: [B, num_segments, embed_dim] - trajectory
+            z: [B, num_segments, encode_dim] - trajectory
         """
         B = x.shape[0]
         
@@ -47,37 +46,37 @@ class SegmentLinearEmbedMovingWindow(nn.Module):
         # Reshape into segments
         x_seg = x.view(B, self.num_segments, self.segment_length)  # [B, num_seg, seg_len]
         
-        # Embed each segment (KEEP segment structure!)
-        seg_embed = self.temporal_linears(x_seg)  # [B, num_segments, embed_dim]
-        seg_embed = self.dropout(seg_embed)
+        # encode each segment (KEEP segment structure!)
+        seg_encode = self.temporal_linears(x_seg)  # [B, num_segments, encode_dim]
+        seg_encode = self.dropout(seg_encode)
         
-        return seg_embed
+        return seg_encode
 
 
 class SegmentedParallelPoincareMovingWindow(nn.Module):
     """
-    Encode each feature for moving window that outputs [B, num_segments, embed_dim].
+    Encode each feature for moving window that outputs [B, num_segments, encode_dim].
     Each segment is independently mapped to hyperbolic space.
     """
     
-    def __init__(self, lookback, embed_dim=32, curvature=1.0, segment_length=24,
-                 embed_dropout=0.1):
+    def __init__(self, lookback, encode_dim=32, curvature=1.0, segment_length=24,
+                 encode_dropout=0.1):
         super().__init__()
         
-        self.embed_dim = embed_dim
+        self.encode_dim = encode_dim
         
-        # Segment-aware encoders (output per-segment embeddings)
-        self.trend_embed = SegmentLinearEmbedMovingWindow(
-            embed_dim=embed_dim, lookback=lookback, segment_length=segment_length, dropout=embed_dropout
+        # Segment-aware encoders (output per-segment encodedings)
+        self.trend_encode = SegmentLinearencodeMovingWindow(
+            encode_dim=encode_dim, lookback=lookback, segment_length=segment_length, dropout=encode_dropout
         )
-        self.seasonal_coarse_embed = SegmentLinearEmbedMovingWindow(
-            embed_dim=embed_dim, lookback=lookback, segment_length=segment_length,dropout=embed_dropout
+        self.seasonal_coarse_encode = SegmentLinearencodeMovingWindow(
+            encode_dim=encode_dim, lookback=lookback, segment_length=segment_length,dropout=encode_dropout
         )
-        self.seasonal_fine_embed = SegmentLinearEmbedMovingWindow(
-            embed_dim=embed_dim, lookback=lookback, segment_length=segment_length, dropout=embed_dropout
+        self.seasonal_fine_encode = SegmentLinearencodeMovingWindow(
+            encode_dim=encode_dim, lookback=lookback, segment_length=segment_length, dropout=encode_dropout
         )
-        self.residual_embed = SegmentLinearEmbedMovingWindow(
-            embed_dim=embed_dim, lookback=lookback, segment_length=segment_length, dropout=embed_dropout
+        self.residual_encode = SegmentLinearencodeMovingWindow(
+            encode_dim=encode_dim, lookback=lookback, segment_length=segment_length, dropout=encode_dropout
         )
         
         # Poincaré ball manifold
@@ -89,45 +88,45 @@ class SegmentedParallelPoincareMovingWindow(nn.Module):
         # Möbius fusion weights
         self.mobius_weights = nn.Parameter(torch.ones(4) * 0.25)
     
-    def map_segments_to_hyperbolic(self, segment_embeds):
+    def map_segments_to_hyperbolic(self, segment_encodes):
         """
-        Map each segment embedding to hyperbolic space independently.
+        Map each segment encodeding to hyperbolic space independently.
         
         Args:
-            segment_embeds: [B, num_segments, embed_dim]
+            segment_encodes: [B, num_segments, encode_dim]
         
         Returns:
-            hyperbolic_embeds: [B, num_segments, embed_dim]
+            hyperbolic_encodes: [B, num_segments, encode_dim]
         """
-        B, N, D = segment_embeds.shape
+        B, N, D = segment_encodes.shape
         
         # Flatten segments for batch processing
-        embeds_flat = segment_embeds.reshape(B * N, D)  # [B*N, embed_dim]
+        encodes_flat = segment_encodes.reshape(B * N, D)  # [B*N, encode_dim]
         
         # Scale
         effective_scale = torch.tanh(self.effective_scale)
-        scaled_embeds = embeds_flat * effective_scale
+        scaled_encodes = encodes_flat * effective_scale
         
         # Map to hyperbolic space
-        hyperbolic_flat = safe_expmap0(self.manifold, scaled_embeds)  # [B*N, embed_dim]
+        hyperbolic_flat = safe_expmap0(self.manifold, scaled_encodes)  # [B*N, encode_dim]
         
         # Project to manifold
         hyperbolic_flat = self.manifold.projx(hyperbolic_flat)
         
         # Reshape back to sequence
-        hyperbolic_embeds = hyperbolic_flat.view(B, N, D)  # [B, num_segments, embed_dim]
+        hyperbolic_encodes = hyperbolic_flat.view(B, N, D)  # [B, num_segments, encode_dim]
         
-        return hyperbolic_embeds
+        return hyperbolic_encodes
     
     def mobius_fusion_segments(self, z_trend_h, z_coarse_h, z_fine_h, z_residual_h):
         """
         Fuse components for each segment independently using Möbius addition.
         
         Args:
-            z_trend_h, z_coarse_h, z_fine_h, z_residual_h: [B, num_segments, embed_dim]
+            z_trend_h, z_coarse_h, z_fine_h, z_residual_h: [B, num_segments, encode_dim]
         
         Returns:
-            combined_h: [B, num_segments, embed_dim]
+            combined_h: [B, num_segments, encode_dim]
         """
         B, N, D = z_trend_h.shape
         
@@ -168,21 +167,21 @@ class SegmentedParallelPoincareMovingWindow(nn.Module):
             trend, seasonal_coarse, seasonal_fine, residual: [B, seq_len]
         
         Returns:
-            dict with hyperbolic embeddings [B, num_segments, embed_dim] for each component
+            dict with hyperbolic encodedings [B, num_segments, encode_dim] for each component
         """
-        # Encode to per-segment embeddings: [B, num_segments, embed_dim]
-        z_trend_segments = self.trend_embed(trend)
-        z_coarse_segments = self.seasonal_coarse_embed(seasonal_coarse)
-        z_fine_segments = self.seasonal_fine_embed(seasonal_fine)
-        z_residual_segments = self.residual_embed(residual)
+        # Encode to per-segment encodedings: [B, num_segments, encode_dim]
+        z_trend_segments = self.trend_encode(trend)
+        z_coarse_segments = self.seasonal_coarse_encode(seasonal_coarse)
+        z_fine_segments = self.seasonal_fine_encode(seasonal_fine)
+        z_residual_segments = self.residual_encode(residual)
         
-        # Map each segment to hyperbolic space: [B, num_segments, embed_dim]
+        # Map each segment to hyperbolic space: [B, num_segments, encode_dim]
         z_trend_h = self.map_segments_to_hyperbolic(z_trend_segments)
         z_coarse_h = self.map_segments_to_hyperbolic(z_coarse_segments)
         z_fine_h = self.map_segments_to_hyperbolic(z_fine_segments)
         z_residual_h = self.map_segments_to_hyperbolic(z_residual_segments)
         
-        # Möbius fusion for each segment: [B, num_segments, embed_dim]
+        # Möbius fusion for each segment: [B, num_segments, encode_dim]
         combined_h = self.mobius_fusion_segments(z_trend_h, z_coarse_h, z_fine_h, z_residual_h)
         
         return {

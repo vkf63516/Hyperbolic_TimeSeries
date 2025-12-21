@@ -7,7 +7,7 @@ import sys
 # sys.path.append(str(Path(__file__).resolve().parents[0]))
 from spec import safe_expmap, safe_expmap0
 
-class SegmentLinearEmbed(nn.Module):
+class SegmentLinearencode(nn.Module):
     def __init__(self, input_dim, output_dim, segment_length, dropout=0.1,
                  lookback=None, use_segment_norm=True):
         super().__init__()
@@ -27,7 +27,7 @@ class SegmentLinearEmbed(nn.Module):
         
         self.total_len = self.num_segments * segment_length
         
-        print(f"TimeBaseInspiredEmbed: {input_dim} features, {self.num_segments} segments")
+        print(f"TimeBaseInspiredencode: {input_dim} features, {self.num_segments} segments")
         
         # Per-feature projections 
         self.feature_linears = nn.ModuleList([
@@ -118,14 +118,14 @@ class SegmentedParallelLorentz(nn.Module):
     
     Everything else (Lorentz fusion, scaling, projection) is IDENTICAL to ParallelLorentz.
     """
-    def __init__(self, lookback, input_dim, embed_dim=32,
-                 curvature=1.0, segment_length=24, embed_dropout=0.1,
+    def __init__(self, lookback, input_dim, encode_dim=32,
+                 curvature=1.0, segment_length=24, encode_dropout=0.1,
                  use_segment_norm=True):
         """
         Args:
             lookback: int - lookback window size
             input_dim: int - number of input features
-            embed_dim: int - dimension of hyperbolic embeddings
+            encode_dim: int - dimension of hyperbolic encodedings
             curvature: float - curvature of Lorentz  (k parameter)
             segment_length: int - length of each segment (e.g., 24 for daily segments in hourly data)
             n_layer: int - number of linear layers
@@ -134,37 +134,37 @@ class SegmentedParallelLorentz(nn.Module):
         """
         super().__init__()
         
-        self.trend_embed = SegmentLinearEmbed(
+        self.trend_encode = SegmentLinearencode(
             input_dim=input_dim,
-            output_dim=embed_dim,
+            output_dim=encode_dim,
             lookback=lookback,
             segment_length=segment_length,
             use_segment_norm=use_segment_norm,
-            dropout=embed_dropout
+            dropout=encode_dropout
         )
-        self.seasonal_coarse_embed = SegmentLinearEmbed(
+        self.seasonal_coarse_encode = SegmentLinearencode(
             input_dim=input_dim,
-            output_dim=embed_dim,
+            output_dim=encode_dim,
             lookback=lookback,
             segment_length=segment_length,
             use_segment_norm=use_segment_norm,
-            dropout=embed_dropout
+            dropout=encode_dropout
         )
-        self.seasonal_fine_embed = SegmentLinearEmbed(
+        self.seasonal_fine_encode = SegmentLinearencode(
             input_dim=input_dim,
-            output_dim=embed_dim,
+            output_dim=encode_dim,
             lookback=lookback,
             segment_length=segment_length,
             use_segment_norm=use_segment_norm,
-            dropout=embed_dropout
+            dropout=encode_dropout
         )
-        self.residual_embed = SegmentLinearEmbed(
+        self.residual_encode = SegmentLinearencode(
             input_dim=input_dim,
-            output_dim=embed_dim,
+            output_dim=encode_dim,
             lookback=lookback,
             segment_length=segment_length,
             use_segment_norm=use_segment_norm,
-            dropout=embed_dropout
+            dropout=encode_dropout
         )
 
         
@@ -185,11 +185,11 @@ class SegmentedParallelLorentz(nn.Module):
         Uses iterative algorithm to find the point that minimizes weighted distances.
         
         Args:
-            points: list of [B, embed_dim+1] - points on Lorentz manifold
+            points: list of [B, encode_dim+1] - points on Lorentz manifold
             weights: [num_points] - normalized weights
         
         Returns:
-            mean_point: [B, embed_dim+1] - weighted mean on manifold
+            mean_point: [B, encode_dim+1] - weighted mean on manifold
         """
         # Initialize at weighted tangent space mean
         tangents = [self.manifold.logmap0(p) for p in points]
@@ -222,11 +222,11 @@ class SegmentedParallelLorentz(nn.Module):
         This is the geometrically correct way to combine points in hyperbolic space.
         
         Args:
-            z_trend_h, z_coarse_h, z_fine_h, z_residual_h: [B, embed_dim+1]
+            z_trend_h, z_coarse_h, z_fine_h, z_residual_h: [B, encode_dim+1]
         
         Returns:
-            combined_h: [B, embed_dim+1] - combined point on manifold
-            combined_tangent: [B, embed_dim] - tangent vector representation at origin
+            combined_h: [B, encode_dim+1] - combined point on manifold
+            combined_tangent: [B, encode_dim] - tangent vector representation at origin
         """
         # Normalize weights to sum to 1
         weights = torch.softmax(self.lorentz_weights, dim=0)
@@ -251,31 +251,31 @@ class SegmentedParallelLorentz(nn.Module):
         
         Returns:
             dict with:
-                - trend_tangent, seasonal_coarse_tangent, seasonal_fine_tangent, residual_tangent: [B, embed_dim]
-                - trend_h, seasonal_coarse_h, seasonal_fine_h, residual_h: [B, embed_dim+1]
-                - combined_tangent: [B, embed_dim]
-                - combined_h: [B, embed_dim+1]
+                - trend_tangent, seasonal_coarse_tangent, seasonal_fine_tangent, residual_tangent: [B, encode_dim]
+                - trend_h, seasonal_coarse_h, seasonal_fine_h, residual_h: [B, encode_dim+1]
+                - combined_tangent: [B, encode_dim]
+                - combined_h: [B, encode_dim+1]
         """
         # 1) Encode to Euclidean latent (tangent vectors at origin)
-        z_trend_t = self.trend_embed(trend)  # [B, embed_dim]
-        z_seasonal_coarse_t = self.seasonal_coarse_embed(seasonal_coarse)
-        z_seasonal_fine_t = self.seasonal_fine_embed(seasonal_fine)
-        z_residual_t = self.residual_embed(residual)
+        z_trend_t = self.trend_encode(trend)  # [B, encode_dim]
+        z_seasonal_coarse_t = self.seasonal_coarse_encode(seasonal_coarse)
+        z_seasonal_fine_t = self.seasonal_fine_encode(seasonal_fine)
+        z_residual_t = self.residual_encode(residual)
         
         # 2) Scaling to prevent numerical instability
         effective_scale = torch.tanh(self.effective_scale)  # [-1, 1]
-        scaled_trend_embed = z_trend_t * effective_scale
-        scaled_coarse_embed = z_seasonal_coarse_t * effective_scale
-        scaled_fine_embed = z_seasonal_fine_t * effective_scale
-        scaled_residual_embed = z_residual_t * effective_scale
+        scaled_trend_encode = z_trend_t * effective_scale
+        scaled_coarse_encode = z_seasonal_coarse_t * effective_scale
+        scaled_fine_encode = z_seasonal_fine_t * effective_scale
+        scaled_residual_encode = z_residual_t * effective_scale
 
         # 3) Map to hyperbolic space (Lorentz model)
         # expmap0: tangent space at origin → manifold
-        # Result: [B, embed_dim+1] (extra dimension for Lorentz constraint)
-        z_trend_h = safe_expmap0(self.manifold, scaled_trend_embed)
-        z_seasonal_coarse_h = safe_expmap0(self.manifold, scaled_coarse_embed)
-        z_seasonal_fine_h = safe_expmap0(self.manifold, scaled_fine_embed)
-        z_residual_h = safe_expmap0(self.manifold, scaled_residual_embed)
+        # Result: [B, encode_dim+1] (extra dimension for Lorentz constraint)
+        z_trend_h = safe_expmap0(self.manifold, scaled_trend_encode)
+        z_seasonal_coarse_h = safe_expmap0(self.manifold, scaled_coarse_encode)
+        z_seasonal_fine_h = safe_expmap0(self.manifold, scaled_fine_encode)
+        z_residual_h = safe_expmap0(self.manifold, scaled_residual_encode)
 
         # 4) Project to manifold (ensure numerical stability)
         # Ensures points satisfy Lorentz constraint: -x_0^2 + x_1^2 + ... = -1/k

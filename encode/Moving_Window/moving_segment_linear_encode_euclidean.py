@@ -2,19 +2,19 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-class SegmentLinearEmbedMovingWindow(nn.Module):
+class SegmentLinearencodeMovingWindow(nn.Module):
     """
     This done for each feature 
-    Produces ONE embedding per segment.
+    Produces ONE encodeding per segment.
     Input:  [B, seq_len]
-    Output: [B, num_segments, embed_dim]  # One embedding per segment
+    Output: [B, num_segments, encode_dim]  # One encodeding per segment
     """
     
-    def __init__(self, lookback, embed_dim, segment_length=24, dropout=0.1, 
+    def __init__(self, lookback, encode_dim, segment_length=24, dropout=0.1, 
                  use_segment_norm=True):
         super().__init__()
         
-        self.embed_dim = embed_dim
+        self.encode_dim = encode_dim
         self.segment_length = segment_length
         self.lookback = lookback
         self.num_segments = lookback // segment_length
@@ -25,7 +25,7 @@ class SegmentLinearEmbedMovingWindow(nn.Module):
             self.pad_seq_len = (self.num_segments + 1) * self.segment_length - self.lookback
             self.num_segments += 1
         
-        self.temporal_linears = nn.Linear(segment_length, embed_dim)
+        self.temporal_linears = nn.Linear(segment_length, encode_dim)
         
         self.dropout = nn.Dropout(dropout)
     
@@ -34,7 +34,7 @@ class SegmentLinearEmbedMovingWindow(nn.Module):
         Args:
             x: [B, seq_len] - single feature
         Returns:
-            z: [B, num_segments, embed_dim] - trajectory
+            z: [B, num_segments, encode_dim] - trajectory
         """
         B = x.shape[0]
         
@@ -52,35 +52,35 @@ class SegmentLinearEmbedMovingWindow(nn.Module):
             std = x_seg.std(dim=2, keepdim=True) + 1e-6
             x_seg = (x_seg - mean) / std
         
-        # Embed each segment (KEEP segment structure!)
-        seg_embed = self.temporal_linears(x_seg)  # [B, num_segments, embed_dim]
-        seg_embed = self.dropout(seg_embed)
+        # encode each segment (KEEP segment structure!)
+        seg_encode = self.temporal_linears(x_seg)  # [B, num_segments, encode_dim]
+        seg_encode = self.dropout(seg_encode)
         
-        return seg_embed
+        return seg_encode
 
 class SegmentParallelEuclideanMovingWindow(nn.Module):
-    def __init__(self, lookback, embed_dim=32, segment_length=24,
-                 embed_dropout=0.1, use_segment_norm=True):
+    def __init__(self, lookback, encode_dim=32, segment_length=24,
+                 encode_dropout=0.1, use_segment_norm=True):
         super().__init__()
         
-        self.embed_dim = embed_dim
+        self.encode_dim = encode_dim
         
-        # Segment-aware encoders (output per-segment embeddings)
-        self.trend_embed = SegmentLinearEmbedMovingWindow(
-            embed_dim=embed_dim, lookback=lookback, segment_length=segment_length,
-            use_segment_norm=use_segment_norm, dropout=embed_dropout
+        # Segment-aware encoders (output per-segment encodedings)
+        self.trend_encode = SegmentLinearencodeMovingWindow(
+            encode_dim=encode_dim, lookback=lookback, segment_length=segment_length,
+            use_segment_norm=use_segment_norm, dropout=encode_dropout
         )
-        self.seasonal_coarse_embed = SegmentLinearEmbedMovingWindow(
-            embed_dim=embed_dim, lookback=lookback, segment_length=segment_length,
-            use_segment_norm=use_segment_norm, dropout=embed_dropout
+        self.seasonal_coarse_encode = SegmentLinearencodeMovingWindow(
+            encode_dim=encode_dim, lookback=lookback, segment_length=segment_length,
+            use_segment_norm=use_segment_norm, dropout=encode_dropout
         )
-        self.seasonal_fine_embed = SegmentLinearEmbedMovingWindow(
-            embed_dim=embed_dim, lookback=lookback, segment_length=segment_length, 
-            use_segment_norm=use_segment_norm, dropout=embed_dropout
+        self.seasonal_fine_encode = SegmentLinearencodeMovingWindow(
+            encode_dim=encode_dim, lookback=lookback, segment_length=segment_length, 
+            use_segment_norm=use_segment_norm, dropout=encode_dropout
         )
-        self.residual_embed = SegmentLinearEmbedMovingWindow(
-            embed_dim=embed_dim, lookback=lookback, segment_length=segment_length,
-            use_segment_norm=use_segment_norm, dropout=embed_dropout
+        self.residual_encode = SegmentLinearencodeMovingWindow(
+            encode_dim=encode_dim, lookback=lookback, segment_length=segment_length,
+            use_segment_norm=use_segment_norm, dropout=encode_dropout
         )
         
 
@@ -97,14 +97,14 @@ class SegmentParallelEuclideanMovingWindow(nn.Module):
         
         Returns:
             dict with:
-                - trend_e, seasonal_fine_e, seasonal_coarse_e, residual_e: [B, embed_dim]
-                - combined_e: [B, num_segments, embed_dim]
+                - trend_e, seasonal_fine_e, seasonal_coarse_e, residual_e: [B, encode_dim]
+                - combined_e: [B, num_segments, encode_dim]
         """
-        # Embed each branch to Euclidean latent vector
-        e_trend = self.trend_embed(trend)
-        e_fine = self.seasonal_fine_embed(fine)
-        e_coarse = self.seasonal_coarse_embed(coarse)
-        e_residual = self.residual_embed(residual)
+        # encode each branch to Euclidean latent vector
+        e_trend = self.trend_encode(trend)
+        e_fine = self.seasonal_fine_encode(fine)
+        e_coarse = self.seasonal_coarse_encode(coarse)
+        e_residual = self.residual_encode(residual)
         
         # Simple sum (no hierarchy, all components equally weighted)
         combined_e = e_trend + e_fine + e_coarse + e_residual

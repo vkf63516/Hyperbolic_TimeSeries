@@ -25,7 +25,7 @@ class Model(nn.Module):
         super(Model, self).__init__()
         self.seq_len = configs.seq_len
         self.pred_len = configs.pred_len
-        self.embed_dim = configs.embed_dim
+        self.encode_dim = configs.encode_dim
         self.hidden_dim = configs.hidden_dim
         self.curvature = configs.curvature
         self.mstl_period = configs.mstl_period
@@ -35,11 +35,12 @@ class Model(nn.Module):
         self.use_revin = configs.use_revin
         self.use_moving_window = configs.use_moving_window
         self.num_basis = configs.num_basis
+        self.window_size = configs.window_size
         # Model dimensions
         # Number of input features
         self.enc_in = configs.enc_in
         
-        # Embedding: Maps decomposed components to hyperbolic space
+        # encodeding: Maps decomposed components to hyperbolic space
         
         if self.manifold_type == "Euclidean":
             if self.use_moving_window:
@@ -47,13 +48,13 @@ class Model(nn.Module):
                     lookback=self.seq_len,
                     pred_len=self.pred_len,
                     n_features=self.enc_in,
-                    embed_dim=self.embed_dim,
+                    encode_dim=self.encode_dim,
                     hidden_dim=self.hidden_dim,
                     manifold_type=self.manifold_type,
                     segment_length=self.mstl_period,
                     use_segment_norm=True,
                     use_revin=self.use_revin,
-                    embed_dropout=0.1,
+                    encode_dropout=0.5,
                     dynamic_dropout=0.3,
                     num_layers=2,
                 )
@@ -63,47 +64,64 @@ class Model(nn.Module):
                     lookback=self.seq_len,
                     pred_len=self.pred_len,
                     n_features=self.enc_in,
-                    embed_dim=self.embed_dim,
+                    encode_dim=self.encode_dim,
                     hidden_dim=self.hidden_dim,
                     manifold_type=self.manifold_type,
                     segment_length=self.mstl_period,
                     use_segment_norm=True,
                     use_revin=self.use_revin,
-                    embed_dropout=0.3,
+                    encode_dropout=0.3,
                     dynamic_dropout=0.3,
                     recon_dropout=0.2,
                     num_layers=2
                 )
         else:
             if self.use_moving_window:
-                self.forecaster = MovingWindowHyperbolicForecaster(
-                    lookback=self.seq_len,
-                    pred_len=self.pred_len,
-                    n_features=self.enc_in,
-                    embed_dim=self.embed_dim,
-                    hidden_dim=self.hidden_dim,
-                    curvature=self.curvature,
-                    manifold_type=self.manifold_type,
-                    segment_length=self.mstl_period,
-                    use_revin=self.use_revin,
-                    embed_dropout=0.2,
-                    dynamic_dropout=0.3,
-                    window_size=15,
-                    num_layers=3,
-                )
+                if self.manifold_type == "Poincare":
+                    self.forecaster = MovingWindowHyperbolicForecaster(
+                        lookback=self.seq_len,
+                        pred_len=self.pred_len,
+                        n_features=self.enc_in,
+                        encode_dim=self.encode_dim,
+                        hidden_dim=self.hidden_dim,
+                        curvature=self.curvature,
+                        manifold_type=self.manifold_type,
+                        segment_length=self.mstl_period,
+                        use_revin=self.use_revin,
+                        window_size=self.window_size,
+                        encode_dropout=0.3,
+                        recon_dropout=0.2,
+                    )
+                elif self.manifold_type == "Lorentzian":
+                    self.forecaster = MovingWindowHyperbolicForecaster(
+                        lookback=self.seq_len,
+                        pred_len=self.pred_len,
+                        n_features=self.enc_in,
+                        encode_dim=self.encode_dim,
+                        hidden_dim=self.hidden_dim,
+                        curvature=self.curvature,
+                        manifold_type=self.manifold_type,
+                        segment_length=self.mstl_period,
+                        use_revin=self.use_revin,
+                        window_size=self.window_size,
+                        encode_dropout=0.3,
+                        recon_dropout=0.2,
+                    )
+
             else:
 
                 self.forecaster = SegmentedHyperbolicForecaster(
                     lookback=self.seq_len,
                     pred_len=self.pred_len,
                     n_features=self.enc_in,
-                    embed_dim=self.embed_dim,
+                    encode_dim=self.encode_dim,
                     hidden_dim=self.hidden_dim,
                     curvature=self.curvature,
                     manifold_type=self.manifold_type,
                     segment_length=self.mstl_period,
                     use_revin=self.use_revin,
-                    embed_dropout=0.5,
+                    encode_dropout=0.5,
+                    window_size=self.window_size,
                     dynamic_dropout=0.3,
                     recon_dropout=0.2,
                     num_layers=2

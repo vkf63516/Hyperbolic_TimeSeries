@@ -18,7 +18,7 @@ python run.py \
   --seq_len $seq_len \
   --pred_len 96 \
   --lradj "type3" \
-  --embed_dim 128 \
+  --encode_dim 128 \
   --hidden_dim 64 \
   --batch_size 32 \
   --use_wandb \
@@ -44,7 +44,7 @@ python run.py \
   --label_len 0 \
   --pred_len 192 \
   --lradj "type3" \
-  --embed_dim 32 \
+  --encode_dim 32 \
   --hidden_dim 64 \
   --batch_size 32 \
   --use_wandb \
@@ -71,7 +71,7 @@ python run.py \
   --label_len 0 \
   --pred_len 336 \
   --lradj "type3" \
-  --embed_dim 32 \
+  --encode_dim 32 \
   --hidden_dim 64 \
   --batch_size 32 \
   --use_wandb \
@@ -98,7 +98,7 @@ python run.py \
   --label_len 0 \
   --pred_len 720 \
   --lradj "type3" \
-  --embed_dim 32 \
+  --encode_dim 32 \
   --hidden_dim 64 \
   --batch_size 32 \
   --use_wandb \

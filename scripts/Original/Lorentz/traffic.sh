@@ -11,7 +11,7 @@ python run.py \
   --label_len 0 \
   --pred_len 96 \
   --enc_in 862 \
-  --embed_dim 32 \
+  --encode_dim 32 \
   --hidden_dim 64 \
   --num_basis 10 \
   --batch_size 64 \

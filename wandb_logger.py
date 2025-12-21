@@ -201,20 +201,20 @@ class WandbLogger:
     # ============================================
     # Geometry Logging
     # ============================================
-    def log_radial_distances(self, epoch, embeddings, component_names, manifold):
+    def log_radial_distances(self, epoch, encodedings, component_names, manifold):
         """
         Log radial distances from origin (hierarchy visualization).
 
         Args:
             epoch: int
-            embeddings: dict - {'trend': tensor, 'coarse': tensor, ...}
+            encodedings: dict - {'trend': tensor, 'coarse': tensor, ...}
             component_names: list - component names
             manifold: geoopt manifold
         """
         distances = {}
         log_dict = {"epoch": epoch}
 
-        for name, emb in embeddings.items():
+        for name, emb in encodedings.items():
             if emb is None:
                 continue
 

@@ -8,9 +8,9 @@ from sklearn.decomposition import PCA
 
 from geoopt.manifolds import PoincareBall
 
-# Load embeddings
+# Load encodedings
 H = torch.tensor(np.load('results/ETTh1_96_96_Poincare_type_exp1_Segment_HyperbolicForecasting_ETTh1_decomposition_ETTh1.csv_ftM_sl96_pl96_exp_ebfixed_Poincare_0_seed2023/hyper.npy'))     # (100, 3, 384)
-untrained_embeddings = torch.tensor(np.load('results/ETTh1_96_96_Poincare_type_exp1_Segment_HyperbolicForecasting_ETTh1_decomposition_ETTh1.csv_ftM_sl96_pl96_exp_ebfixed_Poincare_0_seed2023/true.npy')) # (100, 3, 384)
+untrained_encodedings = torch.tensor(np.load('results/ETTh1_96_96_Poincare_type_exp1_Segment_HyperbolicForecasting_ETTh1_decomposition_ETTh1.csv_ftM_sl96_pl96_exp_ebfixed_Poincare_0_seed2023/true.npy')) # (100, 3, 384)
 def rescale_to_radius(x, target=0.9):
     # x: [N, d] Poincaré coordinates
     norm = torch.norm(x, dim=-1, keepdim=True) + 1e-9

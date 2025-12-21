@@ -11,7 +11,7 @@ python run.py \
   --label_len 0 \
   --pred_len 96 \
   --enc_in 21 \
-  --embed_dim 32 \
+  --encode_dim 32 \
   --hidden_dim 64 \
   --num_basis 10 \
   --batch_size 128 \
@@ -35,7 +35,7 @@ python run.py \
   --label_len 0 \
   --pred_len 192 \
   --enc_in 21 \
-  --embed_dim 32 \
+  --encode_dim 32 \
   --hidden_dim 64 \
   --num_basis 10 \
   --batch_size 128 \
@@ -59,7 +59,7 @@ python run.py \
   --label_len 0 \
   --pred_len 336 \
   --enc_in 21 \
-  --embed_dim 32 \
+  --encode_dim 32 \
   --hidden_dim 64 \
   --num_basis 10 \
   --batch_size 128 \

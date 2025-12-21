@@ -37,93 +37,79 @@ def poincare_residual_update(x_current, x_update, manifold, alpha=0.7):
     x_next = manifold.projx(x_next)
     
     return x_next, x_current
-    
+
 class HyperbolicPoincareDynamics(nn.Module):
     """
     Hyperbolic dynamics network using Poincaré residual updates.
     
-    Supports optional avg_velocity parameter for trajectory-aware prediction.
+    Only 2 learnable parameters:
+    - alpha: Poincaré residual blending weight
+    - step_size: velocity scaling factor
     """
     
-    def __init__(self, embed_dim, hidden_dim, manifold, n_layers=3, dropout=0.3):
+    def __init__(self, encode_dim, segment_length, manifold):
         """
         Args:
-            embed_dim: dimension of tangent space (manifold has embed_dim)
-            hidden_dim: hidden layer size
-            manifold: geoopt.Lorentz or geoopt.PoincareBall instance
-            n_layers: number of layers in velocity network
-            dropout: dropout probability
+            encode_dim: dimension of encodedings (from your segment encodeder)
+            manifold: geoopt.PoincareBall instance
         """
         super().__init__()
         self.manifold = manifold
-        self.embed_dim = embed_dim
+        self.encode_dim = encode_dim
         
-        # Learnable residual weight (initialized to 0.7)
+        # Only 2 learnable parameters!
         self.alpha = nn.Parameter(torch.tensor(0.7))
-        self.velocity_scale = nn.Parameter(torch.tensor(1.0))
-
-        
-        # Velocity network: predicts update in tangent space
-        layers = []
-        
-        # Input layer
-        layers.append(nn.Linear(embed_dim, hidden_dim))
-        layers.append(nn.LayerNorm(hidden_dim))
-        layers.append(nn.GELU())
-        layers.append(nn.Dropout(dropout))
-        
-        # Hidden layers
-        for _ in range(n_layers - 1):
-            layers.append(nn.Linear(hidden_dim, hidden_dim))
-            layers.append(nn.LayerNorm(hidden_dim))
-            layers.append(nn.GELU())
-            layers.append(nn.Dropout(dropout))
-        
-        # Output layer
-        layers.append(nn.Linear(hidden_dim, embed_dim))
-        
-        self.velocity_net = nn.Sequential(*layers)
+        self.step_size = nn.Parameter(torch.tensor(1.0))
+        self.temp_lin = nn.Linear(encode_dim, segment_length)
+        self.lin_temp = nn.Linear(segment_length, encode_dim)
     
-    def forward(self, x_current, x_previous=None, avg_velocity=None):
+    def forward(self, x_current, x_previous=None, average_velocity=None):
         """
-        Compute next state using Poincaré residual update.
+        Compute next state using LINEAR velocity + Poincaré residual update.
+        
+        Same interface as your original HyperbolicPoincareDynamics!
         
         Args:
-            x_current: [B, embed_dim] current state on manifold
-            x_previous: [B, embed_dim] previous state on manifold (for velocity computation)
-            avg_velocity: [B, embed_dim] average velocity from trajectory (optional, for moving window)
+            x_current: [B, encode_dim] current encodeding on manifold
+            x_previous: [B, encode_dim] previous encodeding (for velocity)
+            avg_velocity: [B, encode_dim] pre-computed velocity (optional)
         
         Returns:
-            x_next: [B, embed_dim] next state on manifold
-            x_current: [B, embed_dim] current state (to use as previous in next iteration)
+            x_next: [B, encode_dim] next encodeding
+            x_current: [B, encode_dim] current (to use as previous in next step)
         """
-        # Compute backward trajectory (velocity input to network)
-        if avg_velocity is not None:
-            # Use provided average velocity from moving window
-            backward_trajectory = avg_velocity
+        # ========================================
+        # Step 1: Compute velocity (finite difference)
+        # ========================================
+        if average_velocity is not None:
+            backward_trajectory = average_velocity
         elif x_previous is None:
-            # First iteration: velocity from origin to current
+            # First iteration: velocity from origin
             backward_trajectory = self.manifold.logmap0(x_current)
         else:
-            # Compute velocity from previous to current
+            # Geodesic velocity from previous to current
             backward_trajectory = self.manifold.logmap(x_previous, x_current)
         
-        # Predict velocity in tangent space
-        velocity = self.velocity_net(backward_trajectory)  # [B, embed_dim]
+        # ========================================
+        # Step 2: Scale velocity
+        # ========================================
+        step = torch.sigmoid(self.step_size)
+        seg_rep = self.temp_lin(backward_trajectory)
+        velocity = self.lin_temp(seg_rep)
+        scaled_velocity = step * velocity
         
-        # Scale velocity
-        scale = torch.sigmoid(self.velocity_scale)
-        # velocity = velocity * scale 
-        
-        # Map velocity to manifold via exponential map
-        x_update = self.manifold.expmap(x_current, velocity)  # [B, embed_dim]
+        # ========================================
+        # Step 3: Extrapolate on geodesic
+        # ========================================
+        x_update = self.manifold.expmap(x_current, scaled_velocity)
         x_update = self.manifold.projx(x_update)
         
-        # Apply Poincaré residual update (blending)
-        alpha = torch.sigmoid(self.alpha)  # Constrain to (0, 1)
+        # ========================================
+        # Step 4: Poincaré residual update
+        # ========================================
+        alpha = torch.sigmoid(self.alpha)
         x_next, x_current = poincare_residual_update(
             x_current, x_update, self.manifold, alpha=alpha
         )
         
         return x_next, x_current
-        

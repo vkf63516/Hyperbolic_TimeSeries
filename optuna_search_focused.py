@@ -3,7 +3,7 @@ Focused Optuna Search - Core Hyperparameters Only
 User: vkf63516
 Date: 2025-11-13 21:08:39 UTC
 
-Searches only: embed_dim, hidden_dim, learning_rate, batch_size
+Searches only: encode_dim, hidden_dim, learning_rate, batch_size
 """
 
 import optuna
@@ -51,7 +51,7 @@ def objective(trial, pred_len, manifold_type='Euclidean'):
     """
     
     # ONLY sample these 4 core hyperparameters
-    embed_dim = trial.suggest_categorical('embed_dim', [32, 64])
+    encode_dim = trial.suggest_categorical('encode_dim', [32, 64])
     hidden_dim = trial.suggest_categorical('hidden_dim', [64, 128, 256])
     learning_rate = trial.suggest_loguniform('learning_rate', 1e-3, 1e-2)
     batch_size = trial.suggest_categorical('batch_size', [16, 32, 64, 128, 256])
@@ -62,12 +62,12 @@ def objective(trial, pred_len, manifold_type='Euclidean'):
     else:
         curvature = 0.0
     
-    # Constraint: hidden_dim should be >= embed_dim
-    if hidden_dim < embed_dim:
-        hidden_dim = embed_dim * 2
+    # Constraint: hidden_dim should be >= encode_dim
+    if hidden_dim < encode_dim:
+        hidden_dim = encode_dim * 2
     
     config = {
-        'embed_dim': embed_dim,
+        'encode_dim': encode_dim,
         'hidden_dim': hidden_dim,
         'learning_rate': learning_rate,
         'batch_size': batch_size,
@@ -88,7 +88,7 @@ def objective(trial, pred_len, manifold_type='Euclidean'):
         '--features', 'M',
         '--seq_len', '96',
         '--pred_len', str(pred_len),
-        '--embed_dim', str(embed_dim),
+        '--encode_dim', str(encode_dim),
         '--hidden_dim', str(hidden_dim),
         '--learning_rate', f'{learning_rate:.6f}',
         '--batch_size', str(batch_size),
@@ -109,8 +109,8 @@ def objective(trial, pred_len, manifold_type='Euclidean'):
     print("\n" + "="*80)
     print(f"[Trial {trial.number}] {manifold_type} manifold, pred_len={pred_len}")
     print(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC")
-    print("SEARCHING: embed_dim, hidden_dim, learning_rate, batch_size")
-    print(json.dumps({k: v for k, v in config.items() if k in ['embed_dim', 'hidden_dim', 'learning_rate', 'batch_size']}, indent=2))
+    print("SEARCHING: encode_dim, hidden_dim, learning_rate, batch_size")
+    print(json.dumps({k: v for k, v in config.items() if k in ['encode_dim', 'hidden_dim', 'learning_rate', 'batch_size']}, indent=2))
     print("="*80)
     
     # Run experiment
@@ -172,7 +172,7 @@ def main():
     print(f"User: vkf63516")
     print(f"Start time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC")
     print(f"\nSEARCHING:")
-    print(f"  - embed_dim: [32, 48, 64, 80, 96]")
+    print(f"  - encode_dim: [32, 48, 64, 80, 96]")
     print(f"  - hidden_dim: [64, 128, 256]")
     print(f"  - learning_rate: [1e-5, 1e-3] (log uniform)")
     print(f"  - batch_size: [16, 32, 64]")
@@ -284,7 +284,7 @@ def main():
             best = df_h.loc[df_h['mse'].idxmin()]
             print(f"\npred_len={pred_len}:")
             print(f"  Best MSE: {best['mse']:.6f}, MAE: {best['mae']:.6f}")
-            print(f"  embed_dim={best['embed_dim']}, hidden_dim={best['hidden_dim']}")
+            print(f"  encode_dim={best['encode_dim']}, hidden_dim={best['hidden_dim']}")
             print(f"  lr={best['learning_rate']:.6f}, batch={best['batch_size']}")
             if 'curvature' in best:
                 print(f"  curvature={best['curvature']:.3f}")

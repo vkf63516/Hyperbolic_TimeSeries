@@ -1,24 +1,24 @@
 
 import torch
 import torch.nn as nn
-from embed.Linear.segment_linear_embed_euclidean import SegmentParallelEuclidean
+from encode.Linear.segment_linear_encode_euclidean import SegmentParallelEuclidean
 from DynamicsMvar.Euclidean_Residual_Dynamics import ResidualDynamics
 from Lifting.euclidean_segment_reconstructor import EuclideanSegmentReconstructionHead
 from spec import RevIN
 
 class SegmentForecastEuclidean(nn.Module):
-    def __init__(self, lookback, pred_len, n_features, embed_dim,
+    def __init__(self, lookback, pred_len, n_features, encode_dim,
          hidden_dim, manifold_type, segment_length=24, 
          use_attention_pooling=False, use_revin=False,
          use_truncated_bptt=False, truncate_every=4,  # Truncate every N segments
-         dynamic_dropout=0.3, embed_dropout=0.5, recon_dropout=0.2, share_feature_weights=False,
+         dynamic_dropout=0.3, encode_dropout=0.5, recon_dropout=0.2, share_feature_weights=False,
          num_layers=2, use_segment_norm=True):
         """
         Args:
             lookback: int - lookback window (should be divisible by segment_length)
             pred_len: int - prediction horizon (should be divisible by segment_length)
             n_features: int - number of input features
-            embed_dim: int - hyperbolic embedding dimension
+            encode_dim: int - hyperbolic encodeding dimension
             hidden_dim: int - hidden dimension for MLPs
             curvature: float - manifold curvature
             manifold_type: str - "Poincare" or "Lorentzian"
@@ -27,7 +27,7 @@ class SegmentForecastEuclidean(nn.Module):
             use_truncated_bptt: bool - truncated backprop through time
             truncate_every: int - truncate gradient every N SEGMENTS (not steps!)
             dynamic_dropout: float - dropout in dynamics
-            embed_dropout: float - dropout in embedder
+            encode_dropout: float - dropout in encodeder
             recon_dropout: float - dropout in reconstructor
             num_layers: int - number of layers
             use_segment_norm: bool - normalize each segment independently
@@ -42,7 +42,7 @@ class SegmentForecastEuclidean(nn.Module):
             raise ValueError(f"pred_len ({pred_len}) must be divisible by segment_length ({segment_length})")
 
         self.lookback = lookback
-        self.embed_dim = embed_dim
+        self.encode_dim = encode_dim
         self.pred_len = pred_len
         self.n_features = n_features
         self.segment_length = segment_length
@@ -52,7 +52,7 @@ class SegmentForecastEuclidean(nn.Module):
         self.truncate_every = truncate_every
         self.hidden_dim = hidden_dim
         self.manifold_type = manifold_type
-        self.embed_dropout = embed_dropout
+        self.encode_dropout = encode_dropout
         self.dynamic_dropout = dynamic_dropout
         self.recon_dropout=recon_dropout
         self.num_layers=num_layers
@@ -62,12 +62,12 @@ class SegmentForecastEuclidean(nn.Module):
         
         # Segmented encoder
 
-        self.embed_euclidean = SegmentParallelEuclidean(
+        self.encode_euclidean = SegmentParallelEuclidean(
             lookback=lookback,
             input_dim=n_features,
-            embed_dim=embed_dim,
+            encode_dim=encode_dim,
             segment_length=segment_length,
-            embed_dropout=embed_dropout,
+            encode_dropout=encode_dropout,
             use_segment_norm=use_segment_norm,
             share_feature_weights=share_feature_weights
         )
@@ -77,7 +77,7 @@ class SegmentForecastEuclidean(nn.Module):
         
         # Segment reconstructor (NEW: outputs entire segments, not single points)
         self.reconstructor = EuclideanSegmentReconstructionHead(
-            embed_dim=embed_dim,
+            encode_dim=encode_dim,
             output_dim=n_features,
             segment_length=segment_length,  # NEW
             hidden_dim=hidden_dim,
@@ -88,7 +88,7 @@ class SegmentForecastEuclidean(nn.Module):
     def _create_dynamics(self):
        
         return ResidualDynamics(
-            embed_dim=self.embed_dim,
+            encode_dim=self.encode_dim,
             hidden_dim=self.hidden_dim,
             dropout=self.dynamic_dropout,
             n_layers=self.num_layers
@@ -122,8 +122,8 @@ class SegmentForecastEuclidean(nn.Module):
             # We pass mode='norm' but it's just to compute and store stats
             self.revin(x_combined, mode='norm')
         
-        embed_e = self.embed_euclidean(trend, seasonal_coarse, seasonal_fine, residual)
-        z_current = embed_e["combined_e"]
+        encode_e = self.encode_euclidean(trend, seasonal_coarse, seasonal_fine, residual)
+        z_current = encode_e["combined_e"]
         
         # Storage for SEGMENT predictions (not point predictions!)
         predictions_norm = []

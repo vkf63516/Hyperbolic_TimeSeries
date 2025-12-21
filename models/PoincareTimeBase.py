@@ -53,7 +53,7 @@ class Model(nn.Module):
     2. Add hyperbolic orthogonal loss
     3. Operate in Poincaré ball manifold
     
-    NO embedder - works directly on segment values like TimeBase!
+    NO encodeder - works directly on segment values like TimeBase!
     """
     def __init__(self, configs):
         super(Model, self).__init__()

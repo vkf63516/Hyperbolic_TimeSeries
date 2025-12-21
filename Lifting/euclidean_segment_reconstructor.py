@@ -8,7 +8,7 @@ class EuclideanSegmentReconstructionHead(nn.Module):
     Simple segment reconstructor - follows HyperbolicReconstructionHead design.
     Outputs flattened segment then reshapes.
     """
-    def __init__(self, embed_dim, output_dim, segment_length, 
+    def __init__(self, encode_dim, output_dim, segment_length, 
                  hidden_dim=64, n_layers=2, dropout=0.1):
         super().__init__()
         self.segment_length = segment_length
@@ -17,7 +17,7 @@ class EuclideanSegmentReconstructionHead(nn.Module):
         layers = []
         
         # Input layer
-        layers.append(nn.Linear(embed_dim, hidden_dim))
+        layers.append(nn.Linear(encode_dim, hidden_dim))
         layers.append(nn.LayerNorm(hidden_dim))
         layers.append(nn.GELU())
         layers.append(nn.Dropout(dropout))
@@ -36,7 +36,7 @@ class EuclideanSegmentReconstructionHead(nn.Module):
     
     def forward(self, z_t):
         """
-        z_t: [B, embed_dim] - point on hyperbolic manifold
+        z_t: [B, encode_dim] - point on hyperbolic manifold
         returns: [B, segment_length, output_dim]
         """
         B = z_t.shape[0]

@@ -7,7 +7,7 @@ import sys
 sys.path.append(str(Path(__file__).resolve().parents[0]))
 from spec import safe_expmap, safe_expmap0
 
-class SegmentLinearEmbed(nn.Module):
+class SegmentLinearencode(nn.Module):
     def __init__(self, input_dim, output_dim, segment_length, dropout=0.1,
                  lookback=None, use_segment_norm=True, share_feature_weights=False):
         super().__init__()
@@ -33,12 +33,12 @@ class SegmentLinearEmbed(nn.Module):
             self.shared_linear.weight = nn.Parameter(
                 (1 / self.total_len) * torch.ones([output_dim, self.total_len])
             )
-            print(f"SegmentLinearEmbed (SHARED): {input_dim} features → {self.total_len * output_dim} params")
+            print(f"SegmentLinearencode (SHARED): {input_dim} features → {self.total_len * output_dim} params")
         else:
             self.feature_linears = nn.ModuleList([
                 nn.Linear(self.total_len, output_dim) for _ in range(input_dim)
             ])
-            print(f"SegmentLinearEmbed (PER-FEATURE): {input_dim} features → {input_dim * self.total_len * output_dim} params")
+            print(f"SegmentLinearencode (PER-FEATURE): {input_dim} features → {input_dim * self.total_len * output_dim} params")
         
         self.dropout = nn.Dropout(dropout)
     
@@ -114,14 +114,14 @@ class SegmentedParallelPoincare(nn.Module):
     
     Everything else (Möbius fusion, scaling, projection) is IDENTICAL to ParallelPoincare.
     """
-    def __init__(self, lookback, input_dim, embed_dim=32,
-                 curvature=1.0, segment_length=24, embed_dropout=0.1,
+    def __init__(self, lookback, input_dim, encode_dim=32,
+                 curvature=1.0, segment_length=24, encode_dropout=0.1,
                  use_segment_norm=True, share_feature_weights=False):
         """
         Args:
             lookback: int - lookback window size
             input_dim: int - number of input features
-            embed_dim: int - dimension of hyperbolic embeddings
+            encode_dim: int - dimension of hyperbolic encodedings
             curvature: float - curvature of Poincaré ball (c parameter)
             segment_length: int - length of each segment (e.g., 24 for daily segments in hourly data)
             n_layer: int - number of linear layers
@@ -131,40 +131,40 @@ class SegmentedParallelPoincare(nn.Module):
         super().__init__()
         
         # Segment-aware Linear encoders 
-        self.trend_embed = SegmentLinearEmbed(
+        self.trend_encode = SegmentLinearencode(
             input_dim=input_dim,
-            output_dim=embed_dim,
+            output_dim=encode_dim,
             lookback=lookback,
             segment_length=segment_length,
             use_segment_norm=use_segment_norm,
-            dropout=embed_dropout,
+            dropout=encode_dropout,
             share_feature_weights=share_feature_weights
         )
-        self.seasonal_coarse_embed = SegmentLinearEmbed(
+        self.seasonal_coarse_encode = SegmentLinearencode(
             input_dim=input_dim,
-            output_dim=embed_dim,
+            output_dim=encode_dim,
             lookback=lookback,
             segment_length=segment_length,
             use_segment_norm=use_segment_norm,
-            dropout=embed_dropout,
+            dropout=encode_dropout,
             share_feature_weights=share_feature_weights
         )
-        self.seasonal_fine_embed = SegmentLinearEmbed(
+        self.seasonal_fine_encode = SegmentLinearencode(
             input_dim=input_dim,
-            output_dim=embed_dim,
+            output_dim=encode_dim,
             lookback=lookback,
             segment_length=segment_length,
             use_segment_norm=use_segment_norm,
-            dropout=embed_dropout,
+            dropout=encode_dropout,
             share_feature_weights=share_feature_weights
         )
-        self.residual_embed = SegmentLinearEmbed(
+        self.residual_encode = SegmentLinearencode(
             input_dim=input_dim,
-            output_dim=embed_dim,
+            output_dim=encode_dim,
             lookback=lookback,
             segment_length=segment_length,
             use_segment_norm=use_segment_norm,
-            dropout=embed_dropout,
+            dropout=encode_dropout,
             share_feature_weights=share_feature_weights
         )
         
@@ -227,28 +227,28 @@ class SegmentedParallelPoincare(nn.Module):
         
         Returns:
             dict with:
-                - trend_h, seasonal_coarse_h, seasonal_fine_h, residual_h: [B, embed_dim]
-                - combined_h: [B, embed_dim]
+                - trend_h, seasonal_coarse_h, seasonal_fine_h, residual_h: [B, encode_dim]
+                - combined_h: [B, encode_dim]
         """
         # 1) Encode to Euclidean latent (tangent vectors at origin)
-        # ONLY DIFFERENCE: Uses SegmentMLPEmbed instead of MLPEmbed
-        z_trend_t = self.trend_embed(trend)  # [B, embed_dim]
-        z_seasonal_coarse_t = self.seasonal_coarse_embed(seasonal_coarse)
-        z_seasonal_fine_t = self.seasonal_fine_embed(seasonal_fine)
-        z_residual_t = self.residual_embed(residual)
+        # ONLY DIFFERENCE: Uses SegmentMLPencode instead of MLPencode
+        z_trend_t = self.trend_encode(trend)  # [B, encode_dim]
+        z_seasonal_coarse_t = self.seasonal_coarse_encode(seasonal_coarse)
+        z_seasonal_fine_t = self.seasonal_fine_encode(seasonal_fine)
+        z_residual_t = self.residual_encode(residual)
         
         # 2) Scaling (SAME as ParallelPoincare)
         effective_scale = torch.tanh(self.effective_scale)
-        scaled_trend_embed = z_trend_t * effective_scale
-        scaled_coarse_embed = z_seasonal_coarse_t * effective_scale
-        scaled_fine_embed = z_seasonal_fine_t * effective_scale
-        scaled_residual_embed = z_residual_t * effective_scale
+        scaled_trend_encode = z_trend_t * effective_scale
+        scaled_coarse_encode = z_seasonal_coarse_t * effective_scale
+        scaled_fine_encode = z_seasonal_fine_t * effective_scale
+        scaled_residual_encode = z_residual_t * effective_scale
 
         # 3) Map to hyperbolic space (SAME as ParallelPoincare)
-        z_trend_h = safe_expmap0(self.manifold, scaled_trend_embed)
-        z_seasonal_coarse_h = safe_expmap0(self.manifold, scaled_coarse_embed)
-        z_seasonal_fine_h = safe_expmap0(self.manifold, scaled_fine_embed)
-        z_residual_h = safe_expmap0(self.manifold, scaled_residual_embed)
+        z_trend_h = safe_expmap0(self.manifold, scaled_trend_encode)
+        z_seasonal_coarse_h = safe_expmap0(self.manifold, scaled_coarse_encode)
+        z_seasonal_fine_h = safe_expmap0(self.manifold, scaled_fine_encode)
+        z_residual_h = safe_expmap0(self.manifold, scaled_residual_encode)
 
         # 4) Project to manifold (SAME as ParallelPoincare)
         z_trend_h = self.manifold.projx(z_trend_h)

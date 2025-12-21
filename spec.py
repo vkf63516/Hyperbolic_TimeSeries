@@ -18,16 +18,16 @@ import math
 # Clamping with safe Exponential map - supports both 2D and 3D inputs
 # --------------------------
 
-def compute_hierarchical_loss_with_manifold_dist(embeddings_dict, manifold, margin=0.1):
+def compute_hierarchical_loss_with_manifold_dist(encodedings_dict, manifold, margin=0.1):
     """
     Enforce hierarchy using actual hyperbolic distances from origin.
     
     Hierarchy: trend < coarse < fine < residual (distance from origin)
     """
-    trend_h = embeddings_dict["trend_h"]
-    coarse_h = embeddings_dict["seasonal_coarse_h"]
-    fine_h = embeddings_dict["seasonal_fine_h"]
-    residual_h = embeddings_dict["residual_h"]
+    trend_h = encodedings_dict["trend_h"]
+    coarse_h = encodedings_dict["seasonal_coarse_h"]
+    fine_h = encodedings_dict["seasonal_fine_h"]
+    residual_h = encodedings_dict["residual_h"]
     
     # Origin on Lorentz manifold
     origin = manifold.origin  # [1, 0, 0, ..., 0]
@@ -73,7 +73,7 @@ def segment_safe_expmap0(manifold, u, max_norm=10.0, eps=1e-6):
     # Exponential map
     x = manifold.expmap0(u)
     x = manifold.projx(x)
-    manifold_dim = x.shape[-1]  # embed_dim + 1 for Lorentz
+    manifold_dim = x.shape[-1]  # encode_dim + 1 for Lorentz
     x = x.reshape(B, N, manifold_dim)
     return x
 

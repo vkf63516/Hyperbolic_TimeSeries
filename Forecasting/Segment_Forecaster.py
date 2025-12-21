@@ -2,8 +2,8 @@ import sys
 import torch
 import torch.nn as nn
 import geoopt
-from embed.Linear.segment_linear_embed_poincare import SegmentedParallelPoincare
-from embed.Linear.segment_linear_embed_lorentz import SegmentedParallelLorentz
+from encode.Linear.segment_linear_encode_poincare import SegmentedParallelPoincare
+from encode.Linear.segment_linear_encode_lorentz import SegmentedParallelLorentz
 from DynamicsMvar.Poincare_Residual_Dynamics import HyperbolicPoincareDynamics
 from DynamicsMvar.Lorentz_Residual_Dynamics import HyperbolicLorentzDynamics
 from Lifting.hyperbolic_segment_reconstructor import HyperbolicSegmentReconstructionHead  # NEW
@@ -19,18 +19,18 @@ class SegmentedHyperbolicForecaster(nn.Module):
     2. Forecasts entire segments at once (not individual points)
     3. Maintains segment structure throughout encoding → dynamics → reconstruction
     """
-    def __init__(self, lookback, pred_len, n_features, embed_dim, hidden_dim, 
+    def __init__(self, lookback, pred_len, n_features, encode_dim, hidden_dim, 
                  curvature, manifold_type, segment_length=24, 
                  use_attention_pooling=False, use_revin=False,
                  use_truncated_bptt=False, truncate_every=4,  # Truncate every N segments
-                 dynamic_dropout=0.3, embed_dropout=0.5, recon_dropout=0.2, 
+                 dynamic_dropout=0.3, encode_dropout=0.5, recon_dropout=0.2, 
                  num_layers=2, share_feature_weights=False):
         """
         Args:
             lookback: int - lookback window (should be divisible by segment_length)
             pred_len: int - prediction horizon (should be divisible by segment_length)
             n_features: int - number of input features
-            embed_dim: int - hyperbolic embedding dimension
+            encode_dim: int - hyperbolic encodeding dimension
             hidden_dim: int - hidden dimension for MLPs
             curvature: float - manifold curvature
             manifold_type: str - "Poincare" or "Lorentzian"
@@ -40,7 +40,7 @@ class SegmentedHyperbolicForecaster(nn.Module):
             use_truncated_bptt: bool - truncated backprop through time
             truncate_every: int - truncate gradient every N SEGMENTS (not steps!)
             dynamic_dropout: float - dropout in dynamics
-            embed_dropout: float - dropout in embedder
+            encode_dropout: float - dropout in encodeder
             recon_dropout: float - dropout in reconstructor
             num_layers: int - number of layers
             use_segment_norm: bool - normalize each segment independently
@@ -55,7 +55,7 @@ class SegmentedHyperbolicForecaster(nn.Module):
             raise ValueError(f"pred_len ({pred_len}) must be divisible by segment_length ({segment_length})")
 
         self.lookback = lookback
-        self.embed_dim = embed_dim
+        self.encode_dim = encode_dim
         self.pred_len = pred_len
         self.n_features = n_features
         self.segment_length = segment_length
@@ -65,7 +65,7 @@ class SegmentedHyperbolicForecaster(nn.Module):
         self.truncate_every = truncate_every
         self.hidden_dim = hidden_dim
         self.manifold_type = manifold_type
-        self.embed_dropout = embed_dropout
+        self.encode_dropout = encode_dropout
         self.dynamic_dropout = dynamic_dropout
         self.num_layers=num_layers
         self.share_feature_weights = share_feature_weights
@@ -74,31 +74,31 @@ class SegmentedHyperbolicForecaster(nn.Module):
         
         # Segmented encoder
         if manifold_type == "Poincare":
-            self.embed_hyperbolic = SegmentedParallelPoincare(
+            self.encode_hyperbolic = SegmentedParallelPoincare(
                 lookback=lookback,
                 input_dim=n_features,
-                embed_dim=embed_dim,
+                encode_dim=encode_dim,
                 curvature=curvature,
                 segment_length=segment_length,
-                embed_dropout=self.embed_dropout,
+                encode_dropout=self.encode_dropout,
                 share_feature_weights=self.share_feature_weights,
             )
         elif manifold_type == "Lorentzian":  # Lorentzian
-            self.embed_hyperbolic = SegmentedParallelLorentz(
+            self.encode_hyperbolic = SegmentedParallelLorentz(
                 lookback=lookback,
                 input_dim=n_features,
-                embed_dim=embed_dim,
+                encode_dim=encode_dim,
                 curvature=curvature,
                 segment_length=segment_length,
                 use_segment_norm=use_segment_norm,
-                embed_dropout=self.embed_dropout,
+                encode_dropout=self.encode_dropout,
                 share_feature_weights=self.share_feature_weights
             )
-        self.manifold = self.embed_hyperbolic.manifold
+        self.manifold = self.encode_hyperbolic.manifold
         self.dynamics = self._create_dynamics()
     
         self.reconstructor = HyperbolicSegmentReconstructionHead(
-            embed_dim=embed_dim,
+            encode_dim=encode_dim,
             output_dim=n_features,
             segment_length=segment_length,  # NEW
             manifold=self.manifold,
@@ -109,7 +109,7 @@ class SegmentedHyperbolicForecaster(nn.Module):
     def _create_dynamics(self):
         if self.manifold_type == "Poincare":
             return HyperbolicPoincareDynamics(
-                embed_dim=self.embed_dim,
+                encode_dim=self.encode_dim,
                 hidden_dim=self.hidden_dim,
                 manifold=self.manifold,
                 dropout=self.dynamic_dropout,
@@ -117,7 +117,7 @@ class SegmentedHyperbolicForecaster(nn.Module):
             )
         if self.manifold_type == "Lorentzian":
             return HyperbolicLorentzDynamics(
-                embed_dim=self.embed_dim,
+                encode_dim=self.encode_dim,
                 hidden_dim=self.hidden_dim,
                 manifold=self.manifold,
                 dropout=self.dynamic_dropout,
@@ -152,13 +152,13 @@ class SegmentedHyperbolicForecaster(nn.Module):
             # We pass mode='norm' but it's just to compute and store stats
             self.revin(x_combined, mode='norm')
 
-        embed_h = self.embed_hyperbolic(trend, seasonal_coarse, seasonal_fine, residual)
+        encode_h = self.encode_hyperbolic(trend, seasonal_coarse, seasonal_fine, residual)
         
-        z_current_trend = embed_h["trend_h"]
-        z_current_coarse = embed_h["seasonal_coarse_h"]
-        z_current_fine = embed_h["seasonal_fine_h"]
-        z_current_resid = embed_h["residual_h"]
-        z_current = embed_h["combined_h"]
+        z_current_trend = encode_h["trend_h"]
+        z_current_coarse = encode_h["seasonal_coarse_h"]
+        z_current_fine = encode_h["seasonal_fine_h"]
+        z_current_resid = encode_h["residual_h"]
+        z_current = encode_h["combined_h"]
         
         z_previous = None
         z_previous_trend = None
@@ -246,7 +246,7 @@ class SegmentedHyperbolicForecaster(nn.Module):
         
         # ---- NEW: Stack hyperbolic latent states ----
         def stack_latents(lst):
-            segs = torch.stack(lst, dim=1)  # [B, num_segments, embed_dim+1]
+            segs = torch.stack(lst, dim=1)  # [B, num_segments, encode_dim+1]
             return segs
 
         hyperbolic_states = {

@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from embed.Moving_Window.moving_segment_linear_embed_euclidean import SegmentParallelEuclideanMovingWindow
+from encode.Moving_Window.moving_segment_linear_encode_euclidean import SegmentParallelEuclideanMovingWindow
 from DynamicsMvar.Euclidean_Residual_Dynamics import ResidualDynamics
 from Lifting.euclidean_segment_reconstructor import EuclideanSegmentReconstructionHead
 from spec import RevIN
@@ -17,9 +17,9 @@ class MovingWindowEuclideanForecaster(nn.Module):
     4. Euclidean space (no hyperbolic geometry)
     5. Adaptive window sizing (caps at 15 segments by default)
     """
-    def __init__(self, lookback, pred_len, n_features, embed_dim, hidden_dim, 
+    def __init__(self, lookback, pred_len, n_features, encode_dim, hidden_dim, 
                  manifold_type, segment_length=24, 
-                 use_revin=False, dynamic_dropout=0.3, embed_dropout=0.5,
+                 use_revin=False, dynamic_dropout=0.3, encode_dropout=0.5,
                  num_layers=2, use_segment_norm=True, window_size=None, 
                  use_truncated_bptt=True, truncate_every=4):
         """
@@ -34,7 +34,7 @@ class MovingWindowEuclideanForecaster(nn.Module):
             raise ValueError(f"pred_len ({pred_len}) must be divisible by segment_length ({segment_length})")
 
         self.lookback = lookback
-        self.embed_dim = embed_dim
+        self.encode_dim = encode_dim
         self.pred_len = pred_len
         self.n_features = n_features
         self.segment_length = segment_length
@@ -57,7 +57,7 @@ class MovingWindowEuclideanForecaster(nn.Module):
         print(f"Features: {n_features} (processed independently)")
         print(f"Lookback: {lookback} → {num_input_segments} segments")
         print(f"Segment length: {segment_length}")
-        print(f"Embed dim: {embed_dim}")
+        print(f"encode dim: {encode_dim}")
         print(f"Window size: {self.window_size}")
         print(f"Strategy: channel independence + Euclidean dynamics")
         
@@ -65,18 +65,18 @@ class MovingWindowEuclideanForecaster(nn.Module):
             self.revin = RevIN(num_features=n_features, eps=1e-5, affine=True)
         
         # Encoder for SINGLE feature (input_dim=1, shared across all features)
-        self.embed_euclidean = SegmentParallelEuclideanMovingWindow(
+        self.encode_euclidean = SegmentParallelEuclideanMovingWindow(
             lookback=lookback,
-            embed_dim=embed_dim,
+            encode_dim=encode_dim,
             segment_length=segment_length,
             use_segment_norm=use_segment_norm,
-            embed_dropout=embed_dropout,
+            encode_dropout=encode_dropout,
         )
         self.step_size = nn.Parameter(torch.tensor(0.1))
 
         # Dynamics
         self.dynamics = ResidualDynamics(
-            embed_dim=embed_dim,
+            encode_dim=encode_dim,
             hidden_dim=hidden_dim,
             dropout=dynamic_dropout,
             n_layers=num_layers
@@ -84,7 +84,7 @@ class MovingWindowEuclideanForecaster(nn.Module):
         
         # Reconstructor for SINGLE feature (output_dim=1)
         self.reconstructor = EuclideanSegmentReconstructionHead(
-            embed_dim=embed_dim,
+            encode_dim=encode_dim,
             output_dim=1,  # Single feature output
             segment_length=segment_length,
             hidden_dim=hidden_dim,
@@ -95,44 +95,47 @@ class MovingWindowEuclideanForecaster(nn.Module):
         print(f"Total parameters: {total_params:,}")
         print(f"Parameters per feature: {total_params:,} (shared!)")
         print(f"{'='*70}\n")
-    
-    def compute_all_component_velocities(self, z_current, z_trend, z_coarse, z_fine, z_resid, decay=0.9):
+
+
+    def compute_combined_velocity(self, z_current, decay=0.9):
         """
-        Compute velocities for all components (OPTIMIZED).
+        Exponentially-weighted velocity averaging (FIXED).
         
         Args:
-            All args: [B, window_size, embed_dim]
-        
-        Returns:
-            dict with velocities for each component
+            decay: 0.9 = moderate recency (recent 4x more weight)
+                0.85 = strong recency (recent 8x more weight)
+                0.95 = mild recency (recent 2x more weight)
+                1.0 = uniform (no recency bias)
         """
         B, N, D = z_current.shape
         
-        # Stack all components: [B, 5, N, D]
-        z_all = torch.stack([z_current, z_trend, z_coarse, z_fine, z_resid], dim=1)
+        # # Optional window limiting
+        # if self.window_size is not None and self.window_size < N:
+        #     z_current = z_current[:, -self.window_size-1:, :]
+        #     N = self.window_size + 1
         
-        # Get consecutive pairs for velocity: [B, 5, N-1, D]
-        z_all_start = z_all[:, :, :-1, :]
-        z_all_end = z_all[:, :, 1:, :]
+        # Compute velocities
+        z_start = z_current[:, :-1, :]
+        z_end = z_current[:, 1:, :]
         
-        # Compute differences (Euclidean velocity)
-        velocities = z_all_end - z_all_start  # [B, 5, N-1, D]
+        z_start_flat = z_start.reshape(B * (N-1), D)
+        z_end_flat = z_end.reshape(B * (N-1), D)
         
-        # Exponential Moving Average
-        weights = torch.tensor([decay**i for i in range(N-2, -1, -1)], device=velocities.device)
-        weights = weights / weights.sum()
+        velocities_flat = self.manifold.logmap(z_start_flat, z_end_flat)
+        velocities = velocities_flat.view(B, N-1, D)
         
-        # Average across trajectory for each component: [B, 5, D]
-        avg_velocities = (velocities * weights.view(1, 1, -1, 1)).sum(dim=2)
+        # === FIXED: Exponential averaging ===
+        if decay == 1.0:
+            avg_velocity = velocities.mean(dim=1)
+        else:
+            # Create weights on GPU (FIXED)
+            indices = torch.arange(N-1, dtype=torch.float32, device=z_current.device)
+            weights = decay ** (N - 2 - indices)  # Recent gets higher weight
+            weights = weights / weights.sum()
+            avg_velocity = (velocities * weights.view(1, -1, 1)).sum(dim=1)
         
-        # Return as dict
-        return {
-            'combined': avg_velocities[:, 0, :],
-            'trend': avg_velocities[:, 1, :],
-            'coarse': avg_velocities[:, 2, :],
-            'fine': avg_velocities[:, 3, :],
-            'resid': avg_velocities[:, 4, :],
-        }
+        return avg_velocity
+
     
     def process_batched_features(self, trend_f, coarse_f, fine_f, resid_f):
         """
@@ -146,15 +149,15 @@ class MovingWindowEuclideanForecaster(nn.Module):
         """
         B = trend_f.shape[0]
         
-        # Encode to Euclidean segments: [B, num_segments, embed_dim]
-        embed_e = self.embed_euclidean(trend_f, coarse_f, fine_f, resid_f)
+        # Encode to Euclidean segments: [B, num_segments, encode_dim]
+        encode_e = self.encode_euclidean(trend_f, coarse_f, fine_f, resid_f)
         
         # Initialize moving windows with historical segments
-        z_current = embed_e["combined_e"]  # [B, num_segments, embed_dim]
-        z_current_trend = embed_e["trend_e"]
-        z_current_coarse = embed_e["seasonal_coarse_e"]
-        z_current_fine = embed_e["seasonal_fine_e"]
-        z_current_resid = embed_e["residual_e"]
+        z_current = encode_e["combined_e"]  # [B, num_segments, encode_dim]
+        z_current_trend = encode_e["trend_e"]
+        z_current_coarse = encode_e["seasonal_coarse_e"]
+        z_current_fine = encode_e["seasonal_fine_e"]
+        z_current_resid = encode_e["residual_e"]
         
         # Take last window_size segments
         if z_current.shape[1] > self.window_size:
@@ -175,75 +178,29 @@ class MovingWindowEuclideanForecaster(nn.Module):
         # Autoregressive forecasting with moving window
         for seg_step in range(self.num_pred_segments):
             # Compute velocities for ALL components at once (vectorized)
-            velocities = self.compute_all_component_velocities(
-                z_current, z_current_trend, z_current_coarse, 
-                z_current_fine, z_current_resid
-            )
-       
+            velocity = self.compute_combined_velocity(z_current)
             # === Combined signal ===
 # For each component:
             z_last = z_current[:, -1, :]                                    # Get last state
-            z_next_raw = self.dynamics(z_last) + velocities['combined']    # Compute raw next
+            z_next_raw = self.dynamics(z_last, velocity)  # Compute raw next
             z_next_interp = z_last + step_size * (z_next_raw - z_last)    # Interpolate
             pred_seg = self.reconstructor(z_next_interp)                        # Reconstruct 
             z_current = torch.cat([z_current[:, 1:], z_next_interp.unsqueeze(1)], dim=1)  # Update 
             predictions_norm.append(pred_seg)
-            # === Trend ===
-            z_last_trend = z_current_trend[:, -1, :]
-            z_next_trend = self.dynamics(z_last_trend) + velocities['trend']
-            trend_pred_seg = self.reconstructor(z_next_trend)
-            trend_predictions.append(trend_pred_seg)
-            z_current_trend = torch.cat([z_current_trend[:, 1:, :], z_next_trend.unsqueeze(1)], dim=1)
-
-            # === Seasonal Coarse ===
-            z_last_coarse = z_current_coarse[:, -1, :]
-            z_next_coarse = self.dynamics(z_last_coarse) + velocities['coarse']
-            coarse_pred_seg = self.reconstructor(z_next_coarse)
-            coarse_predictions.append(coarse_pred_seg)
-            z_current_coarse = torch.cat([z_current_coarse[:, 1:, :], z_next_coarse.unsqueeze(1)], dim=1)
-
-            # === Seasonal Fine ===
-            z_last_fine = z_current_fine[:, -1, :]
-            z_next_fine = self.dynamics(z_last_fine) + velocities['fine']
-            fine_pred_seg = self.reconstructor(z_next_fine)
-            fine_predictions.append(fine_pred_seg)
-            z_current_fine = torch.cat([z_current_fine[:, 1:, :], z_next_fine.unsqueeze(1)], dim=1)
-
-            # === Residual ===
-            z_last_resid = z_current_resid[:, -1, :]
-            z_next_resid = self.dynamics(z_last_resid) + velocities['resid']
-            residual_pred_seg = self.reconstructor(z_next_resid)
-            residual_predictions.append(residual_pred_seg)
-            z_current_resid = torch.cat([z_current_resid[:, 1:, :], z_next_resid.unsqueeze(1)], dim=1)
-            
+          
             # Truncated BPTT: Detach AFTER using current states
             if self.use_truncated_bptt and (seg_step + 1) % self.truncate_every == 0 and seg_step < self.num_pred_segments - 1:
                 z_current = z_current.detach()
-                z_current_trend = z_current_trend.detach()
-                z_current_coarse = z_current_coarse.detach()
-                z_current_fine = z_current_fine.detach()
-                z_current_resid = z_current_resid.detach()
 
         # Stack predictions
         predictions_norm = torch.stack(predictions_norm, dim=1)  # [B, num_seg, seg_len, 1]
-        trend_predictions = torch.stack(trend_predictions, dim=1)
-        coarse_predictions = torch.stack(coarse_predictions, dim=1)
-        fine_predictions = torch.stack(fine_predictions, dim=1)
-        residual_predictions = torch.stack(residual_predictions, dim=1)
+
 
         # Flatten to [B, pred_len] - SQUEEZE first to remove feature dimension!
         predictions_norm = predictions_norm.squeeze(-1).reshape(B, self.num_pred_segments * self.segment_length)
-        trend_predictions = trend_predictions.squeeze(-1).reshape(B, self.num_pred_segments * self.segment_length)
-        coarse_predictions = coarse_predictions.squeeze(-1).reshape(B, self.num_pred_segments * self.segment_length)
-        fine_predictions = fine_predictions.squeeze(-1).reshape(B, self.num_pred_segments * self.segment_length)
-        residual_predictions = residual_predictions.squeeze(-1).reshape(B, self.num_pred_segments * self.segment_length)
         
         return {
-            'predictions': predictions_norm,
-            'trend': trend_predictions,
-            'coarse': coarse_predictions,
-            'fine': fine_predictions,
-            'residual': residual_predictions,
+            'predictions': predictions_norm
         }
     
     def forward(self, trend, seasonal_coarse, seasonal_fine, residual):

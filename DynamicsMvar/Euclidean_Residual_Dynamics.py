@@ -8,13 +8,13 @@ class ResidualDynamics(nn.Module):
     Outputs: z_next = z + weighted_residual
     This prevents drift by keeping updates close to identity mapping.
     """
-    def __init__(self, embed_dim, hidden_dim, dropout=0.3, n_layers=2):
+    def __init__(self, encode_dim, hidden_dim, dropout=0.3, n_layers=2):
         super().__init__()
         
         layers = []
         
         # Input layer
-        layers.append(nn.Linear(embed_dim, hidden_dim))
+        layers.append(nn.Linear(encode_dim, hidden_dim))
         layers.append(nn.LayerNorm(hidden_dim))
         layers.append(nn.GELU())
         layers.append(nn.Dropout(dropout))
@@ -26,8 +26,8 @@ class ResidualDynamics(nn.Module):
             layers.append(nn.GELU())
             layers.append(nn.Dropout(dropout))
         
-        # Output layer (maps back to embed_dim)
-        layers.append(nn.Linear(hidden_dim, embed_dim))
+        # Output layer (maps back to encode_dim)
+        layers.append(nn.Linear(hidden_dim, encode_dim))
         
         self.residual_net = nn.Sequential(*layers)
         
@@ -37,9 +37,9 @@ class ResidualDynamics(nn.Module):
     def forward(self, z, average_velocity=None):
         """
         Args:
-            z: [B, embed_dim] - current state
+            z: [B, encode_dim] - current state
         Returns:
-            z_next: [B, embed_dim] - next state with residual connection
+            z_next: [B, encode_dim] - next state with residual connection
         """
         if average_velocity is not None:
             backward_trajectory = average_velocity

@@ -4,7 +4,7 @@ import torch.nn.functional as f
 import geoopt
 
 
-class SegmentLinearEmbed(nn.Module):
+class SegmentLinearencode(nn.Module):
     def __init__(self, input_dim, output_dim, segment_length, dropout=0.1,
                  lookback=None, use_segment_norm=True, share_feature_weights=False):
         super().__init__()
@@ -30,7 +30,7 @@ class SegmentLinearEmbed(nn.Module):
             self.shared_linear.weight = nn.Parameter(
                 (1 / self.total_len) * torch.ones([output_dim, self.total_len])
             )
-            print(f"SegmentLinearEmbed (SHARED): {input_dim} features → {self.total_len * output_dim} params")
+            print(f"SegmentLinearencode (SHARED): {input_dim} features → {self.total_len * output_dim} params")
         else:
             self.feature_linears = nn.ModuleList([
                 nn.Linear(self.total_len, output_dim) for _ in range(input_dim)
@@ -39,7 +39,7 @@ class SegmentLinearEmbed(nn.Module):
             #     linear.weight = nn.Parameter(
             #         (1 / self.total_len) * torch.ones([output_dim, self.total_len])
             #     )
-            print(f"SegmentLinearEmbed (PER-FEATURE): {input_dim} features → {input_dim * self.total_len * output_dim} params")
+            print(f"SegmentLinearencode (PER-FEATURE): {input_dim} features → {input_dim * self.total_len * output_dim} params")
         self.dropout = nn.Dropout(dropout)
     
     def _normalize_segments(self, x):
@@ -98,48 +98,48 @@ class SegmentLinearEmbed(nn.Module):
             # Batch matrix multiply: [B, C, total_len] @ [C, total_len, output_dim] -> [B, C, output_dim]
             output = torch.einsum('bci,cio->bco', x, weights.transpose(1, 2)) + biases.unsqueeze(0)
         
-        output = output.mean(dim=1) #[B, embed_dim]
+        output = output.mean(dim=1) #[B, encode_dim]
         return output
 
 class SegmentParallelEuclidean(nn.Module):
-    def __init__(self, lookback, input_dim, embed_dim=32, share_feature_weights=False,
-                segment_length=24, embed_dropout=0.1, use_segment_norm=False):
+    def __init__(self, lookback, input_dim, encode_dim=32, share_feature_weights=False,
+                segment_length=24, encode_dropout=0.1, use_segment_norm=False):
         super().__init__()
         # 5 parallel Mamba encoder blocks
         
-        self.trend_embed = SegmentLinearEmbed(
+        self.trend_encode = SegmentLinearencode(
             input_dim=input_dim, 
-            output_dim=embed_dim, 
+            output_dim=encode_dim, 
             lookback=lookback, 
             segment_length=segment_length,
-            dropout=embed_dropout,
+            dropout=encode_dropout,
             use_segment_norm=use_segment_norm,
             share_feature_weights=share_feature_weights
         )
-        self.fine_embed = SegmentLinearEmbed(
+        self.fine_encode = SegmentLinearencode(
             input_dim=input_dim, 
-            output_dim=embed_dim, 
+            output_dim=encode_dim, 
             lookback=lookback, 
             segment_length=segment_length,
-            dropout=embed_dropout,
+            dropout=encode_dropout,
             use_segment_norm=use_segment_norm,
             share_feature_weights=share_feature_weights
         )
-        self.coarse_embed = SegmentLinearEmbed(
+        self.coarse_encode = SegmentLinearencode(
             input_dim=input_dim, 
-            output_dim=embed_dim, 
+            output_dim=encode_dim, 
             lookback=lookback, 
             segment_length=segment_length,
-            dropout=embed_dropout,
+            dropout=encode_dropout,
             use_segment_norm=use_segment_norm,
             share_feature_weights=share_feature_weights
         )
-        self.residual_embed = SegmentLinearEmbed(
+        self.residual_encode = SegmentLinearencode(
             input_dim=input_dim, 
-            output_dim=embed_dim, 
+            output_dim=encode_dim, 
             lookback=lookback, 
             segment_length=segment_length,
-            dropout=embed_dropout,
+            dropout=encode_dropout,
             use_segment_norm=use_segment_norm,
             share_feature_weights=share_feature_weights
         )
@@ -157,14 +157,14 @@ class SegmentParallelEuclidean(nn.Module):
         
         Returns:
             dict with:
-                - trend_e, seasonal_fine_e, seasonal_coarse_e, residual_e: [B, embed_dim]
-                - combined_e: [B, embed_dim]
+                - trend_e, seasonal_fine_e, seasonal_coarse_e, residual_e: [B, encode_dim]
+                - combined_e: [B, encode_dim]
         """
-        # Embed each branch to Euclidean latent vector
-        e_trend = self.trend_embed(trend)
-        e_fine = self.fine_embed(fine)
-        e_coarse = self.coarse_embed(coarse)
-        e_residual = self.residual_embed(residual)
+        # encode each branch to Euclidean latent vector
+        e_trend = self.trend_encode(trend)
+        e_fine = self.fine_encode(fine)
+        e_coarse = self.coarse_encode(coarse)
+        e_residual = self.residual_encode(residual)
         
         # Simple sum (no hierarchy, all components equally weighted)
         combined_e = e_trend + e_fine + e_coarse + e_residual

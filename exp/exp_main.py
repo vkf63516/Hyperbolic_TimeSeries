@@ -1,5 +1,5 @@
 """
-Unified exp_main.py supporting both segment-level and point-level hyperbolic embeddings
+Unified exp_main.py supporting both segment-level and point-level hyperbolic encodedings
 
 Controlled by args.use_segments flag:
 - Point-level hyperbolic space (ParallelLorentzBlock)
@@ -59,7 +59,7 @@ class Exp_Main(Exp_Basic):
                 'learning_rate': args.learning_rate,
                 'batch_size': args.batch_size,
                 'train_epochs': args.train_epochs,
-                'embed_dim': args.embed_dim,
+                'encode_dim': args.encode_dim,
                 'hidden_dim': args.hidden_dim,
                 'manifold_type': args.manifold_type,
                 'use_segments': args.use_segments,
@@ -86,7 +86,7 @@ class Exp_Main(Exp_Basic):
         model = model_dict[self.args.model].Model(self.args).float()
         total_params = sum(p.numel() for p in model.parameters())
         print(f"Total parameters: {total_params:,}")
-        #print(f"Mode: {'Segment-level' if self.use_segments else 'Point-level'} hyperbolic embeddings")
+        #print(f"Mode: {'Segment-level' if self.use_segments else 'Point-level'} hyperbolic encodedings")
         if self.wandb_logger is not None:
             self.wandb_logger.log_model_parameters(model)
             self.wandb_logger.watch_model(model, log_freq=100)
@@ -275,9 +275,9 @@ class Exp_Main(Exp_Basic):
                         outputs = outputs[:, -self.args.pred_len:, f_dim:]
                         # print(f"Batch size of output {outputs.shape[0]}")
                         # print(f"Batch size of coarse output {coarse_outputs.shape[0]}")
-                        if i == 0:
-                            print(f"outputs stats: mean={outputs.mean().item():.4f}, std={outputs.std().item():.4f}, min={outputs.min().item():.4f}, max={outputs.max().item():.4f}")
-                            print(f"batch_y stats: mean={batch_y.mean().item():.4f}, std={batch_y.std().item():.4f}, min={batch_y.min().item():.4f}, max={batch_y.max().item():.4f}")
+                        # if i == 0:
+                        #     print(f"outputs stats: mean={outputs.mean().item():.4f}, std={outputs.std().item():.4f}, min={outputs.min().item():.4f}, max={outputs.max().item():.4f}")
+                        #     print(f"batch_y stats: mean={batch_y.mean().item():.4f}, std={batch_y.std().item():.4f}, min={batch_y.min().item():.4f}, max={batch_y.max().item():.4f}")
 
                         loss = criterion(outputs, batch_y)
 
@@ -375,9 +375,8 @@ class Exp_Main(Exp_Basic):
                         back_loss.backward()
                         model_geooptim.step()
             # Memory tracking
-            if torch.cuda.is_available():
-                current_memory = torch.cuda.max_memory_allocated(device=self.device) / 1024 ** 2
-                max_memory = max(max_memory, current_memory)
+            current_memory = torch.cuda.max_memory_allocated(device=self.device) / 1024 ** 2
+            max_memory = max(max_memory, current_memory)
             
             # Scheduler step (for OneCycleLR)
             if self.args.lradj == 'TST':

@@ -8,7 +8,7 @@ The main entry point for training and evaluation. This script:
     Defines command-line arguments for configuring the model and training process
     Supports hyperbolic forecasting with orthogonalMSTL decomposition
     Configures hyperparameters including:
-        Embedding dimensions, hidden dimensions, and curvature for hyperbolic space
+        encodeding dimensions, hidden dimensions, and curvature for hyperbolic space
         Data loading parameters (dataset type, paths, features)
         Training settings (batch size, learning rate, epochs)
         MSTL decomposition settings (period, number of basis components)
@@ -31,7 +31,7 @@ Training script for weather dataset using Euclidean manifold:
 
     Configures a 336→96 forecasting task on weather data
     Uses MS (multivariate predict univariate) features
-    21 input features, 32 embedding dimensions, 256 hidden dimensions
+    21 input features, 32 encodeding dimensions, 256 hidden dimensions
     Enables decomposition, hierarchy scaling, and automatic mixed precision (AMP)
 
 Experiment Framework
@@ -51,14 +51,14 @@ Main experiment orchestrator that extends Exp_Basic:
     Initialization:
         Configures decomposition settings (orthogonalMSTL parameters)
         Sets up TensorBoard logging for experiment tracking
-        Supports both segment-level and point-level hyperbolic embeddings via use_segments flag
+        Supports both segment-level and point-level hyperbolic encodedings via use_segments flag
         Initializes manifold type (Lorentzian, Poincare, or Euclidean)
     Model Building: Constructs the HyperbolicForecasting model with parameter counting
     Optimizer Selection: Chooses between standard AdamW (Euclidean) or Riemannian optimizers (hyperbolic)
     Data Provider: Interfaces with data factory to load train/val/test datasets
     Training Loop: Implements the full training procedure with:
         Teacher forcing support
-        Hierarchical loss computation for hyperbolic embeddings
+        Hierarchical loss computation for hyperbolic encodedings
         TensorBoard metric logging
         Early stopping and checkpointing
     Validation & Testing: Evaluates model performance with MSE and MAE metrics
@@ -76,7 +76,7 @@ Implements PyTorch Dataset classes for time series data:
             Auto-detects MSTL period from data frequency
             Transforms data into trend, seasonal_coarse, seasonal_fine, and residual components
             Stores decomposed components in [T, C] format for both point-level and segment-level modes
-        Generates time features (month, day, weekday, hour) or uses time embeddings
+        Generates time features (month, day, weekday, hour) or uses time encodedings
         Returns sliding windows of decomposed components for forecasting
         Supports multivariate (M), univariate (S), and multivariate-to-univariate (MS) forecasting tasks
 
@@ -115,29 +115,29 @@ Alternative MSTL decomposition using statsmodels:
     timesteps_based_on_frequency(): Computes period lengths based on data frequency
     Provides a baseline comparison to orthogonalMSTL
 
-Embedding Modules
-embed/segment_mlp_embed_lorentz.py
+encodeding Modules
+encode/segment_mlp_encode_lorentz.py
 
-Implements segment-level embeddings for Lorentzian (hyperbolic) manifold:
+Implements segment-level encodedings for Lorentzian (hyperbolic) manifold:
 
-    SegmentMLPEmbed: MLP encoder for segmented time series data
+    SegmentMLPencode: MLP encoder for segmented time series data
         Encodes each segment independently
         Uses attention pooling over segments
         Supports both segmented and non-segmented inputs
-    SegmentedParallelLorentz: Parallel embeddings for different time series components with hierarchical scaling
+    SegmentedParallelLorentz: Parallel encodedings for different time series components with hierarchical scaling
         Configurable segment lengths for trend, coarse, fine, and residual components
         Learnable hierarchy scales as parameters
 
-embed/mlp_embed_euclidean.py
+encode/mlp_encode_euclidean.py
 
-Implements embeddings for Euclidean space:
+Implements encodedings for Euclidean space:
 
-    MLPEmbed: Basic MLP encoder with layer normalization and GELU activation
+    MLPencode: Basic MLP encoder with layer normalization and GELU activation
         Optional attention pooling or mean pooling across time
         Produces Euclidean latent vectors
-    ParallelEuclideanEmbed: Parallel encoders for different decomposed components (trend, fine, coarse, residual)
+    ParallelEuclideanencode: Parallel encoders for different decomposed components (trend, fine, coarse, residual)
         Optional learnable hierarchy scales
-        Separate embedding networks for each component
+        Separate encodeding networks for each component
 
 Helper Modules
 spec.py

@@ -1,7 +1,8 @@
 import torch
 import torch.nn as nn
-from embed.Moving_Window.moving_segment_linear_embed_poincare import SegmentedParallelPoincareMovingWindow
-from embed.Linear.segment_linear_embed_lorentz import SegmentedParallelLorentz
+from encode.Moving_Window.moving_segment_linear_encode_poincare import SegmentedParallelPoincareMovingWindow
+from encode.Moving_Window.moving_segment_linear_encode_lorentz import SegmentedParallelLorentzMovingWindow
+from encode.Linear.segment_linear_encode_lorentz import SegmentedParallelLorentz
 from DynamicsMvar.Poincare_Residual_Dynamics import HyperbolicPoincareDynamics
 from DynamicsMvar.Lorentz_Residual_Dynamics import HyperbolicLorentzDynamics
 from Lifting.hyperbolic_segment_reconstructor import HyperbolicSegmentReconstructionHead
@@ -18,9 +19,9 @@ class MovingWindowHyperbolicForecaster(nn.Module):
     3. Vectorized velocity computation per feature
     4. Adaptive window sizing (caps at 15 segments by default)
     """
-    def __init__(self, lookback, pred_len, n_features, embed_dim, hidden_dim, 
-                 curvature, manifold_type, segment_length=24, 
-                 use_revin=False, dynamic_dropout=0.3, embed_dropout=0.5,
+    def __init__(self, lookback, pred_len, n_features, encode_dim, hidden_dim, 
+                 curvature, manifold_type, segment_length=24, num_basis=8,
+                 use_revin=False, dynamic_dropout=0.3, encode_dropout=0.5, recon_dropout=0.1,
                  num_layers=2, window_size=None, 
                  use_truncated_bptt=True, truncate_every=4):
         """
@@ -34,7 +35,7 @@ class MovingWindowHyperbolicForecaster(nn.Module):
             raise ValueError(f"pred_len ({pred_len}) must be divisible by segment_length ({segment_length})")
 
         self.lookback = lookback
-        self.embed_dim = embed_dim
+        self.encode_dim = encode_dim
         self.pred_len = pred_len
         self.n_features = n_features
         self.segment_length = segment_length
@@ -43,13 +44,12 @@ class MovingWindowHyperbolicForecaster(nn.Module):
         self.manifold_type = manifold_type
         self.use_truncated_bptt = use_truncated_bptt
         self.truncate_every = truncate_every
+        self.recon_dropout = recon_dropout
+        self.num_basis = num_basis
         
         # Adaptive window sizing for efficiency
         num_input_segments = lookback // segment_length
-        if window_size is None:
-            # Cap window size for efficiency while preserving performance
-            self.window_size = min(num_input_segments, 15)  # Max 15 segments
-        else:
+        if window_size is not None:
             self.window_size = min(window_size, num_input_segments)
         
         print(f"\n{'='*70}")
@@ -58,7 +58,7 @@ class MovingWindowHyperbolicForecaster(nn.Module):
         print(f"Features: {n_features} (processed independently)")
         print(f"Lookback: {lookback} → {num_input_segments} segments")
         print(f"Segment length: {segment_length}")
-        print(f"Embed dim: {embed_dim}")
+        print(f"encode dim: {encode_dim}")
         print(f"Window size: {self.window_size}")
         print(f"Strategy: channel independence + hyperbolic dynamics")
         
@@ -67,79 +67,90 @@ class MovingWindowHyperbolicForecaster(nn.Module):
         
         # Encoder for SINGLE feature (input_dim=1, shared across all features)
         if manifold_type == "Poincare":
-            self.embed_hyperbolic = SegmentedParallelPoincareMovingWindow(
+            self.encode_hyperbolic = SegmentedParallelPoincareMovingWindow(
                 lookback=lookback,
-                embed_dim=embed_dim,
+                encode_dim=encode_dim,
                 curvature=curvature,
                 segment_length=segment_length,
-                embed_dropout=embed_dropout,
+                encode_dropout=encode_dropout,
             )
+        else:
+            self.encode_hyperbolic = SegmentedParallelLorentzMovingWindow(
+                lookback=lookback,
+                encode_dim=encode_dim,
+                curvature=curvature,
+                segment_length=segment_length,
+                encode_dropout=encode_dropout
+            )
+
         
-        self.manifold = self.embed_hyperbolic.manifold
+        self.manifold = self.encode_hyperbolic.manifold
         
         # Dynamics that accepts avg_velocity
         if manifold_type == "Poincare":
             self.dynamics = HyperbolicPoincareDynamics(
-                embed_dim=embed_dim,
-                hidden_dim=hidden_dim,
-                manifold=self.manifold,
-                dropout=dynamic_dropout,
-                n_layers=num_layers
+                encode_dim=encode_dim,
+                segment_length=segment_length,
+                manifold=self.manifold
             )
-        # elif manifold_type == "Lorentzian":
-        #     self.dynamics = HyperbolicLorentzDynamics(
-        #         embed_dim=embed_dim,
-        #         manifold=self.manifold,
-        #         dropout=dynamic_dropout,
-        #         n_layers=num_layers
-        #     )
+        if manifold_type == "Lorentzian":
+            self.dynamics = HyperbolicLorentzDynamics(
+                encode_dim=encode_dim,
+                segment_length=segment_length,
+                manifold=self.manifold
+            )
+    
         self.reconstructor = HyperbolicSegmentReconstructionHead(
-            embed_dim=embed_dim,
+            encode_dim=encode_dim,
             output_dim=1,
             segment_length=segment_length,  # NEW
             manifold=self.manifold,
+            hidden_dim=hidden_dim,
+            dropout=recon_dropout,
         )
-        
-        total_params = sum(p.numel() for p in self.parameters())
-        print(f"Total parameters: {total_params:,}")
-        print(f"Parameters per feature: {total_params:,} (shared!)")
-        print(f"{'='*70}\n")
-    
-    def compute_combined_velocity(self, z_current, decay=1.0):
+
+
+    def compute_combined_velocity(self, z_current, decay=0.9):
         """
-        Compute velocity for combined component only (OPTIMIZED).
+        Exponentially-weighted velocity averaging (FIXED).
+        
         Args:
-            z_current: [B, window_size, embed_dim] (single feature)
-            decay: exponential decay factor for weighting
-        Returns:
-            velocity: [B, embed_dim] averaged velocity for combined component
+            decay: 0.9 = moderate recency (recent 4x more weight)
+                0.85 = strong recency (recent 8x more weight)
+                0.95 = mild recency (recent 2x more weight)
+                1.0 = uniform (no recency bias)
         """
         B, N, D = z_current.shape
         
-        # Get consecutive pairs: [B, N-1, D]
+        # # Optional window limiting
+        # if self.window_size is not None and self.window_size < N:
+        #     z_current = z_current[:, -self.window_size-1:, :]
+        #     N = self.window_size + 1
+        
+        # Compute velocities
+        if self.window_size == None:
+            return None
         z_start = z_current[:, :-1, :]
         z_end = z_current[:, 1:, :]
         
-        # Flatten for batch logmap: [B*(N-1), D]
         z_start_flat = z_start.reshape(B * (N-1), D)
         z_end_flat = z_end.reshape(B * (N-1), D)
         
-        # Batched logmap for combined component
         velocities_flat = self.manifold.logmap(z_start_flat, z_end_flat)
-        
-        # Reshape: [B, N-1, D]
         velocities = velocities_flat.view(B, N-1, D)
         
-        # Exponential Moving Average weights
-        weights = torch.tensor([decay**i for i in range(N-2, -1, -1)], 
-                            device=velocities.device)
-        weights = weights / weights.sum()
-        
-        # Average across trajectory: [B, D]
-        avg_velocity = (velocities * weights.view(1, -1, 1)).sum(dim=1)
+        # === FIXED: Exponential averaging ===
+        if decay == 1.0:
+            avg_velocity = velocities.mean(dim=1)
+        else:
+            # Create weights on GPU (FIXED)
+            indices = torch.arange(N-1, dtype=torch.float32, device=z_current.device)
+            weights = decay ** (N - 2 - indices)  # Recent gets higher weight
+            weights = weights / weights.sum()
+            avg_velocity = (velocities * weights.view(1, -1, 1)).sum(dim=1)
         
         return avg_velocity
-    
+        
     def process_batched_features(self, trend_f, coarse_f, fine_f, resid_f):
         """
         Process a batch of features through the entire forecasting pipeline.
@@ -158,47 +169,35 @@ class MovingWindowHyperbolicForecaster(nn.Module):
         fine_f = fine_f.unsqueeze(-1)
         resid_f = resid_f.unsqueeze(-1)
         
-        # Encode to hyperbolic segments: [B, num_segments, embed_dim]
-        embed_h = self.embed_hyperbolic(trend_f, coarse_f, fine_f, resid_f)
+        # Encode to hyperbolic segments: [B, num_segments, encode_dim]
+        encode_h = self.encode_hyperbolic(trend_f, coarse_f, fine_f, resid_f)
         
         # Initialize moving windows with historical segments
-        z_current = embed_h["combined_h"]  # [B, num_segments, embed_dim]
-        z_current_trend = embed_h["trend_h"]
-        z_current_coarse = embed_h["seasonal_coarse_h"]
-        z_current_fine = embed_h["seasonal_fine_h"]
-        z_current_resid = embed_h["residual_h"]
+        z_current = encode_h["combined_h"]  # [B, num_segments, encode_dim]
+        z_current_trend = encode_h["trend_h"]
+        z_current_coarse = encode_h["seasonal_coarse_h"]
+        z_current_fine = encode_h["seasonal_fine_h"]
+        z_current_resid = encode_h["residual_h"]
         
         # Take last window_size segments
         if z_current.shape[1] > self.window_size:
             z_current = z_current[:, -self.window_size:, :]
-            z_current_trend = z_current_trend[:, -self.window_size:, :]
-            z_current_coarse = z_current_coarse[:, -self.window_size:, :]
-            z_current_fine = z_current_fine[:, -self.window_size:, :]
-            z_current_resid = z_current_resid[:, -self.window_size:, :]
         
         # Storage for predicted latents
         latent_z = []
-        latent_trend = []
-        latent_coarse = []
-        latent_fine = []
-        latent_resid = []
-        trend_predictions = []
-        coarse_predictions = []
-        fine_predictions = []
-        residual_predictions = []
         predictions_norm = []
 
 
         # Autoregressive forecasting with moving window
         for seg_step in range(self.num_pred_segments):
             # Compute velocities for ALL components at once (vectorized)
-            average_velocity = self.compute_combined_velocity(z_current)
             if (seg_step + 1) % self.truncate_every == 0 and seg_step < self.num_pred_segments - 1:
                 z_current = z_current.detach()
        
             # === Combined signal ===
             z_last = z_current[:, -1, :]
             z_prev = z_current[:, -2, :] if z_current.shape[1] > 1 else None
+            average_velocity = self.compute_combined_velocity(z_current)
             z_next, _ = self.dynamics(z_last, z_prev, average_velocity)
 
             latent_z.append(z_next)
@@ -211,7 +210,7 @@ class MovingWindowHyperbolicForecaster(nn.Module):
         # Stack predicted segments
         # Stack latent states
         def stack_latents(lst):
-            return torch.stack(lst, dim=1)  # [B, num_segments, embed_dim]
+            return torch.stack(lst, dim=1)  # [B, num_segments, encode_dim]
 
 
         # Batch decode all segments (output is [B, num_pred_segments, segment_length, 1])
@@ -274,7 +273,7 @@ class MovingWindowHyperbolicForecaster(nn.Module):
             predictions = predictions_norm.view(B, F, -1).permute(0, 2, 1).contiguous()
         
         # Repackage other outputs (latent states) to shapes similar to your original output
-        # latent_z: [B*F, num_pred_segments, embed_dim] -> [B, F, num_pred_segments, embed_dim]
+        # latent_z: [B*F, num_pred_segments, encode_dim] -> [B, F, num_pred_segments, encode_dim]
         def uncollapse_latent(tensor_b):
             # tensor_b: [B*F, num_pred_segments, D] -> [B, F, num_pred_segments, D]
             Bf, S, D = tensor_b.shape

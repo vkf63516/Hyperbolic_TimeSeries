@@ -17,7 +17,7 @@ parser.add_argument('--model', type=str, required=True, default='HyperbolicForec
 # orthogonalMSTL arguments
 parser.add_argument('--gradient_truncation_K', type=int, default=6, 
                     help='truncation steps for BPTT in hyperbolic forecasting')
-# NEW: Segment-level vs Point-level hyperbolic embeddings
+# NEW: Segment-level vs Point-level hyperbolic encodedings
 parser.add_argument('--orthogonal_weight', type=float, default=0.2, help='orthogonal')
 parser.add_argument('--share_feature_weights', action='store_true', default=False,
                     help='share weights across features (for high-D data)')
@@ -27,7 +27,7 @@ parser.add_argument('--use_moving_window', action='store_true', default=False,
                     help='use moving window approach (True) or regular approach (False)')
 
 parser.add_argument('--use_segments', action='store_true', default=False,
-                    help='use segment-level hyperbolic embeddings (True) or point-level (False)')
+                    help='use segment-level hyperbolic encodedings (True) or point-level (False)')
 parser.add_argument('--use_decomposition', action='store_true', default=False,
                     help='Use orthogonalMSTL decomposition')
 parser.add_argument('--num_basis', type=int, default=10,
@@ -50,7 +50,7 @@ parser.add_argument('--save_freq', type=int, default=10,
 
 # Hyperbolic Space
 
-parser.add_argument('--embed_dim', type=int, default=32, help='hyperbolic embedding dimension')
+parser.add_argument('--encode_dim', type=int, default=32, help='hyperbolic encodeding dimension')
 parser.add_argument('--hidden_dim', type=int, default=128, help='mamba hidden dimension')
 parser.add_argument('--curvature', type=float, default=1.0, help='negative number for hyperbolic curvature')
 # Data loader
@@ -67,7 +67,8 @@ parser.add_argument('--seq_len', type=int, default=720, help='input sequence len
 parser.add_argument('--label_len', type=int, default=48, help='start token length')
 parser.add_argument('--pred_len', type=int, default=96, help='prediction sequence length')
 parser.add_argument('--enc_in', type=int, default=7, help='encoder input size')
-parser.add_argument('--embed', type=str, default='fixed',help='time features encoding, options:[timeF, fixed, learned]')
+parser.add_argument('--encode', type=str, default='fixed',help='time features encoding, options:[timeF, fixed, learned]')
+parser.add_argument('--window_size', type=int, default=None, help='size of window segments for average velocity')
 # optimization
 parser.add_argument('--use_orthogonal', action='store_true', default=False, help='orthogonal loss')
 parser.add_argument('--use_revin', action='store_true', default=False, help='RevIN')
@@ -109,7 +110,7 @@ print('Args in experiment:')
 print(args)
 mode_str = "Segment-level" if args.use_segments else "Point-level"
 print(f'\n{"="*60}')
-print(f'Hyperbolic Embedding Mode: {mode_str}')
+print(f'Hyperbolic encodeding Mode: {mode_str}')
 print(f'{"="*60}\n')
 
 Exp = Exp_Main
@@ -129,7 +130,7 @@ if args.is_training:
             args.seq_len,
             args.pred_len,
             args.des,
-            args.embed,
+            args.encode,
             args.manifold_type,
             ii,
             fix_seed_list[ii])
@@ -157,7 +158,7 @@ else:
         args.seq_len,
         args.pred_len,
         args.des,
-        args.embed,
+        args.encode,
         args.manifold_type,
         ii,
         fix_seed_list[ii])
