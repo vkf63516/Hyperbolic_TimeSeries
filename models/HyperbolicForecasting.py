@@ -5,6 +5,7 @@ import geoopt
 import os
 import sys
 from pathlib import Path
+from Decomposition.Learnable_Decomposition import LearnableMultivariateDecomposition
 from Forecasting.Moving_Window_Segment_Euclidean_Forecaster import MovingWindowEuclideanForecaster
 from Forecasting.Moving_Window_Segment_Forecaster import MovingWindowHyperbolicForecaster
 from Forecasting.Segment_Euclidean_Forecaster import SegmentForecastEuclidean
@@ -36,11 +37,23 @@ class Model(nn.Module):
         self.use_moving_window = configs.use_moving_window
         self.num_basis = configs.num_basis
         self.window_size = configs.window_size
+        self.use_learnable_decomposition = configs.use_learnable_decomposition
         # Model dimensions
         # Number of input features
         self.enc_in = configs.enc_in
-        
+        self.coarse_period = configs.coarse_period
+        self.fine_period = configs.fine_period
         # encodeding: Maps decomposed components to hyperbolic space
+        if self.use_learnable_decomposition:
+            self.decomposer = LearnableMultivariateDecomposition(
+                n_features=self.enc_in,
+                kernel_size=self.coarse_period * 2,
+                detected_periods=[self.fine_period, self.coarse_period]
+            )
+        else:
+            self.decomposer = None
+            
+
         
         if self.manifold_type == "Euclidean":
             if self.use_moving_window:
@@ -131,7 +144,7 @@ class Model(nn.Module):
 
    
     
-    def forward(self, trend, seasonal_coarse, seasonal_fine, residual):
+    def forward(self, batch_x=None, trend=None, seasonal_coarse=None, seasonal_fine=None, residual=None):
         """
         Forward pass with explicit decomposed components.
         Use this when you have orthogonalMSTL decomposition.
@@ -145,6 +158,12 @@ class Model(nn.Module):
         Returns:
             predictions: [B, pred_len, output_dim]
         """
+        if self.decomposer is not None:
+            components = self.decomposer(batch_x)
+            trend = components['trend']
+            seasonal_coarse = components['seasonal_coarse']
+            seasonal_fine = components['seasonal_fine']
+            residual = components['residual']
 
         forecasts = self.forecaster(trend, seasonal_coarse, seasonal_fine, residual)
         # Get individual hyperbolic representations

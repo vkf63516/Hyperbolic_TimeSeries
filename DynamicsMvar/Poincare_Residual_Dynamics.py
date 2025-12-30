@@ -60,7 +60,7 @@ class HyperbolicPoincareDynamics(nn.Module):
         # Only 2 learnable parameters!
         self.alpha = nn.Parameter(torch.tensor(0.7))
         self.step_size = nn.Parameter(torch.tensor(1.0))
-        self.temp_lin = nn.Linear(encode_dim, segment_length)
+        self.encode_lin = nn.Linear(encode_dim, encode_dim)
         self.lin_temp = nn.Linear(segment_length, encode_dim)
     
     def forward(self, x_current, x_previous=None, average_velocity=None):
@@ -94,8 +94,7 @@ class HyperbolicPoincareDynamics(nn.Module):
         # Step 2: Scale velocity
         # ========================================
         step = torch.sigmoid(self.step_size)
-        seg_rep = self.temp_lin(backward_trajectory)
-        velocity = self.lin_temp(seg_rep)
+        velocity = self.encode_lin(backward_trajectory)
         scaled_velocity = step * velocity
         
         # ========================================

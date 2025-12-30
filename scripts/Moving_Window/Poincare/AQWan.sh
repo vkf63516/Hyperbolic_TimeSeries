@@ -4,6 +4,7 @@ patience=5
 enc_in=11
 manifold_type="Poincare"
 data_path=AQWan.csv
+num_basis=10
 window_size=2
 
 python run.py \
@@ -14,13 +15,13 @@ python run.py \
   --root_path ./time-series-dataset/dataset/ \
   --data_path $data_path \
   --features M \
-  --num_basis 10 \
+  --num_basis $num_basis \
   --label_len 0 \
   --seq_len $seq_len \
   --pred_len 96 \
   --lradj "type3" \
-  --encode_dim 32 \
-  --hidden_dim 64 \
+  --encode_dim 64 \
+  --hidden_dim 256 \
   --batch_size 32 \
   --use_wandb \
   --learning_rate 1e-3 \
@@ -43,13 +44,13 @@ python run.py \
   --root_path ./time-series-dataset/dataset/ \
   --data_path $data_path \
   --features M \
-  --num_basis 10 \
+  --num_basis $num_basis \
   --label_len 0 \
   --seq_len $seq_len \
   --pred_len 192 \
   --lradj "type3" \
-  --encode_dim 32 \
-  --hidden_dim 64 \
+  --encode_dim 64 \
+  --hidden_dim 256 \
   --batch_size 32 \
   --use_wandb \
   --learning_rate 1e-3 \
@@ -72,13 +73,13 @@ python run.py \
   --root_path ./time-series-dataset/dataset/ \
   --data_path $data_path \
   --features M \
-  --num_basis 10 \
+  --num_basis $num_basis \
   --label_len 0 \
   --seq_len $seq_len \
   --pred_len 336 \
   --lradj "type3" \
-  --encode_dim 32 \
-  --hidden_dim 64 \
+  --encode_dim 64 \
+  --hidden_dim 256 \
   --batch_size 32 \
   --use_wandb \
   --learning_rate 1e-3 \
@@ -89,7 +90,7 @@ python run.py \
   --manifold_type $manifold_type \
   --use_revin \
   --use_segments \
-  --window_size $window_size \
+  --window_size 4 \
   --use_moving_window
 
 python run.py \
@@ -100,13 +101,13 @@ python run.py \
   --root_path ./time-series-dataset/dataset/ \
   --data_path $data_path \
   --features M \
-  --num_basis 10 \
+  --num_basis $num_basis \
   --label_len 0 \
   --seq_len $seq_len \
   --pred_len 720 \
   --lradj "type3" \
-  --encode_dim 32 \
-  --hidden_dim 64 \
+  --encode_dim 64 \
+  --hidden_dim 256 \
   --batch_size 32 \
   --use_wandb \
   --learning_rate 1e-3 \
@@ -117,5 +118,5 @@ python run.py \
   --manifold_type $manifold_type \
   --use_revin \
   --use_segments \
-  --window_size $window_size \
+  --window_size 6 \
   --use_moving_window

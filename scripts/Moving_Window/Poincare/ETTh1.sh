@@ -5,14 +5,14 @@ enc_in=7
 manifold_type="Poincare"
 data_path=ETTh1.csv
 hidden_dim=256
-num_basis=6 
+num_basis=10 
 window_size=2
 
 python run.py \
   --is_training 1 \
   --model_id ETTh1_$seq_len'_'96_$manifold_type'_'type_exp1_Segment \
   --model HyperbolicForecasting \
-  --data ETTh1_decomposition \
+  --data ETTh1 \
   --root_path ./time-series-dataset/dataset/ \
   --data_path $data_path \
   --features M \
@@ -26,11 +26,12 @@ python run.py \
   --batch_size 32 \
   --learning_rate 1e-3 \
   --train_epochs $train_epochs \
-  --use_decomposition \
+  --use_learnable_decomposition \
   --enc_in $enc_in \
   --patience $patience \
   --manifold_type $manifold_type \
   --use_revin \
+  --use_wandb \
   --use_segments \
   --window_size $window_size \
   --use_moving_window
@@ -58,6 +59,7 @@ python run.py \
   --patience $patience \
   --manifold_type $manifold_type \
   --use_revin \
+  --use_wandb \
   --use_segments \
   --window_size $window_size \
   --use_moving_window
@@ -86,8 +88,9 @@ python run.py \
   --patience $patience \
   --manifold_type $manifold_type \
   --use_revin \
+  --use_wandb \
   --use_segments \
-  --window_size $window_size \
+  --window_size 4 \
   --use_moving_window
 
 
@@ -114,6 +117,7 @@ python run.py \
   --patience $patience \
   --manifold_type $manifold_type \
   --use_revin \
+  --use_wandb \
   --use_segments \
-  --window_size $window_size \
+  --window_size 6 \
   --use_moving_window

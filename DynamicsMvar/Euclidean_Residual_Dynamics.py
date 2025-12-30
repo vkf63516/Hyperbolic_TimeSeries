@@ -8,7 +8,7 @@ class ResidualDynamics(nn.Module):
     Outputs: z_next = z + weighted_residual
     This prevents drift by keeping updates close to identity mapping.
     """
-    def __init__(self, encode_dim, hidden_dim, dropout=0.3, n_layers=2):
+    def __init__(self, encode_dim, hidden_dim=64, dropout=0.3, n_layers=2):
         super().__init__()
         
         layers = []
@@ -16,14 +16,14 @@ class ResidualDynamics(nn.Module):
         # Input layer
         layers.append(nn.Linear(encode_dim, hidden_dim))
         layers.append(nn.LayerNorm(hidden_dim))
-        layers.append(nn.GELU())
+        layers.append(nn.ReLU())
         layers.append(nn.Dropout(dropout))
         
         # Hidden layers
         for _ in range(n_layers - 1):
             layers.append(nn.Linear(hidden_dim, hidden_dim))
             layers.append(nn.LayerNorm(hidden_dim))
-            layers.append(nn.GELU())
+            layers.append(nn.ReLU())
             layers.append(nn.Dropout(dropout))
         
         # Output layer (maps back to encode_dim)

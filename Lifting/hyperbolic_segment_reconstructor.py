@@ -9,7 +9,7 @@ class HyperbolicSegmentReconstructionHead(nn.Module):
     Outputs flattened segment then reshapes.
     """
     def __init__(self, encode_dim, output_dim, segment_length, manifold, 
-                 hidden_dim=256, dropout=0.1):
+                 hidden_dim=64, n_layers=2, dropout=0.1):
         super().__init__()
         self.manifold = manifold
         self.segment_length = segment_length
@@ -20,7 +20,7 @@ class HyperbolicSegmentReconstructionHead(nn.Module):
         # Input layer
         layers.append(nn.Linear(encode_dim, hidden_dim))
         layers.append(nn.LayerNorm(hidden_dim))
-        layers.append(nn.GELU())
+        layers.append(nn.ReLU())
         layers.append(nn.Dropout(dropout))
         
         # Hidden layers
