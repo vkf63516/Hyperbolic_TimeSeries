@@ -83,7 +83,7 @@ class Exp_Main(Exp_Basic):
         model_dict = {
             "HyperbolicForecasting": HyperbolicForecasting,
         }
-        model = model_dict[self.args.model].Model(self.args).float()
+        model = model_dict[self.args.model](self.args).float()
         total_params = sum(p.numel() for p in model.parameters())
         print(f"Total parameters: {total_params:,}")
         #print(f"Mode: {'Segment-level' if self.use_segments else 'Point-level'} hyperbolic encodedings")
@@ -159,7 +159,7 @@ class Exp_Main(Exp_Basic):
 
                     # print("Component Loss: ", loss)
                     total_loss.append(loss.item())
-            if self.args.use_learnable_decomposition:
+            else:
                 for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(vali_loader):
                     batch_x = batch_x.float().to(self.device)
                     batch_y = batch_y.float()
@@ -173,11 +173,14 @@ class Exp_Main(Exp_Basic):
                     # encoder - decoder
                     if self.args.use_amp:
                         with torch.cuda.amp.autocast():
-                            outputs, hyp_outputs = self.model(batch_x)
-                            orthogonal_loss = 0
+                            outputs, orthogonal_loss = self.model(batch_x)
                     else:
-                        outputs, hyp_outputs = self.model(batch_x)
-                        orthogonal_loss = 0
+                        if self.args.use_orthogonal:
+
+                            outputs, orthogonal_loss = self.model(batch_x)
+                        else:
+                            outputs = self.model(batch_x)
+                            orthogonal_loss = 0
                     f_dim = -1 if self.args.features == 'MS' else 0
                     outputs = outputs[:, -self.args.pred_len:, f_dim:]
                     batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
@@ -187,7 +190,7 @@ class Exp_Main(Exp_Basic):
 
                     loss = criterion(pred, true)
 
-                    total_loss.append(loss.item())
+                    total_loss.append(loss)
                 
         avg_total_loss = np.average(total_loss)
         self.model.train()
@@ -317,7 +320,7 @@ class Exp_Main(Exp_Basic):
                         loss.backward()
                         nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=5.0)
                         model_geooptim.step()
-            if self.args.use_learnable_decomposition:
+            else:
                 for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(train_loader):
                     iter_count += 1
                     model_geooptim.zero_grad()
@@ -335,17 +338,19 @@ class Exp_Main(Exp_Basic):
                     if self.args.use_amp:
                         with torch.cuda.amp.autocast():
                         
-                            outputs, hyp_outputs = self.model(batch_x)
-                            orthogonal_loss = 0
+                            outputs, orthogonal_loss = self.model(batch_x)
+
                             f_dim = -1 if self.args.features == 'MS' else 0
                             outputs = outputs[:, -self.args.pred_len:, f_dim:]
                             batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
                             loss = criterion(outputs, batch_y)
                             train_loss.append(loss.item())
                     else:
-                        
-                        outputs, hyp_outputs = self.model(batch_x)
-                        orthogonal_loss = 0
+                        if self.args.use_orthogonal:
+                            outputs, orthogonal_loss = self.model(batch_x)
+                        else:
+                            outputs = self.model(batch_x)
+                            orthogonal_loss = 0
                         # print(outputs.shape,batch_y.shape)
                         f_dim = -1 if self.args.features == 'MS' else 0
                         outputs = outputs[:, -self.args.pred_len:, f_dim:]
@@ -485,7 +490,19 @@ class Exp_Main(Exp_Basic):
                     # outputs = trend_outputs + coarse_outputs + fine_outputs + resid_outputs
                     outputs = outputs[:, -self.args.pred_len:, f_dim:]
 
-              
+                # ========================================
+                # For Segment-Level: Flatten for Metrics
+                # ========================================
+                    if self.args.use_segments:
+                        # outputs: [B, num_pred_segs, seg_len] → [B, pred_len]
+                        if outputs.dim() == 3:
+                            B, num_pred_segs, seg_len = outputs.shape
+                            outputs = outputs.reshape(B, num_pred_segs * seg_len)
+                    
+                        if batch_y.dim() == 3:
+                            B, num_pred_segs, seg_len = batch_y.shape
+                            batch_y = batch_y.reshape(B, num_pred_segs * seg_len)
+                
                 # ========================================
                 # Convert to NumPy
                 # ========================================
@@ -494,7 +511,7 @@ class Exp_Main(Exp_Basic):
                 
                     preds.append(outputs)
                     trues.append(batch_y)
-            if self.args.use_learnable_decomposition:
+            else:
                 for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(test_loader):
                     batch_x = batch_x.float().to(self.device)
                     batch_y = batch_y.float().to(self.device)
@@ -508,11 +525,13 @@ class Exp_Main(Exp_Basic):
                     # encoder - decoder
                     if self.args.use_amp:
                         with torch.cuda.amp.autocast():
-                            outputs, hyp_outputs = self.model(batch_x)
+                            outputs, orthogonal_loss = self.model(batch_x)
                     else:
-                       
-                        outputs, hyp_outputs = self.model(batch_x)
-                        orthogonal_loss = 0
+                        if self.args.use_orthogonal:
+                            outputs, orthogonal_loss = self.model(batch_x)
+                        else:
+                            outputs = self.model(batch_x)
+                            orthogonal_loss = 0
 
                     f_dim = -1 if self.args.features == 'MS' else 0
                     # print(outputs.shape,batch_y.shape)
@@ -532,8 +551,8 @@ class Exp_Main(Exp_Basic):
         # ========================================
         preds = np.concatenate(preds, axis=0)
         trues = np.concatenate(trues, axis=0)
-        preds = preds.reshape(-1, preds.shape[-2], preds.shape[-1])
-        trues = trues.reshape(-1, trues.shape[-2], trues.shape[-1])
+        # preds = preds.reshape(-1, preds.shape[-2], preds.shape[-1])
+        # trues = trues.reshape(-1, trues.shape[-2], trues.shape[-1])
     
         print('test shape:', preds.shape, trues.shape)
 

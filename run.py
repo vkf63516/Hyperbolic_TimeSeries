@@ -30,14 +30,7 @@ parser.add_argument('--use_segments', action='store_true', default=False,
                     help='use segment-level hyperbolic encodedings (True) or point-level (False)')
 parser.add_argument('--use_decomposition', action='store_true', default=False,
                     help='Use orthogonalMSTL decomposition')
-# ============================================
-parser.add_argument('--use_learnable_decomposition', action='store_true', default=False,
-                    help='use learnable Conv1D decomposition')
-parser.add_argument('--fine_period', type=int, default=24,
-                    help='fine-grained seasonal period (e.g., 24 for daily in hourly data)')
-parser.add_argument('--coarse_period', type=int, default=168,
-                    help='coarse-grained seasonal period (e.g., 168 for weekly in hourly data)')
-parser.add_argument('--num_basis', type=int, default=6,
+parser.add_argument('--num_basis', type=int, default=10,
                     help='number of basis components for orthogonalMSTL')
 parser.add_argument('--use_wandb', action='store_true', 
                     help='use wandb for experiment tracking')

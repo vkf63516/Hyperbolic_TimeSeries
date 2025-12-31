@@ -1,175 +1,109 @@
-import torch
+# HyperbolicForecasting_v4.py
+
+"""
+Unified Hyperbolic Forecasting Model v4
+Supports Euclidean, Poincare, and Lorentz manifolds
+"""
+
 import torch.nn as nn
-import torch.nn.functional as F
-import geoopt
-import os
-import sys
-from pathlib import Path
-from Decomposition.Learnable_Decomposition import LearnableMultivariateDecomposition
-from Forecasting.Moving_Window_Segment_Euclidean_Forecaster import MovingWindowEuclideanForecaster
-from Forecasting.Moving_Window_Segment_Forecaster import MovingWindowHyperbolicForecaster
-from Forecasting.Segment_Euclidean_Forecaster import SegmentForecastEuclidean
-from Forecasting.Segment_Forecaster import SegmentedHyperbolicForecaster
+
+# Import the unified forecasters from component files
+from Forecasting.euclidean_components import (
+    EuclideanForecaster,
+    EuclideanMovingWindowForecaster
+)
+from Forecasting.poincare_components import (
+    PoincareForecaster,
+    PoincareMovingWindowForecaster
+)
+from Forecasting.lorentz_components import (
+    LorentzForecaster,
+    LorentzMovingWindowForecaster
+)
+
 
 class Model(nn.Module):
     """
-    Hyperbolic Forecasting Model
+    Hyperbolic Forecasting Model v4 - Unified Entry Point
     
-    Architecture:
-    1. Decompose time series into trend, seasonal_fine, seasonal_coarse, residual
-    2. Encode each component to hyperbolic space via encoders
-    3. Combine components in tangent space
-    4. Autoregressively forecast in hyperbolic space
-    5. Reconstruct to Euclidean space
+    Supports:  
+    - Euclidean forecasting
+    - Poincare ball forecasting
+    - Lorentz hyperboloid forecasting
+    
+    Modes:
+    - Original: channel-dependent (use_moving_window=False)
+    - Moving Window: channel-independent (use_moving_window=True)
     """
+    
     def __init__(self, configs):
         super(Model, self).__init__()
-        self.seq_len = configs.seq_len
-        self.pred_len = configs.pred_len
-        self.encode_dim = configs.encode_dim
-        self.hidden_dim = configs.hidden_dim
-        self.curvature = configs.curvature
-        self.mstl_period = configs.mstl_period
-        self.use_segments = configs.use_segments
         self.manifold_type = configs.manifold_type
-        self.use_attention_pooling = configs.use_attention_pooling
-        self.use_revin = configs.use_revin
         self.use_moving_window = configs.use_moving_window
-        self.num_basis = configs.num_basis
-        self.window_size = configs.window_size
-        self.use_learnable_decomposition = configs.use_learnable_decomposition
-        # Model dimensions
-        # Number of input features
-        self.enc_in = configs.enc_in
-        self.coarse_period = configs.coarse_period
-        self.fine_period = configs.fine_period
-        # encodeding: Maps decomposed components to hyperbolic space
-        if self.use_learnable_decomposition:
-            self.decomposer = LearnableMultivariateDecomposition(
-                n_features=self.enc_in,
-                kernel_size=self.coarse_period * 2,
-                detected_periods=[self.fine_period, self.coarse_period]
-            )
-        else:
-            self.decomposer = None
-            
-
         
-        if self.manifold_type == "Euclidean":
-            if self.use_moving_window:
-                self.forecaster = MovingWindowEuclideanForecaster(
-                    lookback=self.seq_len,
-                    pred_len=self.pred_len,
-                    n_features=self.enc_in,
-                    encode_dim=self.encode_dim,
-                    hidden_dim=self.hidden_dim,
-                    manifold_type=self.manifold_type,
-                    segment_length=self.mstl_period,
-                    use_segment_norm=True,
-                    use_revin=self.use_revin,
-                    encode_dropout=0.5,
-                    dynamic_dropout=0.3,
-                    num_layers=2,
+        # Common parameters
+        common_params = {
+            'lookback':  configs.seq_len,
+            'pred_len': configs.pred_len,
+            'n_features': configs.enc_in,
+            'encode_dim': configs.encode_dim,
+            'hidden_dim': configs.hidden_dim,
+            'segment_length': configs.mstl_period,
+            'dropout': 0.1,
+            'use_truncated_bptt': True,
+            'truncate_every': 4
+        }
+        
+        # Select forecaster based on manifold type and mode
+        if configs.manifold_type == "Euclidean":
+            if configs.use_moving_window:
+                self.forecaster = EuclideanMovingWindowForecaster(
+                    **common_params,
+                    window_size=getattr(configs, 'window_size', 5)
                 )
             else:
-
-                self.forecaster = SegmentForecastEuclidean(
-                    lookback=self.seq_len,
-                    pred_len=self.pred_len,
-                    n_features=self.enc_in,
-                    encode_dim=self.encode_dim,
-                    hidden_dim=self.hidden_dim,
-                    manifold_type=self.manifold_type,
-                    segment_length=self.mstl_period,
-                    use_segment_norm=True,
-                    use_revin=self.use_revin,
-                    encode_dropout=0.3,
-                    dynamic_dropout=0.3,
-                    recon_dropout=0.2,
-                    num_layers=2
+                self.forecaster = EuclideanForecaster(**common_params)
+                
+        elif configs.manifold_type == "Poincare": 
+            common_params['curvature'] = configs.curvature
+            if configs.use_moving_window:
+                self.forecaster = PoincareMovingWindowForecaster(
+                    **common_params,
+                    window_size=getattr(configs, 'window_size', 5)
                 )
+            else:
+                self.forecaster = PoincareForecaster(**common_params)
+                
+        elif configs.manifold_type == "Lorentzian":
+            common_params['curvature'] = configs.curvature
+            if configs.use_moving_window:
+                self.forecaster = LorentzMovingWindowForecaster(
+                    **common_params,
+                    window_size=getattr(configs, 'window_size', 5)
+                )
+            else:
+                self.forecaster = LorentzForecaster(**common_params)
         else:
-            if self.use_moving_window:
-                if self.manifold_type == "Poincare":
-                    self.forecaster = MovingWindowHyperbolicForecaster(
-                        lookback=self.seq_len,
-                        pred_len=self.pred_len,
-                        n_features=self.enc_in,
-                        encode_dim=self.encode_dim,
-                        hidden_dim=self.hidden_dim,
-                        curvature=self.curvature,
-                        manifold_type=self.manifold_type,
-                        segment_length=self.mstl_period,
-                        use_revin=self.use_revin,
-                        window_size=self.window_size,
-                        encode_dropout=0.3,
-                        recon_dropout=0.2,
-                    )
-                elif self.manifold_type == "Lorentzian":
-                    self.forecaster = MovingWindowHyperbolicForecaster(
-                        lookback=self.seq_len,
-                        pred_len=self.pred_len,
-                        n_features=self.enc_in,
-                        encode_dim=self.encode_dim,
-                        hidden_dim=self.hidden_dim,
-                        curvature=self.curvature,
-                        manifold_type=self.manifold_type,
-                        segment_length=self.mstl_period,
-                        use_revin=self.use_revin,
-                        window_size=self.window_size,
-                        encode_dropout=0.3,
-                        recon_dropout=0.2,
-                    )
-
-            else:
-
-                self.forecaster = SegmentedHyperbolicForecaster(
-                    lookback=self.seq_len,
-                    pred_len=self.pred_len,
-                    n_features=self.enc_in,
-                    encode_dim=self.encode_dim,
-                    hidden_dim=self.hidden_dim,
-                    curvature=self.curvature,
-                    manifold_type=self.manifold_type,
-                    segment_length=self.mstl_period,
-                    use_revin=self.use_revin,
-                    encode_dropout=0.5,
-                    window_size=self.window_size,
-                    dynamic_dropout=0.3,
-                    recon_dropout=0.2,
-                    num_layers=2
-                )
-
-            # Forecaster: Autoregressively predicts in hyperbolic space
-
-   
+            raise ValueError(f"Unknown manifold type: {configs.manifold_type}")
+        
+        mode_str = "Moving Window (Channel-Independent)" if configs.use_moving_window else "Original (Channel-Dependent)"
+        print(f"\n{'='*70}")
+        print(f"Initialized {configs.manifold_type} Forecaster v4")
+        print(f"Mode: {mode_str}")
+        print(f"{'='*70}\n")
     
-    def forward(self, batch_x=None, trend=None, seasonal_coarse=None, seasonal_fine=None, residual=None):
+    def forward(self, trend, seasonal_coarse, seasonal_fine, residual):
         """
-        Forward pass with explicit decomposed components.
-        Use this when you have orthogonalMSTL decomposition.
+        Forward pass - delegates to selected forecaster
         
         Args:
-            trend: [B, seq_len, C]
-            coarse: [B, seq_len, C]
-            fine: [B, seq_len, C]
-            resid: [B, seq_len, C]
-            
-        Returns:
-            predictions: [B, pred_len, output_dim]
-        """
-        if self.decomposer is not None:
-            components = self.decomposer(batch_x)
-            trend = components['trend']
-            seasonal_coarse = components['seasonal_coarse']
-            seasonal_fine = components['seasonal_fine']
-            residual = components['residual']
-
-        forecasts = self.forecaster(trend, seasonal_coarse, seasonal_fine, residual)
-        # Get individual hyperbolic representations
-        x_hat = forecasts["predictions"]
-        if self.manifold_type == "Euclidean":
-            return x_hat, []
-        x_hyp = forecasts["hyperbolic_states"]["combined_h"]
+            trend, seasonal_coarse, seasonal_fine, residual: [B, seq_len, n_features]
         
+        Returns:
+            x_hat: [B, pred_len, n_features] - combined predictions
+            x_hyp: dict - hyperbolic states (empty for Euclidean)
+        """
+        forecasts = self.forecaster(trend, seasonal_coarse, seasonal_fine, residual)
+        x_hat = forecasts["predictions"]
+        x_hyp = forecasts.get("hyperbolic_states", {})
         return x_hat, x_hyp
