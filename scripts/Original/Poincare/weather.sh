@@ -62,7 +62,7 @@ python run.py \
   --is_training 1 \
   --model_id Weather_$seq_len'_'$manifold_type'_'336_exp1_Segment \
   --model HyperbolicForecasting \
-  --data custom_decomposition \
+  --data custom \
   --root_path ./time-series-dataset/dataset/ \
   --data_path $data_path \
   --features M \

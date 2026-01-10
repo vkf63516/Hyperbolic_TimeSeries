@@ -8,9 +8,10 @@ data_path=electricity.csv
 
 python run.py \
   --is_training 1 \
+  --hyperbolic_weight 0.1 \
   --model_id Electricity_$seq_len'_'$manifold_type'_'96_exp1_Segment \
   --model HyperbolicForecasting \
-  --data custom_decomposition \
+  --data custom \
   --root_path ./time-series-dataset/dataset/ \
   --data_path $data_path \
   --features M \
@@ -25,7 +26,7 @@ python run.py \
   --use_wandb \
   --learning_rate 1e-3 \
   --train_epochs $train_epochs \
-  --use_decomposition \
+  --use_learnable_decomposition \
   --enc_in $enc_in \
   --patience $patience \
   --manifold_type $manifold_type \
@@ -36,9 +37,10 @@ python run.py \
 
 python run.py \
   --is_training 1 \
+  --hyperbolic_weight 0.1 \
   --model_id Electricity_$seq_len'_'$manifold'_'192_exp1_Segment \
   --model HyperbolicForecasting \
-  --data custom_decomposition \
+  --data custom \
   --root_path ./time-series-dataset/dataset/ \
   --data_path $data_path \
   --features M \
@@ -53,7 +55,7 @@ python run.py \
   --use_wandb \
   --learning_rate 1e-3 \
   --train_epochs $train_epochs \
-  --use_decomposition \
+  --use_learnable_decomposition \
   --enc_in $enc_in \
   --patience $patience \
   --manifold_type $manifold_type \
@@ -63,9 +65,10 @@ python run.py \
 
 python run.py \
   --is_training 1 \
+  --hyperbolic_weight 0.1 \
   --model_id Electricity_$seq_len'_'$manifold_type'_'336_exp1_Segment \
   --model HyperbolicForecasting \
-  --data custom_decomposition \
+  --data custom \
   --root_path ./time-series-dataset/dataset/ \
   --data_path $data_path \
   --features M \
@@ -80,7 +83,7 @@ python run.py \
   --use_wandb \
   --learning_rate 1e-3 \
   --train_epochs $train_epochs \
-  --use_decomposition \
+  --use_learnable_decomposition \
   --enc_in $enc_in \
   --patience $patience \
   --manifold_type $manifold_type \
@@ -90,9 +93,10 @@ python run.py \
 
 python run.py \
   --is_training 1 \
+  --hyperbolic_weight 0.1 \
   --model_id Electricity_$seq_len'_'$manifold_type'_'720_exp1_Segment \
   --model HyperbolicForecasting \
-  --data custom_decomposition \
+  --data custom \
   --root_path ./time-series-dataset/dataset/ \
   --data_path $data_path \
   --features M \
@@ -107,7 +111,7 @@ python run.py \
   --use_wandb \
   --learning_rate 1e-3 \
   --train_epochs $train_epochs \
-  --use_decomposition \
+  --use_learnable_decomposition \
   --enc_in $enc_in \
   --patience $patience \
   --manifold_type $manifold_type \

@@ -9,6 +9,20 @@ import random
 import numpy as np
 import gc 
 
+def setup_device():
+    if torch.cuda.is_available():
+        try:
+            torch.cuda. empty_cache()
+            device = torch.device('cuda')
+            print("Using GPU")
+        except: 
+            device = torch.device('cpu')
+            print("GPU busy, using CPU")
+    else:
+        device = torch.device('cpu')
+        print("Using CPU")
+    return device
+
 parser = argparse.ArgumentParser(description="Hyperbolic TimeSeries with orthogonalMSTL")
 # basic config
 parser.add_argument('--is_training', type=int, required=True, default=1, help='status')
@@ -18,7 +32,7 @@ parser.add_argument('--model', type=str, required=True, default='HyperbolicForec
 parser.add_argument('--gradient_truncation_K', type=int, default=6, 
                     help='truncation steps for BPTT in hyperbolic forecasting')
 # NEW: Segment-level vs Point-level hyperbolic encodedings
-parser.add_argument('--orthogonal_weight', type=float, default=0.2, help='orthogonal')
+parser.add_argument('--hyperbolic_weight', type=float, default=0.0, help='hyperbolic consistency weight')
 parser.add_argument('--share_feature_weights', action='store_true', default=False,
                     help='share weights across features (for high-D data)')
 parser.add_argument('--mstl_period', type=int, default=24,
@@ -144,6 +158,8 @@ if args.is_training:
 
         exp = Exp(args)  # set experiments
         print('>>>>>>>start training : {}>>>>>>>>>>>>>>>>>>>>>>>>>>'.format(setting))
+        device = setup_device()
+
         exp.train(setting)
 
         print('>>>>>>>testing : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
@@ -169,6 +185,8 @@ else:
         args.manifold_type,
         ii,
         fix_seed_list[ii])
+    device = setup_device()
+
     exp = Exp(args)  # set experiments
     print('>>>>>>>testing : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
     exp.test(setting, test=1)

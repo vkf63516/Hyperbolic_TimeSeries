@@ -9,7 +9,7 @@ from spec import safe_expmap, safe_expmap0
 
 class SegmentLinearencode(nn.Module):
     def __init__(self, input_dim, output_dim, segment_length, dropout=0.1,
-                 lookback=None, use_segment_norm=True, share_feature_weights=False):
+                 lookback=None, use_segment_norm=False, share_feature_weights=False):
         super().__init__()
         
         self.input_dim = input_dim
@@ -116,7 +116,7 @@ class SegmentedParallelPoincare(nn.Module):
     """
     def __init__(self, lookback, input_dim, encode_dim=32,
                  curvature=1.0, segment_length=24, encode_dropout=0.1,
-                 use_segment_norm=True, share_feature_weights=False):
+                 use_segment_norm=False, share_feature_weights=False):
         """
         Args:
             lookback: int - lookback window size

@@ -20,7 +20,7 @@ class MovingWindowHyperbolicForecaster(nn.Module):
     4. Adaptive window sizing (caps at 15 segments by default)
     """
     def __init__(self, lookback, pred_len, n_features, encode_dim, hidden_dim, 
-                 curvature, manifold_type, segment_length=24, num_basis=8,
+                 curvature, manifold_type, segment_length=24,
                  use_revin=False, dynamic_dropout=0.3, encode_dropout=0.5, recon_dropout=0.1,
                  num_layers=2, window_size=None, 
                  use_truncated_bptt=True, truncate_every=4):
@@ -44,9 +44,7 @@ class MovingWindowHyperbolicForecaster(nn.Module):
         self.manifold_type = manifold_type
         self.use_truncated_bptt = use_truncated_bptt
         self.truncate_every = truncate_every
-        self.recon_dropout = recon_dropout
-        self.num_basis = num_basis
-        
+        self.recon_dropout = recon_dropout        
         # Adaptive window sizing for efficiency
         num_input_segments = lookback // segment_length
         if window_size is not None:
@@ -73,6 +71,7 @@ class MovingWindowHyperbolicForecaster(nn.Module):
                 curvature=curvature,
                 segment_length=segment_length,
                 encode_dropout=encode_dropout,
+                num_channels=self.n_features
             )
         else:
             self.encode_hyperbolic = SegmentedParallelLorentzMovingWindow(
@@ -90,13 +89,11 @@ class MovingWindowHyperbolicForecaster(nn.Module):
         if manifold_type == "Poincare":
             self.dynamics = HyperbolicPoincareDynamics(
                 encode_dim=encode_dim,
-                segment_length=segment_length,
                 manifold=self.manifold
             )
         if manifold_type == "Lorentzian":
             self.dynamics = HyperbolicLorentzDynamics(
                 encode_dim=encode_dim,
-                segment_length=segment_length,
                 manifold=self.manifold
             )
     

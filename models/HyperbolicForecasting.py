@@ -6,6 +6,7 @@ import os
 import sys
 from pathlib import Path
 from Decomposition.Learnable_Decomposition import LearnableMultivariateDecomposition
+from loss import hyperbolic_velocity_consistency_loss as hvcl
 from Forecasting.Moving_Window_Segment_Euclidean_Forecaster import MovingWindowEuclideanForecaster
 from Forecasting.Moving_Window_Segment_Forecaster import MovingWindowHyperbolicForecaster
 from Forecasting.Segment_Euclidean_Forecaster import SegmentForecastEuclidean
@@ -134,9 +135,7 @@ class Model(nn.Module):
                     segment_length=self.mstl_period,
                     use_revin=self.use_revin,
                     encode_dropout=0.5,
-                    window_size=self.window_size,
-                    dynamic_dropout=0.3,
-                    recon_dropout=0.2,
+                    recon_dropout=0.3,
                     num_layers=2
                 )
 
@@ -169,7 +168,8 @@ class Model(nn.Module):
         # Get individual hyperbolic representations
         x_hat = forecasts["predictions"]
         if self.manifold_type == "Euclidean":
-            return x_hat, []
+            return x_hat, torch.tensor(0.0, device=x_hat.device)
         x_hyp = forecasts["hyperbolic_states"]["combined_h"]
+        hyperbolic_loss = hvcl(z_trajectory=x_hyp, manifold=self.forecaster.manifold)
         
-        return x_hat, x_hyp
+        return x_hat, hyperbolic_loss

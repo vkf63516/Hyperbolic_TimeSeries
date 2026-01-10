@@ -1,4 +1,4 @@
-seq_len=96
+seq_len=720
 train_epochs=30
 patience=5
 enc_in=7
@@ -10,7 +10,7 @@ python run.py \
   --is_training 1 \
   --model_id ETTh1_$seq_len'_'96_$manifold_type'_'type_exp1_Segment \
   --model HyperbolicForecasting \
-  --data ETTh1_decomposition \
+  --data ETTh1 \
   --root_path ./time-series-dataset/dataset/ \
   --data_path $data_path \
   --features M \
@@ -19,24 +19,25 @@ python run.py \
   --seq_len $seq_len \
   --pred_len 96 \
   --lradj "type3" \
-  --encode_dim 32 \
-  --hidden_dim 64 \
+  --encode_dim 64 \
+  --hidden_dim 256 \
   --batch_size 32 \
   --use_wandb \
   --learning_rate 1e-3 \
   --train_epochs $train_epochs \
-  --use_decomposition \
+  --use_learnable_decomposition \
   --enc_in $enc_in \
   --patience $patience \
   --manifold_type $manifold_type \
   --use_revin \
-  --use_segments 
+  --use_segments \
+  --share_feature_weights 
 
 python run.py \
   --is_training 1 \
   --model_id ETTh1_$seq_len'_'192_$manifold_type'_'exp1_Segment \
   --model HyperbolicForecasting \
-  --data ETTh1_decomposition \
+  --data ETTh1 \
   --root_path ./time-series-dataset/dataset/ \
   --data_path $data_path \
   --features M \
@@ -45,13 +46,13 @@ python run.py \
   --label_len 0 \
   --pred_len 192 \
   --lradj "type3" \
-  --encode_dim 32 \
-  --hidden_dim 64 \
+  --encode_dim 64 \
+  --hidden_dim 256 \
   --batch_size 32 \
   --use_wandb \
   --learning_rate 1e-3 \
   --train_epochs $train_epochs \
-  --use_decomposition \
+  --use_learnable_decomposition \
   --enc_in 7 \
   --patience $patience \
   --manifold_type $manifold_type \

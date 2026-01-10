@@ -13,7 +13,7 @@ class SegmentLinearencodeMovingWindow(nn.Module):
     Output: [B, num_segments, encode_dim]  # One encodeding per segment
     """
     
-    def __init__(self, lookback, encode_dim, segment_length=24, dropout=0.1):
+    def __init__(self, lookback, encode_dim, num_channels, segment_length=24, dropout=0.1, individual=False):
         super().__init__()
         
         self.encode_dim = encode_dim
@@ -21,10 +21,17 @@ class SegmentLinearencodeMovingWindow(nn.Module):
         self.lookback = lookback
         self.num_segments = lookback // segment_length
         self.pad_seq_len = 0
+        self.num_channels = num_channels
+        self.individual = individual
         
         if self.lookback > self.num_segments * self.segment_length:
             self.pad_seq_len = (self.num_segments + 1) * self.segment_length - self.lookback
             self.num_segments += 1
+        if self.individual:
+            self.temporal_linears = nn.ModuleList()
+            for _ in range(self.num_channels):
+                self.temporal_linears.append(nn.Linear(segment_length, encode_dim))
+
         self.temporal_linears = nn.Linear(segment_length, encode_dim)
         
         self.dropout = nn.Dropout(dropout)
@@ -47,6 +54,7 @@ class SegmentLinearencodeMovingWindow(nn.Module):
         x_seg = x.view(B, self.num_segments, self.segment_length)  # [B, num_seg, seg_len]
         
         # encode each segment (KEEP segment structure!)
+    
         seg_encode = self.temporal_linears(x_seg)  # [B, num_segments, encode_dim]
         seg_encode = self.dropout(seg_encode)
         
@@ -59,7 +67,7 @@ class SegmentedParallelPoincareMovingWindow(nn.Module):
     Each segment is independently mapped to hyperbolic space.
     """
     
-    def __init__(self, lookback, encode_dim=32, curvature=1.0, segment_length=24,
+    def __init__(self, lookback, num_channels, encode_dim, curvature=1.0, segment_length=24,
                  encode_dropout=0.1):
         super().__init__()
         
@@ -67,16 +75,16 @@ class SegmentedParallelPoincareMovingWindow(nn.Module):
         
         # Segment-aware encoders (output per-segment encodedings)
         self.trend_encode = SegmentLinearencodeMovingWindow(
-            encode_dim=encode_dim, lookback=lookback, segment_length=segment_length, dropout=encode_dropout
+            encode_dim=encode_dim, lookback=lookback, num_channels=num_channels, segment_length=segment_length, dropout=encode_dropout
         )
         self.seasonal_coarse_encode = SegmentLinearencodeMovingWindow(
-            encode_dim=encode_dim, lookback=lookback, segment_length=segment_length,dropout=encode_dropout
+            encode_dim=encode_dim, lookback=lookback, num_channels=num_channels, segment_length=segment_length,dropout=encode_dropout
         )
         self.seasonal_fine_encode = SegmentLinearencodeMovingWindow(
-            encode_dim=encode_dim, lookback=lookback, segment_length=segment_length, dropout=encode_dropout
+            encode_dim=encode_dim, lookback=lookback, num_channels=num_channels, segment_length=segment_length, dropout=encode_dropout
         )
         self.residual_encode = SegmentLinearencodeMovingWindow(
-            encode_dim=encode_dim, lookback=lookback, segment_length=segment_length, dropout=encode_dropout
+            encode_dim=encode_dim, lookback=lookback, num_channels=num_channels, segment_length=segment_length, dropout=encode_dropout
         )
         
         # Poincaré ball manifold

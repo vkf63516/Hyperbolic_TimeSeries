@@ -4,14 +4,15 @@ patience=5
 enc_in=11
 manifold_type="Euclidean"
 data_path=AQShunyi.csv
-num_basis=6
+num_basis=10
+encode_dim=64
 window_size=2
 
 python run.py \
   --is_training 1 \
   --model_id AQShunyi_$seq_len'_'$manifold_type'_'96_exp1_Segment \
   --model HyperbolicForecasting \
-  --data custom_decomposition \
+  --data custom \
   --root_path ./time-series-dataset/dataset/ \
   --data_path $data_path \
   --features M \
@@ -20,13 +21,13 @@ python run.py \
   --seq_len $seq_len \
   --pred_len 96 \
   --lradj "type3" \
-  --encode_dim 64 \
+  --encode_dim $encode_dim \
   --hidden_dim 256 \
   --batch_size 32 \
   --use_wandb \
   --learning_rate 1e-3 \
   --train_epochs $train_epochs \
-  --use_decomposition \
+  --use_learnable_decomposition \
   --enc_in $enc_in \
   --patience $patience \
   --manifold_type $manifold_type \
@@ -40,7 +41,7 @@ python run.py \
   --is_training 1 \
   --model_id AQShunyi_$seq_len'_'$manifold'_'192_exp1_Segment \
   --model HyperbolicForecasting \
-  --data custom_decomposition \
+  --data custom \
   --root_path ./time-series-dataset/dataset/ \
   --data_path $data_path \
   --features M \
@@ -49,13 +50,13 @@ python run.py \
   --seq_len $seq_len \
   --pred_len 192 \
   --lradj "type3" \
-  --encode_dim 64 \
+  --encode_dim $encode_dim \
   --hidden_dim 256 \
   --batch_size 32 \
   --use_wandb \
   --learning_rate 1e-3 \
   --train_epochs $train_epochs \
-  --use_decomposition \
+  --use_learnable_decomposition \
   --enc_in $enc_in \
   --patience $patience \
   --manifold_type $manifold_type \
@@ -69,7 +70,7 @@ python run.py \
   --is_training 1 \
   --model_id AQShunyi_$seq_len'_'$manifold_type'_'336_exp1_Segment \
   --model HyperbolicForecasting \
-  --data custom_decomposition \
+  --data custom \
   --root_path ./time-series-dataset/dataset/ \
   --data_path $data_path \
   --features M \
@@ -78,13 +79,13 @@ python run.py \
   --seq_len $seq_len \
   --pred_len 336 \
   --lradj "type3" \
-  --encode_dim 64 \
+  --encode_dim $encode_dim \
   --hidden_dim 256 \
   --batch_size 32 \
   --use_wandb \
   --learning_rate 1e-3 \
   --train_epochs $train_epochs \
-  --use_decomposition \
+  --use_learnable_decomposition \
   --enc_in $enc_in \
   --patience $patience \
   --manifold_type $manifold_type \
@@ -97,7 +98,7 @@ python run.py \
   --is_training 1 \
   --model_id AQShunyi_$seq_len'_'$manifold_type'_'720_exp1_Segment \
   --model HyperbolicForecasting \
-  --data custom_decomposition \
+  --data custom \
   --root_path ./time-series-dataset/dataset/ \
   --data_path $data_path \
   --features M \
@@ -106,13 +107,13 @@ python run.py \
   --seq_len $seq_len \
   --pred_len 720 \
   --lradj "type3" \
-  --encode_dim 64 \
+  --encode_dim $encode_dim \
   --hidden_dim 256 \
   --batch_size 32 \
   --use_wandb \
   --learning_rate 1e-3 \
   --train_epochs $train_epochs \
-  --use_decomposition \
+  --use_learnable_decomposition \
   --enc_in $enc_in \
   --patience $patience \
   --manifold_type $manifold_type \

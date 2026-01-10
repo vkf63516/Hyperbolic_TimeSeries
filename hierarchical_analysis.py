@@ -842,7 +842,7 @@ if __name__ == '__main__':
     
     # Data parameters
     parser.add_argument('--data', type=str, default='custom_decomposition')
-    parser.add_argument('--root_path', type=str, default='./time-series-dataset/dataset/weather/')
+    parser.add_argument('--root_path', type=str, default='./time-series-dataset/dataset/')
     parser.add_argument('--data_path', type=str, default='weather.csv')
     parser.add_argument('--features', type=str, default='MS')
     parser.add_argument('--target', type=str, default='OT')

@@ -1,75 +1,130 @@
-# Weather dataset - Trend in Hyperbolic Space
+seq_len=720
+train_epochs=30
+patience=5
+enc_in=21
+manifold_type="Lorentzian"
+num_basis=6
+window_size=5
+data_path=weather.csv
+
 python run.py \
   --is_training 1 \
-  --root_path ./time-series-dataset/dataset/ \
-  --data_path weather.csv \
-  --model_id Weather_trend_hyperbolic \
+  --model_id Weather_$seq_len'_'$manifold_type'_'96_exp1_Segment \
   --model HyperbolicForecasting \
-  --data custom_decomposition \
+  --data custom \
+  --root_path ./time-series-dataset/dataset/ \
+  --data_path $data_path \
   --features M \
-  --seq_len 96 \
+  --num_basis $num_basis \
   --label_len 0 \
+  --seq_len $seq_len \
   --pred_len 96 \
-  --enc_in 21 \
-  --encode_dim 32 \
-  --hidden_dim 64 \
-  --num_basis 10 \
-  --batch_size 128 \
-  --learning_rate 0.001 \
-  --train_epochs 20 \
-  --patience 5 \
-  --manifold_type "Lorentzian" \
-  --curvature 1.0 \
-  --use_decomposition \
-  --use_wandb
-
-python run.py \
-  --is_training 1 \
-  --root_path ./time-series-dataset/dataset/ \
-  --data_path weather.csv \
-  --model_id Weather_trend_hyperbolic \
-  --model HyperbolicForecasting \
-  --data custom_decomposition \
-  --features M \
-  --seq_len 96 \
-  --label_len 0 \
-  --pred_len 192 \
-  --enc_in 21 \
-  --encode_dim 32 \
-  --hidden_dim 64 \
-  --num_basis 10 \
-  --batch_size 128 \
-  --learning_rate 0.001 \
-  --train_epochs 20 \
-  --patience 5 \
-  --manifold_type "Lorentzian" \
-  --curvature 1.0 \
-  --use_decomposition \
-  --use_wandb 
-
-python run.py \
-  --is_training 1 \
-  --root_path ./time-series-dataset/dataset/ \
-  --data_path weather.csv \
-  --model_id Weather_trend_hyperbolic \
-  --model HyperbolicForecasting \
-  --data custom_decomposition \
-  --features M \
-  --seq_len 96 \
-  --label_len 0 \
-  --pred_len 336 \
-  --enc_in 21 \
-  --encode_dim 32 \
-  --hidden_dim 64 \
-  --num_basis 10 \
-  --batch_size 128 \
-  --learning_rate 0.001 \
-  --train_epochs 20 \
-  --patience 5 \
-  --manifold_type "Lorentzian" \
-  --curvature 1.0 \
-  --use_decomposition \
+  --lradj "type3" \
+  --encode_dim 64 \
+  --hidden_dim 256 \
+  --batch_size 32 \
+  --mstl_period 24 \
   --use_wandb \
+  --learning_rate 1e-3 \
+  --train_epochs $train_epochs \
+  --use_learnable_decomposition \
+  --enc_in $enc_in \
+  --patience $patience \
+  --manifold_type $manifold_type \
   --use_revin \
-  --use_segments 
+  --use_segments \
+  --fine_period 144 \
+  --coarse_period 1008 \
+  --window_size $window_size \
+  --use_moving_window
 
+
+python run.py \
+  --is_training 1 \
+  --model_id Weather_$seq_len'_'$manifold'_'192_exp1_Segment \
+  --model HyperbolicForecasting \
+  --data custom \
+  --root_path ./time-series-dataset/dataset/ \
+  --data_path $data_path \
+  --features M \
+  --num_basis $num_basis \
+  --label_len 0 \
+  --seq_len $seq_len \
+  --pred_len 192 \
+  --lradj "type3" \
+  --encode_dim 64 \
+  --hidden_dim 256 \
+  --batch_size 32 \
+  --mstl_period 24 \
+  --use_wandb \
+  --learning_rate 1e-3 \
+  --train_epochs $train_epochs \
+  --use_learnable_decomposition \
+  --enc_in $enc_in \
+  --patience $patience \
+  --manifold_type $manifold_type \
+  --use_revin \
+  --use_segments \
+  --fine_period 144 \
+  --coarse_period 1008 \
+  --use_moving_window
+
+python run.py \
+  --is_training 1 \
+  --model_id Weather_$seq_len'_'$manifold_type'_'336_exp1_Segment \
+  --model HyperbolicForecasting \
+  --data custom \
+  --root_path ./time-series-dataset/dataset/ \
+  --data_path $data_path \
+  --features M \
+  --num_basis $num_basis \
+  --label_len 0 \
+  --seq_len $seq_len \
+  --pred_len 336 \
+  --lradj "type3" \
+  --encode_dim 64 \
+  --hidden_dim 256 \
+  --batch_size 32 \
+  --mstl_period 24 \
+  --fine_period 144 \
+  --coarse_period 1008 \
+  --use_wandb \
+  --learning_rate 1e-3 \
+  --train_epochs $train_epochs \
+  --use_learnable_decomposition \
+  --enc_in $enc_in \
+  --patience $patience \
+  --manifold_type $manifold_type \
+  --use_revin \
+  --use_segments \
+  --use_moving_window
+
+python run.py \
+  --is_training 1 \
+  --model_id Weather_$seq_len'_'$manifold_type'_'720_exp1_Segment \
+  --model HyperbolicForecasting \
+  --data custom \
+  --root_path ./time-series-dataset/dataset/ \
+  --data_path $data_path \
+  --features M \
+  --num_basis $num_basis \
+  --label_len 0 \
+  --seq_len $seq_len \
+  --pred_len 720 \
+  --lradj "type3" \
+  --encode_dim 64 \
+  --hidden_dim 256 \
+  --batch_size 32 \
+  --mstl_period 24 \
+  --use_wandb \
+  --learning_rate 1e-3 \
+  --train_epochs $train_epochs \
+  --use_learnable_decomposition \
+  --enc_in $enc_in \
+  --patience $patience \
+  --manifold_type $manifold_type \
+  --use_revin \
+  --use_segments \
+  --fine_period 144 \
+  --coarse_period 1008 \
+  --use_moving_window

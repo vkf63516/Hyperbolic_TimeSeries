@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import geoopt
-from spec import safe_expmap0
+from spec import safe_expmap0, safe_expmap
 
 
 class SegmentLinearencodeMovingWindow(nn.Module):
@@ -87,7 +87,7 @@ class SegmentedParallelLorentzMovingWindow(nn.Module):
         self.effective_scale = nn.Parameter(torch.tensor(1.0))
         
         # Möbius fusion weights
-        self.mobius_weights = nn.Parameter(torch.ones(4) * 0.25)
+        self.lorentz_weights = nn.Parameter(torch.ones(4) * 0.25)
     
     def map_segments_to_hyperbolic(self, segment_encodes):
         """

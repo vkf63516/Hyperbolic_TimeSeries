@@ -10,21 +10,18 @@ class SegmentLinearencodeMovingWindow(nn.Module):
     Output: [B, num_segments, encode_dim]  # One encodeding per segment
     """
     
-    def __init__(self, lookback, encode_dim, segment_length=24, dropout=0.1, 
-                 use_segment_norm=True):
+    def __init__(self, lookback, encode_dim, segment_length=24, dropout=0.1):
         super().__init__()
         
         self.encode_dim = encode_dim
         self.segment_length = segment_length
         self.lookback = lookback
         self.num_segments = lookback // segment_length
-        self.use_segment_norm = use_segment_norm
         self.pad_seq_len = 0
         
         if self.lookback > self.num_segments * self.segment_length:
             self.pad_seq_len = (self.num_segments + 1) * self.segment_length - self.lookback
             self.num_segments += 1
-        
         self.temporal_linears = nn.Linear(segment_length, encode_dim)
         
         self.dropout = nn.Dropout(dropout)
@@ -45,12 +42,6 @@ class SegmentLinearencodeMovingWindow(nn.Module):
         
         # Reshape into segments
         x_seg = x.view(B, self.num_segments, self.segment_length)  # [B, num_seg, seg_len]
-        
-        # Segment normalization
-        if self.use_segment_norm:
-            mean = x_seg.mean(dim=2, keepdim=True)  # [B, num_seg, 1]
-            std = x_seg.std(dim=2, keepdim=True) + 1e-6
-            x_seg = (x_seg - mean) / std
         
         # encode each segment (KEEP segment structure!)
         seg_encode = self.temporal_linears(x_seg)  # [B, num_segments, encode_dim]

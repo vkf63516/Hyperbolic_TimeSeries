@@ -32,14 +32,13 @@ class Exp_Main(Exp_Basic):
     def __init__(self, args):
         self.wandb_logger = None
         super(Exp_Main, self).__init__(args)
-        self.use_decomposition = args.use_decomposition
         self.n_basis_components = args.num_basis
         self.orthogonal_lr = args.orthogonal_lr
         self.orthogonal_iters = args.orthogonal_iters
         self.manifold_type = args.manifold_type 
+        self.hypebolic_weight = args.hyperbolic_weight
         # Support for both segment-level and point-level
         self.use_segments = args.use_segments  # Default to point-level
-        self.use_orthogonal = False
         # Initialize decomposition cache
         if self.use_segments:
             self.mstl_period = args.mstl_period
@@ -63,8 +62,7 @@ class Exp_Main(Exp_Basic):
                 'hidden_dim': args.hidden_dim,
                 'manifold_type': args.manifold_type,
                 'use_segments': args.use_segments,
-                'use_decomposition': args.use_decomposition,
-                'use_attention_pooling': args.use_attention_pooling,
+                'use_learnable_decomposition': args.use_learnable_decomposition,
                 'loss': args.loss,
                 'patience': args.patience,
             }
@@ -130,64 +128,34 @@ class Exp_Main(Exp_Basic):
         self.model.eval()
     
         with torch.no_grad():
-            if self.args.use_decomposition:
-                for i, (X_dict, batch_y, batch_x_mark, batch_y_mark) in enumerate(vali_loader):
-                    # ========================================
-                    # IDENTICAL to train loop up to forward pass
-                    # ========================================
-                    trend_x = X_dict['trend'].float().to(self.device)
-                    coarse_x = X_dict['seasonal_coarse'].float().to(self.device)
-                    fine_x = X_dict['seasonal_fine'].float().to(self.device)
-                    resid_x = X_dict['residual'].float().to(self.device)
-                
-                    outputs, hyp_outputs = self.model(
-                        trend=trend_x,
-                        seasonal_coarse=coarse_x,
-                        seasonal_fine=fine_x,
-                        residual=resid_x,
-                    )
-                    f_dim = -1 if self.args.features == 'MS' else 0
-                    batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
+            for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(vali_loader):
+                batch_x = batch_x.float().to(self.device)
+                batch_y = batch_y.float()
 
-                    outputs = outputs[:, -self.args.pred_len:, f_dim:]
+                batch_x_mark = batch_x_mark.float().to(self.device)
+                batch_y_mark = batch_y_mark.float().to(self.device)
 
-                    preds = outputs.detach()
-                    trues = batch_y.detach()
-
-                    # Compute validation loss
-                    loss = criterion(preds, trues)
-
-                    # print("Component Loss: ", loss)
-                    total_loss.append(loss.item())
-            if self.args.use_learnable_decomposition:
-                for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(vali_loader):
-                    batch_x = batch_x.float().to(self.device)
-                    batch_y = batch_y.float()
-
-                    batch_x_mark = batch_x_mark.float().to(self.device)
-                    batch_y_mark = batch_y_mark.float().to(self.device)
-
-                    # decoder input
-                    dec_inp = torch.zeros_like(batch_y[:, -self.args.pred_len:, :]).float()
-                    dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
-                    # encoder - decoder
-                    if self.args.use_amp:
-                        with torch.cuda.amp.autocast():
-                            outputs, hyp_outputs = self.model(batch_x)
-                            orthogonal_loss = 0
-                    else:
+                # decoder input
+                dec_inp = torch.zeros_like(batch_y[:, -self.args.pred_len:, :]).float()
+                dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
+                # encoder - decoder
+                if self.args.use_amp:
+                    with torch.cuda.amp.autocast():
                         outputs, hyp_outputs = self.model(batch_x)
                         orthogonal_loss = 0
-                    f_dim = -1 if self.args.features == 'MS' else 0
-                    outputs = outputs[:, -self.args.pred_len:, f_dim:]
-                    batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
+                else:
+                    outputs, hyp_outputs = self.model(batch_x)
+                    orthogonal_loss = 0
+                f_dim = -1 if self.args.features == 'MS' else 0
+                outputs = outputs[:, -self.args.pred_len:, f_dim:]
+                batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
 
-                    pred = outputs.detach()
-                    true = batch_y.detach()
+                pred = outputs.detach()
+                true = batch_y.detach()
 
-                    loss = criterion(pred, true)
+                loss = criterion(pred, true)
 
-                    total_loss.append(loss.item())
+                total_loss.append(loss.item())
                 
         avg_total_loss = np.average(total_loss)
         self.model.train()
@@ -228,147 +196,60 @@ class Exp_Main(Exp_Basic):
             train_loss = []
             self.model.train()
             epoch_time = time.time()
-            if self.args.use_decomposition:
-                for i, (X_dict, batch_y, batch_x_mark, batch_y_mark) in enumerate(train_loader):
-                    global_step = epoch * len(train_loader) + i
-                    iter_count += 1
-                    model_geooptim.zero_grad()
-                
-                    # Load components
-                    trend_x = X_dict['trend'].float().to(self.device)
-                    coarse_x = X_dict['seasonal_coarse'].float().to(self.device)
-                    fine_x = X_dict['seasonal_fine'].float().to(self.device)
-                    resid_x = X_dict['residual'].float().to(self.device)
-                    # Ground truth
-                    batch_y = batch_y.float().to(self.device)
-                
-                    # Forward pass
-                    if self.args.use_amp:
-                        with torch.cuda.amp.autocast():
-                            outputs, hyp_outputs = self.model(
-                                trend=trend_x,
-                                seasonal_coarse=coarse_x,
-                                seasonal_fine=fine_x,
-                                residual=resid_x,
-                            )
-                            f_dim = -1 if self.args.features == 'MS' else 0
-                            batch_y = batch_y[:, -self.args.pred_len:, f_dim:]
+            for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(train_loader):
+                iter_count += 1
+                model_geooptim.zero_grad()
+                batch_x = batch_x.float().to(self.device)
 
-                            outputs = outputs[:, -self.args.pred_len:, f_dim:]
+                batch_y = batch_y.float().to(self.device)
+                batch_x_mark = batch_x_mark.float().to(self.device)
+                batch_y_mark = batch_y_mark.float().to(self.device)
 
-                            loss = criterion(outputs, batch_y)
+                # decoder input
+                dec_inp = torch.zeros_like(batch_y[:, -self.args.pred_len:, :]).float()
+                dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
 
-                            train_loss.append(loss.item())
-
-                    else:
-                        outputs, hyp_outputs = self.model(
-                            trend=trend_x,
-                            seasonal_coarse=coarse_x,
-                            seasonal_fine=fine_x,
-                            residual=resid_x,
-                        )
-                        f_dim = -1 if self.args.features == 'MS' else 0
-                        batch_y = batch_y[:, -self.args.pred_len:, f_dim:]
-                        outputs = outputs[:, -self.args.pred_len:, f_dim:]
-                        # print(f"Batch size of output {outputs.shape[0]}")
-                        # print(f"Batch size of coarse output {coarse_outputs.shape[0]}")
-                        # if i == 0:
-                        #     print(f"outputs stats: mean={outputs.mean().item():.4f}, std={outputs.std().item():.4f}, min={outputs.min().item():.4f}, max={outputs.max().item():.4f}")
-                        #     print(f"batch_y stats: mean={batch_y.mean().item():.4f}, std={batch_y.std().item():.4f}, min={batch_y.min().item():.4f}, max={batch_y.max().item():.4f}")
-
-                        loss = criterion(outputs, batch_y)
-
-                        train_loss.append(loss.item())
-
-                    # Log iteration metrics
-                    if i % 100 == 0 and self.wandb_logger is not None:
-                        self.wandb_logger.log_losses(
-                            global_step,
-                            train_loss=loss.item(),
-                            train_losses_dict={
-                                'loss': loss.item(),
-                        })
-                        # Log learning rate
-                        self.wandb_logger.log_learning_rate(global_step, model_geooptim)
+                # encoder - decoder
+                if self.args.use_amp:
+                    with torch.cuda.amp.autocast():
                     
-                    # Console logging
-                    if (iter_count) % 100 == 0:
-                        print("\titers: {0}, epoch: {1} | loss: {2:.7f}".format(
-                            iter_count, epoch + 1, loss.item()))
-                        speed = (time.time() - time_now) / iter_count
-                        left_time = speed * ((self.args.train_epochs - epoch) * train_steps - iter_count)
-                        print('\tspeed: {:.4f}s/iter; left time: {:.4f}s'.format(speed, left_time))
-                        
-                        # Log system metrics
-                        if self.wandb_logger is not None:
-                            self.wandb_logger.log_system_metrics(
-                                global_step,
-                                speed_per_iter=speed,
-                                time_left=left_time
-                            )
-
-                    # Backward pass
-                    if self.args.use_amp:
-                        scaler.scale(loss).backward()
-                        nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=5.0)
-                        scaler.step(model_geooptim)
-                        scaler.update()
-                    else:
-                        loss.backward()
-                        nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=5.0)
-                        model_geooptim.step()
-            if self.args.use_learnable_decomposition:
-                for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(train_loader):
-                    iter_count += 1
-                    model_geooptim.zero_grad()
-                    batch_x = batch_x.float().to(self.device)
-
-                    batch_y = batch_y.float().to(self.device)
-                    batch_x_mark = batch_x_mark.float().to(self.device)
-                    batch_y_mark = batch_y_mark.float().to(self.device)
-
-                    # decoder input
-                    dec_inp = torch.zeros_like(batch_y[:, -self.args.pred_len:, :]).float()
-                    dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
-
-                    # encoder - decoder
-                    if self.args.use_amp:
-                        with torch.cuda.amp.autocast():
-                        
-                            outputs, hyp_outputs = self.model(batch_x)
-                            orthogonal_loss = 0
-                            f_dim = -1 if self.args.features == 'MS' else 0
-                            outputs = outputs[:, -self.args.pred_len:, f_dim:]
-                            batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
-                            loss = criterion(outputs, batch_y)
-                            train_loss.append(loss.item())
-                    else:
-                        
-                        outputs, hyp_outputs = self.model(batch_x)
+                        outputs, hyp_loss = self.model(batch_x)
                         orthogonal_loss = 0
-                        # print(outputs.shape,batch_y.shape)
                         f_dim = -1 if self.args.features == 'MS' else 0
                         outputs = outputs[:, -self.args.pred_len:, f_dim:]
                         batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
                         loss = criterion(outputs, batch_y)
                         train_loss.append(loss.item())
+                else:
+                    
+                    outputs, hyp_loss = self.model(batch_x)
+                    orthogonal_loss = 0
+                    # print(outputs.shape,batch_y.shape)
+                    f_dim = -1 if self.args.features == 'MS' else 0
+                    outputs = outputs[:, -self.args.pred_len:, f_dim:]
+                    batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
+                    loss = criterion(outputs, batch_y)
+                    train_loss.append(loss.item())
 
-                    if (i + 1) % 100 == 0:
-                        print("\titers: {0}, epoch: {1} | loss: {2:.7f}".format(i + 1, epoch + 1, loss.item()))
-                        speed = (time.time() - time_now) / iter_count
-                        left_time = speed * ((self.args.train_epochs - epoch) * train_steps - i)
-                        print('\tspeed: {:.4f}s/iter; left time: {:.4f}s'.format(speed, left_time))
-                        iter_count = 0
-                        time_now = time.time()
+                if (i + 1) % 100 == 0:
+                    print("\titers: {0}, epoch: {1} | loss: {2:.7f}".format(i + 1, epoch + 1, loss.item()))
+                    speed = (time.time() - time_now) / iter_count
+                    left_time = speed * ((self.args.train_epochs - epoch) * train_steps - i)
+                    print('\tspeed: {:.4f}s/iter; left time: {:.4f}s'.format(speed, left_time))
+                    iter_count = 0
+                    time_now = time.time()
 
-                    if self.args.use_amp:
-                        scaler.scale(loss).backward()
-                        scaler.step(model_optim)
-                        scaler.update()
-                    else:
-                        back_loss = loss + self.args.orthogonal_weight * orthogonal_loss
-                        back_loss.backward()
-                        model_geooptim.step()
+                if self.args.use_amp:
+                    scaler.scale(loss).backward()
+                    scaler.step(model_geooptim)
+                    nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=5.0)
+
+                    scaler.update()
+                else:
+                    back_loss = loss + self.hypebolic_weight * hyp_loss
+                    back_loss.backward()
+                    nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=5.0)
+                    model_geooptim.step()
             # Memory tracking
             current_memory = torch.cuda.max_memory_allocated(device=self.device) / 1024 ** 2
             max_memory = max(max_memory, current_memory)
@@ -454,78 +335,37 @@ class Exp_Main(Exp_Basic):
 
         self.model.eval()
         with torch.no_grad():
-            if self.args.use_decomposition:
-                for i, (X_dict, batch_y, batch_x_mark, batch_y_mark) in enumerate(test_loader):
-                    # ========================================
-                    # Load Input Components (SAME AS TRAIN)
-                    # ========================================
-                    trend_x = X_dict['trend'].float().to(self.device)
-                    coarse_x = X_dict['seasonal_coarse'].float().to(self.device)
-                    fine_x = X_dict['seasonal_fine'].float().to(self.device)
-                    resid_x = X_dict['residual'].float().to(self.device)
-                    # ========================================
-                    # Load Ground Truth (SAME AS TRAIN)
-                    # ========================================
-                    batch_y = batch_y.float().to(self.device)
-                
-                    # For point-level, extract only prediction part
-                
-                
-                    # ========================================
-                    # Forward Pass (SAME AS TRAIN, but no AMP)
-                    # ========================================                
-                    outputs, hyp_outputs = self.model(
-                        trend=trend_x,
-                        seasonal_coarse=coarse_x,
-                        seasonal_fine=fine_x,
-                        residual=resid_x,
-                    )
-                    f_dim = -1 if self.args.features == 'MS' else 0
-                    batch_y = batch_y[:, -self.args.pred_len:, f_dim:]
-                    # outputs = trend_outputs + coarse_outputs + fine_outputs + resid_outputs
-                    outputs = outputs[:, -self.args.pred_len:, f_dim:]
+            for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(test_loader):
+                batch_x = batch_x.float().to(self.device)
+                batch_y = batch_y.float().to(self.device)
 
-              
-                # ========================================
-                # Convert to NumPy
-                # ========================================
-                    outputs = outputs.detach().cpu().numpy()
-                    batch_y = batch_y.detach().cpu().numpy()
-                
-                    preds.append(outputs)
-                    trues.append(batch_y)
-            if self.args.use_learnable_decomposition:
-                for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(test_loader):
-                    batch_x = batch_x.float().to(self.device)
-                    batch_y = batch_y.float().to(self.device)
+                batch_x_mark = batch_x_mark.float().to(self.device)
+                batch_y_mark = batch_y_mark.float().to(self.device)
 
-                    batch_x_mark = batch_x_mark.float().to(self.device)
-                    batch_y_mark = batch_y_mark.float().to(self.device)
-
-                    # decoder input
-                    dec_inp = torch.zeros_like(batch_y[:, -self.args.pred_len:, :]).float()
-                    dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
-                    # encoder - decoder
-                    if self.args.use_amp:
-                        with torch.cuda.amp.autocast():
-                            outputs, hyp_outputs = self.model(batch_x)
-                    else:
-                       
+                # decoder input
+                dec_inp = torch.zeros_like(batch_y[:, -self.args.pred_len:, :]).float()
+                dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
+                # encoder - decoder
+                if self.args.use_amp:
+                    with torch.cuda.amp.autocast():
                         outputs, hyp_outputs = self.model(batch_x)
-                        orthogonal_loss = 0
+                else:
+                    
+                    outputs, hyp_outputs = self.model(batch_x)
+                    orthogonal_loss = 0
 
-                    f_dim = -1 if self.args.features == 'MS' else 0
-                    # print(outputs.shape,batch_y.shape)
-                    outputs = outputs[:, -self.args.pred_len:, f_dim:]
-                    batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
-                    outputs = outputs.detach().cpu().numpy()
-                    batch_y = batch_y.detach().cpu().numpy()
+                f_dim = -1 if self.args.features == 'MS' else 0
+                # print(outputs.shape,batch_y.shape)
+                outputs = outputs[:, -self.args.pred_len:, f_dim:]
+                batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
+                outputs = outputs.detach().cpu().numpy()
+                batch_y = batch_y.detach().cpu().numpy()
 
-                    pred = outputs  # outputs.detach().cpu().numpy()  # .squeeze()
-                    true = batch_y  # batch_y.detach().cpu().numpy()  # .squeeze()
+                pred = outputs  # outputs.detach().cpu().numpy()  # .squeeze()
+                true = batch_y  # batch_y.detach().cpu().numpy()  # .squeeze()
 
-                    preds.append(pred)
-                    trues.append(true)
+                preds.append(pred)
+                trues.append(true)
 
         # ========================================
         # Concatenate All Batches

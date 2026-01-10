@@ -22,9 +22,9 @@ class SegmentedHyperbolicForecaster(nn.Module):
     def __init__(self, lookback, pred_len, n_features, encode_dim, hidden_dim, 
                  curvature, manifold_type, segment_length=24, 
                  use_attention_pooling=False, use_revin=False,
-                 use_truncated_bptt=False, truncate_every=4,  # Truncate every N segments
+                 use_truncated_bptt=False, truncate_every=4, window_size=2,  # Truncate every N segments
                  dynamic_dropout=0.3, encode_dropout=0.5, recon_dropout=0.2, 
-                 num_layers=2, share_feature_weights=False):
+                 num_layers=2, share_feature_weights=True):
         """
         Args:
             lookback: int - lookback window (should be divisible by segment_length)
@@ -90,7 +90,6 @@ class SegmentedHyperbolicForecaster(nn.Module):
                 encode_dim=encode_dim,
                 curvature=curvature,
                 segment_length=segment_length,
-                use_segment_norm=use_segment_norm,
                 encode_dropout=self.encode_dropout,
                 share_feature_weights=self.share_feature_weights
             )
@@ -110,18 +109,12 @@ class SegmentedHyperbolicForecaster(nn.Module):
         if self.manifold_type == "Poincare":
             return HyperbolicPoincareDynamics(
                 encode_dim=self.encode_dim,
-                hidden_dim=self.hidden_dim,
-                manifold=self.manifold,
-                dropout=self.dynamic_dropout,
-                n_layers=self.num_layers
+                manifold=self.manifold
             )
         if self.manifold_type == "Lorentzian":
             return HyperbolicLorentzDynamics(
                 encode_dim=self.encode_dim,
-                hidden_dim=self.hidden_dim,
-                manifold=self.manifold,
-                dropout=self.dynamic_dropout,
-                n_layers=self.num_layers
+                manifold=self.manifold
             )
         
     

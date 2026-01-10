@@ -47,7 +47,7 @@ class HyperbolicPoincareDynamics(nn.Module):
     - step_size: velocity scaling factor
     """
     
-    def __init__(self, encode_dim, segment_length, manifold):
+    def __init__(self, encode_dim, manifold):
         """
         Args:
             encode_dim: dimension of encodedings (from your segment encodeder)
@@ -60,8 +60,18 @@ class HyperbolicPoincareDynamics(nn.Module):
         # Only 2 learnable parameters!
         self.alpha = nn.Parameter(torch.tensor(0.7))
         self.step_size = nn.Parameter(torch.tensor(1.0))
-        self.encode_lin = nn.Linear(encode_dim, encode_dim)
-        self.lin_temp = nn.Linear(segment_length, encode_dim)
+        self.velocity_net = nn.Linear(encode_dim, encode_dim)
+        # self.velocity_net = nn.Linear(encode_dim // 2, encode_dim)
+        # layers = []
+        
+        # # Input layer
+        # layers.append(nn.Linear(encode_dim, encode_dim // 2))
+        # layers.append(nn.LayerNorm(encode_dim // 2))
+        # layers.append(nn.ReLU())
+        # layers.append(nn.Dropout(0.3))
+        # layers.append(nn.Linear(encode_dim // 2, encode_dim))
+        
+        # self.velocity_net = nn.Sequential(*layers)
     
     def forward(self, x_current, x_previous=None, average_velocity=None):
         """
@@ -94,7 +104,7 @@ class HyperbolicPoincareDynamics(nn.Module):
         # Step 2: Scale velocity
         # ========================================
         step = torch.sigmoid(self.step_size)
-        velocity = self.encode_lin(backward_trajectory)
+        velocity = self.velocity_net(backward_trajectory)
         scaled_velocity = step * velocity
         
         # ========================================

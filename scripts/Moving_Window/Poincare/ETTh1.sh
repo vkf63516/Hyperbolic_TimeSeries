@@ -6,10 +6,11 @@ manifold_type="Poincare"
 data_path=ETTh1.csv
 hidden_dim=256
 num_basis=10 
-window_size=2
+window_size=5
 
 python run.py \
   --is_training 1 \
+  --hyperbolic_weight 0.1 \
   --model_id ETTh1_$seq_len'_'96_$manifold_type'_'type_exp1_Segment \
   --model HyperbolicForecasting \
   --data ETTh1 \
@@ -24,7 +25,7 @@ python run.py \
   --encode_dim 64 \
   --hidden_dim $hidden_dim \
   --batch_size 32 \
-  --learning_rate 1e-3 \
+  --learning_rate 1e-2 \
   --train_epochs $train_epochs \
   --use_learnable_decomposition \
   --enc_in $enc_in \
@@ -38,9 +39,10 @@ python run.py \
 
 python run.py \
   --is_training 1 \
+  --hyperbolic_weight 0.1 \
   --model_id ETTh1_$seq_len'_'192_$manifold_type'_'exp1_Segment \
   --model HyperbolicForecasting \
-  --data ETTh1_decomposition \
+  --data ETTh1 \
   --root_path ./time-series-dataset/dataset/ \
   --data_path $data_path \
   --features M \
@@ -54,7 +56,7 @@ python run.py \
   --batch_size 32 \
   --learning_rate 1e-3 \
   --train_epochs $train_epochs \
-  --use_decomposition \
+  --use_learnable_decomposition \
   --enc_in 7 \
   --patience $patience \
   --manifold_type $manifold_type \
@@ -69,7 +71,7 @@ python run.py \
   --is_training 1 \
   --model_id ETTh1_$seq_len'_'336_$manifold_type'_'exp1_Segment \
   --model HyperbolicForecasting \
-  --data ETTh1_decomposition \
+  --data ETTh1 \
   --root_path ./time-series-dataset/dataset/ \
   --data_path $data_path \
   --features M \
@@ -83,7 +85,7 @@ python run.py \
   --batch_size 32 \
   --learning_rate 1e-3 \
   --train_epochs $train_epochs \
-  --use_decomposition \
+  --use_learnable_decomposition \
   --enc_in $enc_in \
   --patience $patience \
   --manifold_type $manifold_type \
@@ -98,7 +100,7 @@ python run.py \
   --is_training 1 \
   --model_id ETTh1_$seq_len'_'720_$manifold_type'_'exp1_segment \
   --model HyperbolicForecasting \
-  --data ETTh1_decomposition \
+  --data ETTh1 \
   --root_path ./time-series-dataset/dataset/ \
   --data_path $data_path \
   --features M \
@@ -112,7 +114,7 @@ python run.py \
   --batch_size 32 \
   --learning_rate 1e-3 \
   --train_epochs $train_epochs \
-  --use_decomposition \
+  --use_learnable_decomposition \
   --enc_in $enc_in \
   --patience $patience \
   --manifold_type $manifold_type \

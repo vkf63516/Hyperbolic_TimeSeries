@@ -1,6 +1,8 @@
 import os
 import torch
 import numpy as np
+from thop import profile
+
 
 class Exp_Basic(object):
     def __init__(self, args):
