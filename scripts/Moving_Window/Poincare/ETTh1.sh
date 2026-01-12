@@ -10,7 +10,7 @@ window_size=5
 
 python run.py \
   --is_training 1 \
-  --hyperbolic_weight 0.1 \
+  --hyperbolic_weight 0.2 \
   --model_id ETTh1_$seq_len'_'96_$manifold_type'_'type_exp1_Segment \
   --model HyperbolicForecasting \
   --data ETTh1 \
@@ -21,11 +21,11 @@ python run.py \
   --label_len 0 \
   --seq_len $seq_len \
   --pred_len 96 \
-  --lradj "type3" \
+  --lradj "type1" \
   --encode_dim 64 \
   --hidden_dim $hidden_dim \
   --batch_size 32 \
-  --learning_rate 1e-2 \
+  --learning_rate 1e-3 \
   --train_epochs $train_epochs \
   --use_learnable_decomposition \
   --enc_in $enc_in \
@@ -39,7 +39,7 @@ python run.py \
 
 python run.py \
   --is_training 1 \
-  --hyperbolic_weight 0.1 \
+  --hyperbolic_weight 0.2 \
   --model_id ETTh1_$seq_len'_'192_$manifold_type'_'exp1_Segment \
   --model HyperbolicForecasting \
   --data ETTh1 \
@@ -50,10 +50,10 @@ python run.py \
   --seq_len $seq_len \
   --label_len 0 \
   --pred_len 192 \
-  --lradj "type3" \
+  --lradj "type1" \
   --encode_dim 64 \
   --hidden_dim $hidden_dim \
-  --batch_size 32 \
+  --batch_size 64 \
   --learning_rate 1e-3 \
   --train_epochs $train_epochs \
   --use_learnable_decomposition \
@@ -69,6 +69,7 @@ python run.py \
 
 python run.py \
   --is_training 1 \
+  --hyperbolic_weight 0.2 \
   --model_id ETTh1_$seq_len'_'336_$manifold_type'_'exp1_Segment \
   --model HyperbolicForecasting \
   --data ETTh1 \
@@ -79,11 +80,11 @@ python run.py \
   --seq_len $seq_len \
   --label_len 0 \
   --pred_len 336 \
-  --lradj "type3" \
+  --lradj "type1" \
   --encode_dim 64 \
   --hidden_dim $hidden_dim \
-  --batch_size 32 \
-  --learning_rate 1e-3 \
+  --batch_size 64 \
+  --learning_rate 2e-3 \
   --train_epochs $train_epochs \
   --use_learnable_decomposition \
   --enc_in $enc_in \
@@ -92,12 +93,13 @@ python run.py \
   --use_revin \
   --use_wandb \
   --use_segments \
-  --window_size 4 \
+  --window_size $window_size \
   --use_moving_window
 
 
 python run.py \
   --is_training 1 \
+  --hyperbolic_weight 0.2 \
   --model_id ETTh1_$seq_len'_'720_$manifold_type'_'exp1_segment \
   --model HyperbolicForecasting \
   --data ETTh1 \
@@ -108,10 +110,10 @@ python run.py \
   --seq_len $seq_len \
   --label_len 0 \
   --pred_len 720 \
-  --lradj "type3" \
+  --lradj "type1" \
   --encode_dim 64 \
   --hidden_dim $hidden_dim \
-  --batch_size 32 \
+  --batch_size 64 \
   --learning_rate 1e-3 \
   --train_epochs $train_epochs \
   --use_learnable_decomposition \
@@ -121,5 +123,5 @@ python run.py \
   --use_revin \
   --use_wandb \
   --use_segments \
-  --window_size 6 \
+  --window_size $window_size \
   --use_moving_window

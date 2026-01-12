@@ -10,6 +10,7 @@ def hyperbolic_velocity_consistency_loss(z_trajectory, manifold, beta=1.0):
     if z_trajectory.dim() == 4:
         B, F, N, D = z_trajectory.shape
         z_trajectory = z_trajectory. reshape(B * F, N, D)
+        B = B * F
     elif z_trajectory.dim() == 3:
         B, N, D = z_trajectory.shape
     else:

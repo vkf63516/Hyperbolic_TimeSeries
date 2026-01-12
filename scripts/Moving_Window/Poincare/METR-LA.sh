@@ -1,7 +1,7 @@
 seq_len=720
 train_epochs=30
 patience=5
-enc_in=862
+enc_in=207
 manifold_type="Poincare"
 data_path=METR-LA.csv
 window_size=5

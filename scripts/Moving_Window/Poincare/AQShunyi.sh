@@ -91,7 +91,7 @@ python run.py \
   --manifold_type $manifold_type \
   --use_revin \
   --use_segments \
-  --window_size 4 \
+  --window_size $window_size \
   --use_moving_window
 
 python run.py \
@@ -119,5 +119,5 @@ python run.py \
   --manifold_type $manifold_type \
   --use_revin \
   --use_segments \
-  --window_size 6 \
+  --window_size $window_size \
   --use_moving_window

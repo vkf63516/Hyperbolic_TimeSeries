@@ -35,7 +35,8 @@ python run.py \
   --use_segments \
   --fine_period 1 \
   --coarse_period 7 \
-  --use_moving_window
+  --use_moving_window \
+  --window_size $window_size 
 
 
 python run.py \
@@ -66,7 +67,8 @@ python run.py \
   --use_segments \
   --fine_period 1 \
   --coarse_period 7 \
-  --use_moving_window
+  --use_moving_window \
+  --window_size $window_size
 
 python run.py \
   --is_training 1 \
@@ -96,7 +98,8 @@ python run.py \
   --use_segments \
   --fine_period 1 \
   --coarse_period 7 \
-  --use_moving_window
+  --use_moving_window \
+  --window_size $window_size
 
 python run.py \
   --is_training 1 \
@@ -126,4 +129,5 @@ python run.py \
   --use_segments \
   --fine_period 1 \
   --coarse_period 7 \
-  --use_moving_window
+  --use_moving_window \
+  --window_size $window_size
