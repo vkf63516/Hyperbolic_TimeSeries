@@ -9,7 +9,7 @@ save_dir="./plots/hierarchy_etth1"
 
 python hierarchical_analysis.py \
   --root_path ./time-series-dataset/dataset/ \
-  --data ETTh1_decomposition \
+  --data ETTh1 \
   --features "M" \
   --enc_in $enc_in \
   --seq_len $seq_len \

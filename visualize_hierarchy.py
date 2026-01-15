@@ -4,6 +4,128 @@ import numpy as np
 from scipy import signal
 from data_provider.data_factory import data_provider
 import argparse
+import os
+from Learnable_Decomposition import LearnableMultivariateDecomposition
+
+def detect_periods_acf(data, max_lag=500):
+    """
+    Detect dominant periods using autocorrelation.
+    
+    Args:
+        data: [T, n_features] time series
+        max_lag: Maximum lag to consider
+    
+    Returns:
+        List of detected periods [fine_period, coarse_period]
+    """
+    # Use first feature for period detection
+    ts = data[:, 0] if data.ndim > 1 else data
+    
+    # Compute ACF
+    autocorr = acf(ts, nlags=min(max_lag, len(ts)//2), fft=True)
+    
+    # Find peaks in ACF
+    peaks, properties = find_peaks(autocorr[1:], prominence=0.1)
+    peaks = peaks + 1  # Adjust for slicing
+    
+    if len(peaks) >= 2:
+        # Return two strongest periods
+        peak_heights = autocorr[peaks]
+        top_indices = np.argsort(peak_heights)[-2:][::-1]
+        periods = peaks[top_indices]
+        fine_period = min(periods)
+        coarse_period = max(periods)
+    elif len(peaks) == 1:
+        fine_period = peaks[0]
+        coarse_period = fine_period * 7  # Default multiplier
+    else:
+        # Default to daily and weekly for hourly data
+        fine_period = 24
+        coarse_period = 168
+    
+    print(f"Detected periods: fine={fine_period}, coarse={coarse_period}")
+    return [fine_period, coarse_period]
+
+
+def load_raw_data_and_decompose(args, use_pretrained=False, model_path=None):
+    """
+    Load raw time series and apply learnable decomposition.
+    
+    Args:
+        args: Arguments with data parameters
+        use_pretrained: Whether to load pretrained weights
+        model_path: Path to pretrained model weights
+    
+    Returns:
+        X_dict: Dictionary with decomposed components
+        Y_dict: Dictionary with target decompositions
+    """
+    print("Loading raw time series data...")
+    
+    # Modify args to load raw data (not decomposed)
+    args_raw = argparse.Namespace(**vars(args))
+    args_raw.data = 'custom'  # Use regular dataset loader
+    
+    train_data, train_loader = data_provider(args_raw, flag='train')
+    
+    # Get first batch of raw data
+    for batch_x, batch_y, batch_x_mark, batch_y_mark in train_loader:
+        print(f"Raw data shape: {batch_x.shape}")  # [B, seq_len, n_features]
+        
+        B, seq_len, n_features = batch_x.shape
+        
+        # Detect periods from raw data
+        sample_data = batch_x[0].cpu().numpy()  # Use first sample
+        detected_periods = detect_periods_acf(sample_data, max_lag=min(500, seq_len//2))
+        
+        # Initialize learnable decomposition
+        kernel_size = max(detected_periods)  # Use coarse period as base kernel
+        
+        model = LearnableMultivariateDecomposition(
+            n_features=n_features,
+            kernel_size=kernel_size,
+            detected_periods=detected_periods
+        )
+        
+        # Load pretrained weights if specified
+        if use_pretrained and model_path and os.path.exists(model_path):
+            print(f"Loading pretrained weights from {model_path}")
+            checkpoint = torch.load(model_path, map_location='cpu')
+            model.load_state_dict(checkpoint['decomposition_state_dict'])
+            print("✓ Pretrained weights loaded")
+        else:
+            print("Using randomly initialized decomposition")
+        
+        model.eval()
+        
+        # Apply decomposition
+        with torch.no_grad():
+            X_decomposed = model(batch_x)
+            Y_decomposed = model(batch_y)
+        
+        # Convert to dictionary format expected by visualization functions
+        X_dict = {
+            'trend': X_decomposed['trend'],
+            'seasonal_coarse':  X_decomposed['seasonal_coarse'],
+            'seasonal_fine': X_decomposed['seasonal_fine'],
+            'residual':  X_decomposed['residual']
+        }
+        
+        Y_dict = {
+            'trend': Y_decomposed['trend'],
+            'seasonal_coarse':  Y_decomposed['seasonal_coarse'],
+            'seasonal_fine': Y_decomposed['seasonal_fine'],
+            'residual':  Y_decomposed['residual']
+        }
+        
+        print(f"\nDecomposed component shapes:")
+        for key, val in X_dict.items():
+            print(f"  {key}: {val.shape}")
+        
+        return X_dict, Y_dict
+    
+    raise ValueError("No data loaded from data_provider")
+
 
 def plot_frequency_spectrum(component_data, component_name, ax, sampling_rate=1.0):
     """
@@ -30,14 +152,6 @@ def plot_frequency_spectrum(component_data, component_name, ax, sampling_rate=1.
     ax.set_title(f'{component_name} - Frequency Spectrum', pad=8)
     ax.grid(True, alpha=0.3)
     ax.set_xlim(0, 0.5)  # Focus on low frequencies
-    
-    # Add markers for known periods
-    if sampling_rate == 1.0:  # hourly data
-        fine_freq = 1/24
-        coarse_freq = 1/168
-        # ax.axvline(fine_freq, color='orange', linestyle='--', alpha=0.5, label='fine (24h)')
-        # ax.axvline(coarse_freq, color='green', linestyle='--', alpha=0.5, label='coarse (168h)')
-        # ax.legend()
 
 
 def plot_window_hierarchy(X_dict, Y_dict, window_idx=0, feature_idx=0, save_dir='./plots/hierarchy'):
@@ -186,6 +300,7 @@ def plot_stacked_components(X_dict, window_idx=0, feature_idx=0, save_dir='./plo
     # Create stacked visualization
     fig, ax = plt.subplots(figsize=(16, 8))
     fig.set_tight_layout(True)
+    
     # Cumulative sums to show hierarchy
     cum_trend = components['trend']
     cum_coarse = cum_trend + components['seasonal_coarse']
@@ -209,7 +324,7 @@ def plot_stacked_components(X_dict, window_idx=0, feature_idx=0, save_dir='./plo
     ax.set_title(f'Hierarchical Composition - Window {window_idx}, Feature {feature_idx}', fontsize=14, fontweight='bold')
     ax.legend(loc='best', fontsize=11)
     ax.grid(True, alpha=0.3)
-    # plt.tight_layout()
+    
     plt.savefig(f'{save_dir}/stacked_hierarchy_window_{window_idx}_feature_{feature_idx}.png', 
                 dpi=300, bbox_inches='tight')
     plt.close()
@@ -219,8 +334,8 @@ def plot_stacked_components(X_dict, window_idx=0, feature_idx=0, save_dir='./plo
 # Main script
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data', type=str, default='custom_decomposition')
-    parser.add_argument('--root_path', type=str, default='./time-series-dataset/dataset/weather/')
+    parser.add_argument('--data', type=str, default='custom')
+    parser.add_argument('--root_path', type=str, default='./time-series-dataset/dataset/')
     parser.add_argument('--data_path', type=str, default='weather.csv')
     parser.add_argument('--features', type=str, default='MS')
     parser.add_argument('--target', type=str, default='OT')
@@ -230,35 +345,34 @@ if __name__ == '__main__':
     parser.add_argument('--enc_in', type=int, default=21)
     parser.add_argument('--freq', type=str, default='h')
     parser.add_argument('--encode', type=str, default='timeF')
-    parser.add_argument('--num_basis', type=int, default=10)
-    parser.add_argument('--orthogonal_lr', type=float, default=1e-3)
-    parser.add_argument('--orthogonal_iters', type=int, default=100)
-    parser.add_argument('--use_segments', action='store_true', default=False)
-    parser.add_argument('--mstl_period', type=int, default=24)
     parser.add_argument('--num_workers', type=int, default=0)
     parser.add_argument('--batch_size', type=int, default=4)
     
+    # Learnable decomposition parameters
+    parser.add_argument('--use_pretrained', action='store_true', default=False,
+                       help='Load pretrained decomposition weights')
+    parser.add_argument('--model_path', type=str, default='./checkpoints/decomposition_model.pth',
+                       help='Path to pretrained model')
+    
     args = parser.parse_args()
     
-    print("Loading data...")
-    train_data, train_loader = data_provider(args, flag='train')
+    print("=" * 80)
+    print("VISUALIZING LEARNABLE DECOMPOSITION")
+    print("=" * 80)
     
-    # Get first batch
-    for X_dict, Y_dict, _, _ in train_loader:
-        print(f"\nData shapes:")
-        print(f"  Trend: {X_dict['trend'].shape}")
-        print(f"  coarse: {X_dict['seasonal_coarse'].shape}")
-        print(f"  fine: {X_dict['seasonal_fine'].shape}")
-        print(f"  Residual: {X_dict['residual'].shape}")
-        
-        print("\nGenerating hierarchy visualizations...")
-        
-        # Plot first 2 windows, first feature
-        for window_idx in range(min(2, X_dict['trend'].shape[0])):
-            print(f"\nProcessing window {window_idx}...")
-            plot_window_hierarchy(X_dict, Y_dict, window_idx=window_idx, feature_idx=0)
-            plot_stacked_components(X_dict, window_idx=window_idx, feature_idx=0)
-        
-        break
+    # Load data and apply learnable decomposition
+    X_dict, Y_dict = load_raw_data_and_decompose(
+        args, 
+        use_pretrained=args.use_pretrained,
+        model_path=args.model_path
+    )
+    
+    print("\nGenerating hierarchy visualizations...")
+    
+    # Plot first 2 windows, first feature
+    for window_idx in range(min(2, X_dict['trend'].shape[0])):
+        print(f"\nProcessing window {window_idx}...")
+        plot_window_hierarchy(X_dict, Y_dict, window_idx=window_idx, feature_idx=0)
+        plot_stacked_components(X_dict, window_idx=window_idx, feature_idx=0)
     
     print("\n✓ Done! Check ./plots/hierarchy/ for visualizations")

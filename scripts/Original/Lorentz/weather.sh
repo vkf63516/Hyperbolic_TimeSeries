@@ -5,7 +5,7 @@ python run.py \
   --data_path weather.csv \
   --model_id Weather_trend_hyperbolic \
   --model HyperbolicForecasting \
-  --data custom_decomposition \
+  --data custom \
   --features M \
   --seq_len 96 \
   --label_len 0 \
@@ -20,7 +20,7 @@ python run.py \
   --patience 5 \
   --manifold_type "Lorentzian" \
   --curvature 1.0 \
-  --use_decomposition \
+  --use_learnable_decomposition \
   --use_wandb
 
 python run.py \
@@ -29,7 +29,7 @@ python run.py \
   --data_path weather.csv \
   --model_id Weather_trend_hyperbolic \
   --model HyperbolicForecasting \
-  --data custom_decomposition \
+  --data custom \
   --features M \
   --seq_len 96 \
   --label_len 0 \
@@ -44,7 +44,7 @@ python run.py \
   --patience 5 \
   --manifold_type "Lorentzian" \
   --curvature 1.0 \
-  --use_decomposition \
+  --use_learnable_decomposition \
   --use_wandb 
 
 python run.py \
@@ -53,7 +53,7 @@ python run.py \
   --data_path weather.csv \
   --model_id Weather_trend_hyperbolic \
   --model HyperbolicForecasting \
-  --data custom_decomposition \
+  --data custom \
   --features M \
   --seq_len 96 \
   --label_len 0 \
@@ -68,7 +68,7 @@ python run.py \
   --patience 5 \
   --manifold_type "Lorentzian" \
   --curvature 1.0 \
-  --use_decomposition \
+  --use_learnable_decomposition \
   --use_wandb \
   --use_revin \
   --use_segments 

@@ -42,11 +42,12 @@ parser.add_argument('--use_moving_window', action='store_true', default=False,
 
 parser.add_argument('--use_segments', action='store_true', default=False,
                     help='use segment-level hyperbolic encodedings (True) or point-level (False)')
-parser.add_argument('--use_decomposition', action='store_true', default=False,
-                    help='Use orthogonalMSTL decomposition')
 # ============================================
 parser.add_argument('--use_learnable_decomposition', action='store_true', default=False,
                     help='use learnable Conv1D decomposition')
+parser.add_argument('--use_no_decomposition', action='store_true', default=False,
+                    help='no decomposition')
+
 parser.add_argument('--fine_period', type=int, default=24,
                     help='fine-grained seasonal period (e.g., 24 for daily in hourly data)')
 parser.add_argument('--coarse_period', type=int, default=168,
@@ -57,11 +58,6 @@ parser.add_argument('--use_wandb', action='store_true',
                     help='use wandb for experiment tracking')
 parser.add_argument("--use_attention_pooling", action="store_true", default=False,
                     help="uses attention to give more relevance to specific timesteps")
-parser.add_argument('--orthogonal_lr', type=float, default=1e-3,
-                    help='learning rate for orthogonal basis fitting')
-parser.add_argument('--orthogonal_iters', type=int, default=300,
-                    help='number of optimization iterations for basis')
-
 # Data processing
 
 parser.add_argument('--log_interval', type=int, default=100,
@@ -72,7 +68,7 @@ parser.add_argument('--save_freq', type=int, default=10,
 # Hyperbolic Space
 
 parser.add_argument('--encode_dim', type=int, default=32, help='hyperbolic encodeding dimension')
-parser.add_argument('--hidden_dim', type=int, default=128, help='mamba hidden dimension')
+parser.add_argument('--hidden_dim', type=int, default=256, help='mamba hidden dimension')
 parser.add_argument('--curvature', type=float, default=1.0, help='negative number for hyperbolic curvature')
 # Data loader
 parser.add_argument('--data', type=str, required=True, default='ETTm1', help='dataset type')

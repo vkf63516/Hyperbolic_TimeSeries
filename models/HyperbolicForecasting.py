@@ -9,6 +9,7 @@ from Decomposition.Learnable_Decomposition import LearnableMultivariateDecomposi
 from loss import hyperbolic_velocity_consistency_loss as hvcl
 from Forecasting.Moving_Window_Segment_Euclidean_Forecaster import MovingWindowEuclideanForecaster
 from Forecasting.Moving_Window_Segment_Forecaster import MovingWindowHyperbolicForecaster
+from Forecasting.Direct_Moving_Window_Segment_Forecaster import DirectHyperbolicForecaster
 from Forecasting.Segment_Euclidean_Forecaster import SegmentForecastEuclidean
 from Forecasting.Segment_Forecaster import SegmentedHyperbolicForecaster
 
@@ -39,6 +40,7 @@ class Model(nn.Module):
         self.num_basis = configs.num_basis
         self.window_size = configs.window_size
         self.use_learnable_decomposition = configs.use_learnable_decomposition
+        self.use_no_decomposition = configs.use_no_decomposition
         # Model dimensions
         # Number of input features
         self.enc_in = configs.enc_in
@@ -92,20 +94,36 @@ class Model(nn.Module):
         else:
             if self.use_moving_window:
                 if self.manifold_type == "Poincare":
-                    self.forecaster = MovingWindowHyperbolicForecaster(
-                        lookback=self.seq_len,
-                        pred_len=self.pred_len,
-                        n_features=self.enc_in,
-                        encode_dim=self.encode_dim,
-                        hidden_dim=self.hidden_dim,
-                        curvature=self.curvature,
-                        manifold_type=self.manifold_type,
-                        segment_length=self.mstl_period,
-                        use_revin=self.use_revin,
-                        window_size=self.window_size,
-                        encode_dropout=0.3,
-                        recon_dropout=0.2,
-                    )
+                    if self.use_no_decomposition:
+                        self.forecaster = DirectHyperbolicForecaster(
+                            lookback=self.seq_len,
+                            pred_len=self.pred_len,
+                            n_features=self.enc_in,
+                            encode_dim=self.encode_dim,
+                            hidden_dim=self.hidden_dim,
+                            curvature=self.curvature,
+                            manifold_type=self.manifold_type,
+                            segment_length=self.mstl_period,
+                            use_revin=self.use_revin,
+                            window_size=self.window_size,
+                            encode_dropout=0.3,
+                            recon_dropout=0.2,
+                        )
+                    else:
+                        self.forecaster = MovingWindowHyperbolicForecaster(
+                            lookback=self.seq_len,
+                            pred_len=self.pred_len,
+                            n_features=self.enc_in,
+                            encode_dim=self.encode_dim,
+                            hidden_dim=self.hidden_dim,
+                            curvature=self.curvature,
+                            manifold_type=self.manifold_type,
+                            segment_length=self.mstl_period,
+                            use_revin=self.use_revin,
+                            window_size=self.window_size,
+                            encode_dropout=0.3,
+                            recon_dropout=0.2,
+                        )
                 elif self.manifold_type == "Lorentzian":
                     self.forecaster = MovingWindowHyperbolicForecaster(
                         lookback=self.seq_len,
@@ -164,7 +182,9 @@ class Model(nn.Module):
             seasonal_fine = components['seasonal_fine']
             residual = components['residual']
 
-        forecasts = self.forecaster(trend, seasonal_coarse, seasonal_fine, residual)
+            forecasts = self.forecaster(trend, seasonal_coarse, seasonal_fine, residual)
+        else:
+            forecasts = self.forecaster(batch_x)
         # Get individual hyperbolic representations
         x_hat = forecasts["predictions"]
         if self.manifold_type == "Euclidean":

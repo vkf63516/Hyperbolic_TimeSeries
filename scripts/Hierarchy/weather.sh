@@ -9,7 +9,7 @@ save_dir="./plots/hierarchy_weather"
 
 python hierarchical_analysis.py \
   --root_path ./time-series-dataset/dataset/ \
-  --data custom_decomposition \
+  --data custom \
   --features "M" \
   --enc_in $enc_in \
   --seq_len $seq_len \

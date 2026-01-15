@@ -1,4 +1,4 @@
-from data_provider.data_loader import Dataset_ETT_hour, Dataset_ETT_minute, Dataset_Custom, Dataset_Custom_Decomposition, Dataset_Pred
+from data_provider.data_loader import Dataset_ETT_hour, Dataset_ETT_minute, Dataset_Custom, Dataset_Pred
 from torch.utils.data import DataLoader
 
 data_dict = {
@@ -7,7 +7,6 @@ data_dict = {
     'ETTm1': Dataset_ETT_minute,
     'ETTm2': Dataset_ETT_minute,
     'custom': Dataset_Custom,
-    'custom_decomposition': Dataset_Custom_Decomposition
 }
 
 
@@ -40,8 +39,7 @@ def data_provider(args, flag):
         features=args.features,
         target=args.target,
         timeenc=timeenc,
-        freq=freq,
-        basis=[args.num_basis, args.orthogonal_lr, args.orthogonal_iters]
+        freq=freq
     )
     print(flag, len(data_set))
     data_loader = DataLoader(

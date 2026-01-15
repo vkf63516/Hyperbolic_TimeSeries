@@ -5,6 +5,8 @@ import seaborn as sns
 from scipy.spatial.distance import pdist, squareform
 from scipy.cluster.hierarchy import linkage, dendrogram, cophenet, leaves_list
 from scipy.stats import ttest_ind
+from scipy.signal import find_peaks
+from statsmodels.tsa.stattools import acf
 from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn.metrics import silhouette_score
@@ -15,7 +17,11 @@ from sklearn.metrics.pairwise import cosine_similarity
 import argparse
 import warnings
 import random
+import torch
 warnings.filterwarnings('ignore')
+
+# Import learnable decomposition
+from Learnable_Decomposition import LearnableMultivariateDecomposition
 
 
 # ============================================
@@ -34,7 +40,7 @@ def set_seed(seed=42):
     # NumPy
     np.random.seed(seed)
     
-    # For any PyTorch usage (if you expand later)
+    # PyTorch
     try:
         import torch
         torch.manual_seed(seed)
@@ -50,798 +56,164 @@ def set_seed(seed=42):
     
     print(f"✓ Random seed set to {seed} for reproducibility")
 
-def analyze_hierarchy_raw_timeseries(raw_data, window_size, stride=None, max_patterns=5000):
+
+def detect_periods_acf(data, max_lag=500):
     """
-    Detect hierarchical structure in raw time series without decomposition.
+    Detect dominant periods using autocorrelation.
     
     Args:
-        raw_data: [T, d_features] raw time series
-        window_size: Window size for pattern extraction
-        stride: Stride for windowing (default: window_size // 2)
-        max_patterns: Maximum patterns to analyze
+        data: [T, n_features] time series
+        max_lag: Maximum lag to consider
     
-    Returns:
-        hierarchy_metrics: Dict with scores and recommendations
+    Returns: 
+        List of detected periods [fine_period, coarse_period]
     """
-    if stride is None:
-        stride = max(1, window_size // 2)
+    # Use first feature for period detection
+    ts = data[:, 0] if data.ndim > 1 else data
     
-    T, d_features = raw_data.shape
+    # Compute ACF
+    autocorr = acf(ts, nlags=min(max_lag, len(ts)//2), fft=True)
     
-    # Extract overlapping windows
-    patterns = []
-    for i in range(0, T - window_size + 1, stride):
-        patterns.append(raw_data[i:i+window_size, :].flatten())
+    # Find peaks in ACF
+    peaks, properties = find_peaks(autocorr[1:], prominence=0.1)
+    peaks = peaks + 1  # Adjust for slicing
     
-    patterns = np.array(patterns)
+    if len(peaks) >= 2:
+        # Return two strongest periods
+        peak_heights = autocorr[peaks]
+        top_indices = np.argsort(peak_heights)[-2:][::-1]
+        periods = peaks[top_indices]
+        fine_period = min(periods)
+        coarse_period = max(periods)
+    elif len(peaks) == 1:
+        fine_period = peaks[0]
+        coarse_period = fine_period * 7  # Default multiplier
+    else:
+        # Default to daily and weekly for hourly data
+        fine_period = 24
+        coarse_period = 168
     
-    # Subsample if needed
-    if len(patterns) > max_patterns:
-        indices = np.random.choice(len(patterns), max_patterns, replace=False)
-        patterns = patterns[indices]
-    
-    # Normalize
-    scaler = StandardScaler()
-    patterns_normalized = scaler.fit_transform(patterns)
-    
-    # Compute distances
-    distances = pdist(patterns_normalized, metric='euclidean')
-    distance_matrix = squareform(distances)
-    
-    # Build hierarchical clustering
-    linkage_matrix = linkage(distances, method='ward')
-    
-    # Cophenetic correlation
-    cophenetic_corr, _ = cophenet(linkage_matrix, distances)
-    
-    # Silhouette analysis
-    max_k = min(20, len(patterns) // 2)
-    silhouette_scores = []
-    
-    for k in range(2, max_k + 1):
-        clustering = AgglomerativeClustering(n_clusters=k, linkage='ward')
-        labels = clustering.fit_predict(patterns_normalized)
-        sil = silhouette_score(patterns_normalized, labels)
-        silhouette_scores.append(sil)
-    
-    best_k = np.argmax(silhouette_scores) + 2
-    best_sil = silhouette_scores[best_k - 2]
-    
-    # Compute hierarchy score (same as your code)
-    hierarchy_score = 0
-    if cophenetic_corr > 0.7:
-        hierarchy_score += 2
-    elif cophenetic_corr > 0.4:
-        hierarchy_score += 1
-    
-    # Branching factor
-    depth = np.log2(len(patterns))
-    branching = len(patterns) ** (1 / depth)
-    
-    if branching > 3:
-        hierarchy_score += 2
-    elif branching > 2:
-        hierarchy_score += 1
-    
-    return {
-        'cophenetic_correlation': cophenetic_corr,
-        'best_k': best_k,
-        'best_silhouette': best_sil,
-        'branching_factor': branching,
-        'hierarchy_score': hierarchy_score,
-        'n_patterns': len(patterns)
-    }
+    print(f"Detected periods: fine={fine_period}, coarse={coarse_period}")
+    return [fine_period, coarse_period]
 
-def multiscale_hierarchy_test(raw_data, scales=[24, 168, 720]):
+
+def apply_learnable_decomposition_to_dataset(args, use_pretrained=False, model_path=None):
     """
-    Test hierarchical structure at multiple time scales.
+    Load raw data and apply learnable decomposition to entire dataset.
     
     Args:
-        raw_data: [T, d] raw time series
-        scales: List of window sizes (e.g., daily, weekly, monthly)
+        args: Arguments with data parameters
+        use_pretrained: Whether to load pretrained weights
+        model_path: Path to pretrained model
     
     Returns:
-        Dictionary with hierarchy scores per scale
+        data_dict: Dictionary with full decomposed components
     """
-    results = {}
+    print("\n" + "=" * 80)
+    print("APPLYING LEARNABLE DECOMPOSITION TO DATASET")
+    print("=" * 80)
     
-    for scale in scales:
-        print(f"\nAnalyzing scale: {scale} timesteps")
-        metrics = analyze_hierarchy_raw_timeseries(
-            raw_data, 
-            window_size=scale,
-            max_patterns=5000
-        )
-        results[f'scale_{scale}'] = metrics
+    # Load raw data
+    from data_provider.data_factory import data_provider
     
-    # Aggregate: if ANY scale shows hierarchy, flag it
-    max_hierarchy_score = max(r['hierarchy_score'] for r in results.values())
-    avg_cophenetic = np.mean([r['cophenetic_correlation'] for r in results.values()])
+    args_raw = argparse.Namespace(**vars(args))
+    args_raw.data = 'custom'  # Use regular dataset loader
     
-    return {
-        'per_scale': results,
-        'max_hierarchy_score': max_hierarchy_score,
-        'avg_cophenetic': avg_cophenetic,
-        'has_hierarchy': max_hierarchy_score >= 3
+    train_data, train_loader = data_provider(args_raw, flag='train')
+    
+    print(f"Dataset size: {len(train_data)}")
+    
+    # Initialize decomposition model
+    # Get sample to detect periods and dimensions
+    sample_batch = next(iter(train_loader))
+    batch_x = sample_batch[0]  # [B, seq_len, n_features]
+    
+    _, seq_len, n_features = batch_x.shape
+    print(f"Sequence length: {seq_len}, Features: {n_features}")
+    
+    # Detect periods from sample
+    sample_data = batch_x[0].cpu().numpy()
+    detected_periods = detect_periods_acf(sample_data, max_lag=min(500, seq_len//2))
+    
+    # Initialize model
+    kernel_size = max(detected_periods)
+    model = LearnableMultivariateDecomposition(
+        n_features=n_features,
+        kernel_size=kernel_size,
+        detected_periods=detected_periods
+    )
+    
+    # Load pretrained weights if specified
+    if use_pretrained and model_path and os.path.exists(model_path):
+        print(f"Loading pretrained weights from {model_path}")
+        checkpoint = torch.load(model_path, map_location='cpu')
+        model.load_state_dict(checkpoint['decomposition_state_dict'])
+        print("✓ Pretrained weights loaded")
+    else:
+        print("⚠ Using randomly initialized decomposition")
+    
+    model.eval()
+    
+    # Apply decomposition to entire dataset
+    print("\nApplying decomposition to all batches...")
+    
+    all_components = {
+        'trend': [],
+        'coarse':  [],
+        'fine': [],
+        'residual':  []
     }
-
-
-def extract_mstl_components_from_dataset(dataset):
-    """
-    Extract MSTL components directly from dataset.
-    Memory efficient - no batch iteration.
-    """
-    print("\nExtracting MSTL components from dataset...")
     
-    # Direct access to stored components
-    data_dict = {
-        'trend': dataset.decomposed_components['trend'],
-        'coarse': dataset.decomposed_components['seasonal_coarse'],
-        'fine': dataset.decomposed_components['seasonal_fine'],
-        'residual': dataset.decomposed_components['residual']
-    }
+    with torch.no_grad():
+        for batch_idx, (batch_x, batch_y, _, _) in enumerate(train_loader):
+            # Decompose
+            decomposed = model(batch_x)
+            
+            # Collect components (only use input part, not labels)
+            all_components['trend'].append(decomposed['trend'])
+            all_components['coarse'].append(decomposed['seasonal_coarse'])
+            all_components['fine'].append(decomposed['seasonal_fine'])
+            all_components['residual'].append(decomposed['residual'])
+            
+            if (batch_idx + 1) % 50 == 0:
+                print(f"  Processed {batch_idx + 1}/{len(train_loader)} batches")
     
-    print(f"✓ Components extracted:")
-    for name, data in data_dict.items():
-        print(f"  {name:8s}: {data.shape}")
-        # Memory check
-        mem_mb = data.nbytes / (1024**2)
-        print(f"            {mem_mb:.1f} MB")
+    # Concatenate all batches and reshape to [T, n_features]
+    print("\nConcatenating components...")
+    
+    data_dict = {}
+    for key in ['trend', 'coarse', 'fine', 'residual']:
+        # Concatenate batches:  List of [B, seq_len, n_features] -> [total_samples, seq_len, n_features]
+        concatenated = torch.cat(all_components[key], dim=0)
+        
+        # Reshape to [T, n_features] by treating all sequences as continuous
+        # [N_batches, seq_len, n_features] -> [N_batches * seq_len, n_features]
+        reshaped = concatenated.reshape(-1, n_features)
+        
+        # Convert to numpy
+        data_dict[key] = reshaped.cpu().numpy()
+        
+        mem_mb = data_dict[key].nbytes / (1024**2)
+        print(f"  {key: 8s}: {data_dict[key].shape} ({mem_mb:.1f} MB)")
+    
+    print("\n✓ Learnable decomposition applied to entire dataset")
     
     return data_dict
 
 
-def plot_frequency_spectrum(component_data, component_name, ax, sampling_rate=1.0):
-    """Plot FFT frequency spectrum."""
-    fft = np.fft.fft(component_data)
-    freq = np.fft.fftfreq(len(component_data), d=1/sampling_rate)
-    
-    pos_mask = freq > 0
-    freq = freq[pos_mask]
-    magnitude = np.abs(fft[pos_mask])
-    
-    ax.plot(freq, magnitude, linewidth=1.5)
-    ax.set_ylabel('Magnitude')
-    ax.set_title(f'{component_name} - Frequency Spectrum', pad=8)
-    ax.grid(True, alpha=0.3)
-    ax.set_xlim(0, 0.5)
+# Keep all other functions from original hierarchical_analysis.py
+# (analyze_hierarchy_raw_timeseries, multiscale_hierarchy_test, 
+#  plot_frequency_spectrum, visualize_component_characteristics,
+#  test_spherical_structure, compute_euclidean_score,
+#  experiment_2_hierarchical_structure)
+# ...  [rest of the original functions] ... 
 
 
-def visualize_component_characteristics(data_dict, save_dir='./plots/hierarchy'):
-    """Create overview of component frequency characteristics."""
-    os.makedirs(save_dir, exist_ok=True)
-    
-    fig, axes = plt.subplots(4, 2, figsize=(16, 12))
-    
-    components = [
-        ('trend', 'blue', 'TREND'),
-        ('coarse', 'green', 'coarse'),
-        ('fine', 'orange', 'fine'),
-        ('residual', 'purple', 'RESIDUAL')
-    ]
-    
-    for idx, (comp_name, color, label) in enumerate(components):
-        data = data_dict[comp_name][:, 0]  # First feature
-        
-        # Time domain
-        ax_time = axes[idx, 0]
-        time_steps = np.arange(min(2000, len(data)))
-        ax_time.plot(time_steps, data[:len(time_steps)], color=color, linewidth=1.5)
-        ax_time.set_ylabel('Value')
-        ax_time.set_title(f'{label} - Time Domain')
-        ax_time.grid(True, alpha=0.3)
-        
-        # Frequency domain
-        ax_freq = axes[idx, 1]
-        plot_frequency_spectrum(data, label, ax_freq)
-    
-    axes[-1, 0].set_xlabel('Time Steps')
-    axes[-1, 1].set_xlabel('Frequency (cycles/hour)')
-    
-    plt.suptitle('Component Characteristics: Time & Frequency Domain', 
-                 fontsize=16, fontweight='bold')
-    plt.tight_layout()
-    plt.savefig(f'{save_dir}/component_overview.png', dpi=150, bbox_inches='tight')
-    plt.close()
-    
-    print(f"✓ Saved component overview to {save_dir}/component_overview.png")
-
-
-def test_spherical_structure(patterns_normalized, component='fine'):
-    """Minimal spherical structure test."""
-    
-    # Project to unit sphere
-    patterns_sphere = normalize(patterns_normalized, norm='l2', axis=1)
-    n_patterns = len(patterns_sphere)
-    
-    # Compute angular distances
-    cos_sim = cosine_similarity(patterns_sphere)
-    angular_dist = np.arccos(np.clip(cos_sim, -1, 1))
-    
-    # Compare uniformity
-    euclidean_dists = pdist(patterns_normalized, metric='euclidean')
-    angular_dists_flat = angular_dist[np.triu_indices_from(angular_dist, k=1)]
-    
-    cv_euclidean = np.std(euclidean_dists) / np.mean(euclidean_dists) if np.mean(euclidean_dists) > 0 else 1.0
-    cv_angular = np.std(angular_dists_flat) / np.mean(angular_dists_flat) if np.mean(angular_dists_flat) > 0 else 1.0
-    
-    spherical_fit = cv_euclidean / cv_angular if cv_angular > 0 else 1.0
-    
-    # Compute spherical silhouettes
-    max_k = min(20, n_patterns // 2)
-    spherical_silhouettes = []
-    
-    print(f"Computing spherical clustering quality...")
-    
-    for k in range(2, max_k + 1):
-        # Spherical k-means (uses cosine distance)
-        kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
-        labels = kmeans.fit_predict(patterns_sphere)
-        
-        # Compute silhouette with cosine metric
-        try:
-            sil = silhouette_score(patterns_sphere, labels, metric='cosine')
-            spherical_silhouettes.append(sil)
-        except:
-            spherical_silhouettes.append(0.0)
-        
-        if k in [2, 3, 5, 7, 10, max_k]:
-            print(f"  Spherical k={k:2d}: silhouette={spherical_silhouettes[-1]:.4f}")
-    
-    # Find best k for spherical
-    if spherical_silhouettes:
-        best_k_sphere = np.argmax(spherical_silhouettes) + 2
-        best_sil_sphere = spherical_silhouettes[best_k_sphere - 2]
-        print(f"→ Best spherical k={best_k_sphere} (silhouette={best_sil_sphere:.4f})")
-    else:
-        best_k_sphere = 2
-        best_sil_sphere = 0.0
-    
-    # Scoring
-    score_sphere = 0
-    
-    # Metric 1: Spherical fit ratio
-    if spherical_fit > 1.5:
-        score_sphere += 2
-    elif spherical_fit > 1.2:
-        score_sphere += 1
-    
-    # Metric 2: Spherical silhouette quality
-    if best_sil_sphere > 0.3:
-        score_sphere += 2
-    elif best_sil_sphere > 0.2:
-        score_sphere += 1
-    
-    # Metric 3: Comparison bonus
-    if spherical_fit > 1.3 and best_sil_sphere > 0.25:
-        score_sphere += 1
-    
-    print(f"Spherical structure score: {score_sphere}/5")
-    
-    return {
-        'spherical_fit': spherical_fit,
-        'spherical_score': score_sphere,
-        'best_silhouette_sphere': best_sil_sphere,
-        'best_k_sphere': best_k_sphere,
-        'spherical_silhouettes': spherical_silhouettes,
-        'cv_euclidean': cv_euclidean,
-        'cv_angular': cv_angular
-    }
-
-
-def compute_euclidean_score(hierarchy_score, spherical_score,
-                           cophenetic, spherical_fit, distance_matrix):
-    """
-    Compute Euclidean structure score (0-5).
-    
-    Euclidean geometry is appropriate when:
-    1. No hierarchical structure (low cophenetic)
-    2. No spherical structure (low spherical fit)
-    3. Uniform/isotropic distances (low CV)
-    
-    This is NOT just "default" - we measure evidence FOR Euclidean.
-    
-    Args:
-        hierarchy_score: Score from hierarchical analysis (0-5)
-        spherical_score: Score from spherical analysis (0-5)
-        cophenetic: Cophenetic correlation coefficient
-        spherical_fit: Spherical fit ratio
-        distance_matrix: [N, N] pairwise distances
-    
-    Returns:
-        score: Integer from 0 to 5
-        breakdown: Dict explaining score components
-    """
-    score = 0
-    breakdown = {}
-    
-    # ==========================================
-    # Metric 1: Lack of Special Structure (max 2 points)
-    # ==========================================
-    max_other = max(hierarchy_score, spherical_score)
-    
-    if max_other <= 1:
-        score += 2
-        breakdown['other_structures'] = '+2 (no special structure detected)'
-    elif max_other <= 2:
-        score += 1
-        breakdown['other_structures'] = '+1 (weak special structure)'
-    else:
-        breakdown['other_structures'] = '+0 (strong special structure)'
-    
-    # ==========================================
-    # Metric 2: Anti-Hierarchical Evidence (max 1 point)
-    # ==========================================
-    if cophenetic < 0.5:
-        score += 1
-        breakdown['anti_hierarchical'] = f'+1 (flat structure, cophenetic={cophenetic:.3f})'
-    else:
-        breakdown['anti_hierarchical'] = f'+0 (hierarchical, cophenetic={cophenetic:.3f})'
-    
-    # ==========================================
-    # Metric 3: Anti-Spherical Evidence (max 1 point)
-    # ==========================================
-    if spherical_fit < 1.0:
-        score += 1
-        breakdown['anti_spherical'] = f'+1 (not spherical, fit={spherical_fit:.3f})'
-    else:
-        breakdown['anti_spherical'] = f'+0 (spherical fit={spherical_fit:.3f})'
-    
-    # ==========================================
-    # Metric 4: Distance Uniformity (max 1 point)
-    # ==========================================
-    distances = distance_matrix[np.triu_indices_from(distance_matrix, k=1)]
-    cv = np.std(distances) / (np.mean(distances) + 1e-8)
-    
-    if cv < 0.4:
-        score += 1
-        breakdown['uniformity'] = f'+1 (uniform distances, CV={cv:.3f})'
-    else:
-        breakdown['uniformity'] = f'+0 (varied distances, CV={cv:.3f})'
-    
-    breakdown['total'] = score
-    
-    return score, breakdown
-
-
-def experiment_2_hierarchical_structure(
-    data_dict,
-    window_size, 
-    component='fine',
-    max_patterns=5000,
-    save_dir='./plots/hierarchy'
-):
-    """
-    Complete structure analysis: hierarchical + spherical + euclidean.
-    """
-    os.makedirs(save_dir, exist_ok=True)
-    
-    component_data = data_dict[component]
-    T, d_features = component_data.shape
-    
-    print("\n" + "=" * 80)
-    print(f"COMPLETE STRUCTURE ANALYSIS: {component.upper()}")
-    print("=" * 80)
-    print(f"Data shape: T={T:,}, features={d_features}")
-    
-    stride = max(1, window_size // 2)
-    print(f"Window size: {window_size}, Stride: {stride}")
-    
-    # ==========================================
-    # PATTERN EXTRACTION
-    # ==========================================
-    print(f"\nExtracting patterns...")
-    patterns = []
-    for i in range(0, T - window_size + 1, stride):
-        patterns.append(component_data[i:i+window_size, :].flatten())
-        
-        if (i // stride) % 500 == 0:
-            print(f"  Progress: {i}/{T} ({100*i/T:.1f}%)")
-    
-    patterns = np.array(patterns)
-    n_patterns_total = len(patterns)
-    
-    print(f"✓ Extracted {n_patterns_total:,} patterns")
-    
-    # Memory estimate
-    pattern_mem_mb = patterns.nbytes / (1024**2)
-    print(f"  Pattern memory: {pattern_mem_mb:.1f} MB")
-    
-    # Subsample if needed
-    if n_patterns_total > max_patterns:
-        print(f"⚠ Subsampling to {max_patterns:,} patterns")
-        indices = np.random.choice(n_patterns_total, max_patterns, replace=False)
-        indices.sort()
-        patterns = patterns[indices]
-        n_patterns = max_patterns
-    else:
-        n_patterns = n_patterns_total
-    
-    # Normalize
-    print(f"Normalizing patterns...")
-    scaler = StandardScaler()
-    patterns_normalized = scaler.fit_transform(patterns)
-    
-    # ==========================================
-    # PART 1: HIERARCHICAL STRUCTURE TEST
-    # ==========================================
-    print(f"\n{'='*80}")
-    print(f"PART 1: HIERARCHICAL STRUCTURE ANALYSIS")
-    print(f"{'='*80}")
-    
-    # Compute distances
-    print(f"Computing pairwise distances...")
-    import time
-    start = time.time()
-    
-    distances = pdist(patterns_normalized, metric='euclidean')
-    distance_matrix = squareform(distances)
-    
-    print(f"✓ Distances computed in {time.time()-start:.1f}s")
-    
-    # Hierarchical clustering
-    print(f"Building hierarchical clustering...")
-    
-    linkage_matrix = linkage(distances, method='ward')
-    print(f"✓ Clustering built in {time.time()-start:.1f}s")
-    
-    # Cophenetic correlation
-    c, _ = cophenet(linkage_matrix, distances)
-    
-    print(f"Cophenetic correlation: {c:.4f}")
-    
-    # Test different k
-    print(f"Testing cluster quality...")
-    max_k = min(20, n_patterns // 2)
-    silhouette_scores = []
-    
-    for k in range(2, max_k + 1):
-        clustering = AgglomerativeClustering(n_clusters=k, linkage='ward')
-        labels = clustering.fit_predict(patterns_normalized)
-        sil = silhouette_score(patterns_normalized, labels)
-        silhouette_scores.append(sil)
-        
-        if k in [2, 3, 5, 7, 10, max_k]:
-            print(f"  k={k:2d}: silhouette={sil:.4f}")
-    
-    best_k = np.argmax(silhouette_scores) + 2
-    best_sil = silhouette_scores[best_k - 2]
-    print(f"→ Best k={best_k} (silhouette={best_sil:.4f})")
-    
-    # Branching factor
-    if n_patterns > 1:
-        depth = np.log2(n_patterns)
-        branching = n_patterns ** (1 / depth)
-    else:
-        branching = 1.0
-    
-    print(f"Branching factor: {branching:.2f}")
-    
-    # Cluster separation
-    best_clustering = AgglomerativeClustering(n_clusters=best_k, linkage='ward')
-    labels = best_clustering.fit_predict(patterns_normalized)
-    
-    within_dists = []
-    between_dists = []
-    
-    for i in range(n_patterns):
-        for j in range(i+1, n_patterns):
-            if labels[i] == labels[j]:
-                within_dists.append(distance_matrix[i, j])
-            else:
-                between_dists.append(distance_matrix[i, j])
-    
-    within_mean = np.mean(within_dists) if within_dists else 0
-    between_mean = np.mean(between_dists) if between_dists else 0
-    ratio = between_mean / within_mean if within_mean > 0 else np.nan
-    
-    if within_dists and between_dists:
-        t_stat, p_value = ttest_ind(within_dists, between_dists)
-        separation_significant = p_value < 0.001
-    else:
-        p_value = 1.0
-        separation_significant = False
-    
-    # Compute hierarchical score
-    hierarchy_score = 0
-    if c > 0.7:
-        hierarchy_score += 2
-    elif c > 0.4:
-        hierarchy_score += 1
-    
-    if branching > 3:
-        hierarchy_score += 2
-    elif branching > 2:
-        hierarchy_score += 1
-    
-    if separation_significant:
-        hierarchy_score += 1
-    
-    print(f"\nHierarchical structure score: {hierarchy_score}/5")
-    
-    # ==========================================
-    # PART 2: SPHERICAL STRUCTURE TEST
-    # ==========================================
-    print(f"\n{'='*80}")
-    print(f"PART 2: SPHERICAL STRUCTURE ANALYSIS")
-    print(f"{'='*80}")
-    
-    spherical_results = test_spherical_structure(
-        patterns_normalized, 
-        component=component
-    )
-    
-    # ==========================================
-    # PART 3: EUCLIDEAN STRUCTURE TEST
-    # ==========================================
-    print(f"\n{'='*80}")
-    print(f"PART 3: EUCLIDEAN STRUCTURE ANALYSIS")
-    print(f"{'='*80}")
-    
-    euclidean_score, euclidean_breakdown = compute_euclidean_score(
-        hierarchy_score,
-        spherical_results['spherical_score'],
-        c,
-        spherical_results['spherical_fit'],
-        distance_matrix
-    )
-    
-    print(f"\nEuclidean Structure Analysis:")
-    for key, value in euclidean_breakdown.items():
-        if key != 'total':
-            print(f"  {value}")
-    
-    print(f"\nEuclidean score: {euclidean_score}/5")
-    
-    # ==========================================
-    # PART 4: COMBINED RECOMMENDATION
-    # ==========================================
-    print(f"\n{'='*80}")
-    print(f"COMBINED GEOMETRY RECOMMENDATION")
-    print(f"{'='*80}")
-    
-    spherical_score = spherical_results['spherical_score']
-    
-    print(f"\nStructure Scores:")
-    print(f"  Hierarchical (tree-like):      {hierarchy_score}/5")
-    print(f"  Spherical (pattern geometry):  {spherical_score}/5")
-    print(f"  Euclidean (flat/unstructured): {euclidean_score}/5")
-    
-    # Three-way comparison
-    scores = {
-        'HYPERBOLIC': hierarchy_score,
-        'SPHERICAL': spherical_score,
-        'EUCLIDEAN': euclidean_score
-    }
-    
-    # Find winner
-    winner = max(scores, key=scores.get)
-    max_score = scores[winner]
-    
-    # Find runner-up
-    scores_sorted = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-    runner_up_name = scores_sorted[1][0]
-    runner_up_score = scores_sorted[1][1]
-    
-    # Determine confidence
-    gap = max_score - runner_up_score
-    
-    if gap >= 2:
-        confidence = 'HIGH'
-        symbol = '✓✓✓'
-    elif gap >= 1:
-        confidence = 'MODERATE'
-        symbol = '✓✓'
-    else:
-        confidence = 'LOW'
-        symbol = '⚠⚠'
-    
-    # Build recommendations list
-    recommendations = [{
-        'geometry': winner,
-        'priority': 'PRIMARY',
-        'score': max_score,
-        'confidence': confidence,
-        'reason': f"{winner} scores highest ({max_score}/5 vs {runner_up_score}/5)"
-    }]
-    
-    # Add runner-up if close
-    if gap < 2:
-        recommendations.append({
-            'geometry': runner_up_name,
-            'priority': 'TEST',
-            'score': runner_up_score,
-            'confidence': 'SECONDARY',
-            'reason': f"Close alternative ({runner_up_score}/5)"
-        })
-    
-    print(f"\n{'='*80}")
-    print(f"FINAL RECOMMENDATIONS:")
-    print(f"{'='*80}")
-    
-    print(f"\n{symbol} PRIMARY: {winner} ({max_score}/5)")
-    print(f"   Confidence: {confidence}")
-    print(f"   Runner-up: {runner_up_name} ({runner_up_score}/5)")
-    print(f"   Gap: {gap} points")
-    
-    if gap >= 2:
-        print(f"\n   Strong evidence for {winner} geometry")
-    elif gap >= 1:
-        print(f"\n   Moderate preference for {winner} over {runner_up_name}")
-    else:
-        print(f"\n   Weak preference - consider testing both")
-    
-    # ==========================================
-    # VISUALIZATIONS
-    # ==========================================
-    print(f"\n{'='*80}")
-    print(f"Generating visualizations...")
-    print(f"{'='*80}")
-    
-    fig = plt.figure(figsize=(18, 12))
-    
-    # Plot 1: Dendrogram
-    ax1 = plt.subplot(2, 3, 1)
-    truncate = 'lastp' if n_patterns > 50 else None
-    p_val = 30 if n_patterns > 50 else n_patterns
-    dendrogram(linkage_matrix, ax=ax1, truncate_mode=truncate, p=p_val)
-    ax1.set_title(f'Dendrogram: {component.title()}', fontweight='bold')
-    ax1.grid(True, alpha=0.3)
-    
-    # Plot 2: Projection
-    ax2 = plt.subplot(2, 3, 2)
-    
-    if n_patterns > 3000:
-        pca = PCA(n_components=2, random_state=42)
-        patterns_2d = pca.fit_transform(patterns_normalized)
-        title_str = f't-SNE (k={best_k})'
-    else:
-        perplexity = min(30, n_patterns - 1)
-        tsne = TSNE(n_components=2, random_state=42, perplexity=perplexity)
-        patterns_2d = tsne.fit_transform(patterns_normalized)
-        title_str = f't-SNE (k={best_k})'
-    
-    scatter = ax2.scatter(patterns_2d[:, 0], patterns_2d[:, 1], 
-                         c=labels, cmap='tab10', alpha=0.6, s=30)
-    ax2.set_title(title_str, fontweight='bold')
-    plt.colorbar(scatter, ax=ax2, label='Cluster')
-    ax2.grid(True, alpha=0.3)
-    
-    # Plot 3: Distance Matrix
-    ax3 = plt.subplot(2, 3, 3)
-    order = leaves_list(linkage_matrix)
-    dm_ordered = distance_matrix[order, :][:, order]
-    
-    if n_patterns > 200:
-        subsample = np.linspace(0, n_patterns-1, 200, dtype=int)
-        dm_plot = dm_ordered[subsample, :][:, subsample]
-    else:
-        dm_plot = dm_ordered
-    
-    im = ax3.imshow(dm_plot, cmap='viridis', aspect='auto')
-    ax3.set_title('Distance Matrix', fontweight='bold')
-    plt.colorbar(im, ax=ax3)
-    
-    # Plot 4: Silhouette
-    ax4 = plt.subplot(2, 3, 4)
-    k_range = range(2, len(silhouette_scores) + 2)
-    ax4.plot(k_range, silhouette_scores, 'o-', linewidth=2)
-    ax4.axvline(best_k, color='red', linestyle='--', linewidth=2)
-    ax4.scatter([best_k], [best_sil], color='red', s=200, marker='*', zorder=5)
-    ax4.set_xlabel('Number of Clusters')
-    ax4.set_ylabel('Silhouette Score')
-    ax4.set_title('Clustering Quality', fontweight='bold')
-    ax4.grid(True, alpha=0.3)
-    
-    # Plot 5: Distance Distribution
-    ax5 = plt.subplot(2, 3, 5)
-    if within_dists and between_dists:
-        bins = 50
-        ax5.hist(within_dists, bins=bins, alpha=0.6, label='Within', color='blue')
-        ax5.hist(between_dists, bins=bins, alpha=0.6, label='Between', color='orange')
-        ax5.axvline(within_mean, color='blue', linestyle='--', linewidth=2)
-        ax5.axvline(between_mean, color='orange', linestyle='--', linewidth=2)
-        ax5.set_xlabel('Distance')
-        ax5.set_ylabel('Frequency')
-        ax5.set_title('Distance Distribution', fontweight='bold')
-        ax5.legend()
-        ax5.grid(True, alpha=0.3)
-    
-    # Plot 6: Summary
-    ax6 = plt.subplot(2, 3, 6)
-    ax6.axis('off')
-    # Build recommendation text
-    primary_rec = recommendations[0]
-    rec_symbol = "✓✓✓" if primary_rec['priority'] == 'PRIMARY' else "⚠⚠"
-    rec_text = f"{rec_symbol} {primary_rec['geometry']}"
-    
-    summary = f"""
-COMPLETE STRUCTURE ANALYSIS
-{'='*40}
-
-Component: {component.upper()}
-Patterns:  {n_patterns:,}
-
-HIERARCHICAL:
-  Cophenetic:   {c:.4f}
-  Branching:    {branching:.2f}
-  Best k:       {best_k}
-  Silhouette:   {best_sil:.4f}
-  Score:        {hierarchy_score}/5
-
-SPHERICAL:
-  Fit ratio:    {spherical_results.get('spherical_fit', 0):.4f}
-  Best sil:     {spherical_results.get('best_silhouette_sphere', 0):.4f}
-  Score:        {spherical_score}/5
-
-EUCLIDEAN:
-  No hierarchy: {euclidean_breakdown['anti_hierarchical'][:2]}
-  No spherical: {euclidean_breakdown['anti_spherical'][:2]}
-  Uniformity:   {euclidean_breakdown['uniformity'][:2]}
-  Score:        {euclidean_score}/5
-
-
-{'='*40}
-RECOMMENDATION:
-
-{symbol} {winner} ({max_score}/5)
-
-Confidence: {confidence}
-Gap: {gap} points vs {runner_up_name}
-
-{recommendations[0]['reason']}
-"""
-    
-    ax6.text(0.05, 0.5, summary, fontsize=9, family='monospace',
-             verticalalignment='center',
-             bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.3))
-    
-    plt.suptitle(f'Complete Structure Analysis: {component.upper()}', 
-                 fontsize=16, fontweight='bold')
-    plt.tight_layout()
-    
-    filename = f'{save_dir}/complete_analysis_{component}.png'
-    plt.savefig(filename, dpi=150, bbox_inches='tight')
-    plt.close()
-    
-    print(f"✓ Saved complete analysis to {filename}")
-    
-    # ==========================================
-    # RETURN RESULTS
-    # ==========================================
-    return {
-        'component': component,
-        'n_patterns': n_patterns,
-        
-        # Hierarchical metrics
-        'cophenetic_correlation': c,
-        'branching_factor': branching,
-        'best_k': best_k,
-        'hierarchy_score': hierarchy_score,
-        
-        # Spherical metrics
-        'spherical_fit': spherical_results.get('spherical_fit', 0),
-        'spherical_score': spherical_score,
-        
-        # Euclidean metrics
-        'euclidean_score': euclidean_score,
-        'euclidean_breakdown': euclidean_breakdown,
-        
-        # Combined recommendation
-        'recommendations': recommendations,
-        'primary_geometry': winner,
-        'runner_up_geometry': runner_up_name,
-        'confidence': confidence,
-        'score_gap': gap,
-        'all_scores': scores
-    }
-
-
-if __name__ == '__main__':
+if __name__ == '__main__': 
     parser = argparse.ArgumentParser()
     
     # Data parameters
-    parser.add_argument('--data', type=str, default='custom_decomposition')
+    parser.add_argument('--data', type=str, default='custom')
     parser.add_argument('--root_path', type=str, default='./time-series-dataset/dataset/')
     parser.add_argument('--data_path', type=str, default='weather.csv')
     parser.add_argument('--features', type=str, default='MS')
@@ -853,16 +225,15 @@ if __name__ == '__main__':
     parser.add_argument('--freq', type=str, default='h')
     parser.add_argument('--encode', type=str, default='timeF')
     
-    # MSTL parameters
-    parser.add_argument('--num_basis', type=int, default=10)
-    parser.add_argument('--orthogonal_lr', type=float, default=1e-3)
-    parser.add_argument('--orthogonal_iters', type=int, default=300)
-    parser.add_argument('--use_segments', action='store_true', default=False)
-    parser.add_argument('--mstl_period', type=int, default=24)
-    
     # Loader parameters
     parser.add_argument('--num_workers', type=int, default=0)
     parser.add_argument('--batch_size', type=int, default=32)
+    
+    # Learnable decomposition parameters
+    parser.add_argument('--use_pretrained', action='store_true', default=False,
+                       help='Load pretrained decomposition weights')
+    parser.add_argument('--model_path', type=str, default='./checkpoints/decomposition_model.pth',
+                       help='Path to pretrained model')
     
     # Analysis parameters
     parser.add_argument('--save_dir', type=str, default='./plots/hierarchy')
@@ -881,20 +252,19 @@ if __name__ == '__main__':
     set_seed(args.seed)
     
     print("=" * 80)
-    print("HIERARCHICAL STRUCTURE ANALYSIS FOR MSTL COMPONENTS")
+    print("HIERARCHICAL STRUCTURE ANALYSIS - LEARNABLE DECOMPOSITION")
     print("=" * 80)
     print(f"Dataset: {args.data_path}")
     print(f"Max patterns per component: {args.max_patterns:,}")
     print(f"Random seed: {args.seed}")
+    print(f"Using pretrained:  {args.use_pretrained}")
     
-    # Load data
-    from data_provider.data_factory import data_provider
-    
-    print("\nLoading training data...")
-    train_data, train_loader = data_provider(args, flag='train')
-    
-    # Extract components
-    data_dict = extract_mstl_components_from_dataset(train_data)
+    # Apply learnable decomposition
+    data_dict = apply_learnable_decomposition_to_dataset(
+        args,
+        use_pretrained=args.use_pretrained,
+        model_path=args.model_path
+    )
     
     # Component overview
     print("\nCreating component overview...")
@@ -921,7 +291,7 @@ if __name__ == '__main__':
     
     # Final summary
     print("\n\n" + "=" * 80)
-    print("FINAL SUMMARY - ALL COMPONENTS")
+    print("FINAL SUMMARY - ALL COMPONENTS (LEARNABLE DECOMPOSITION)")
     print("=" * 80)
     
     for comp, res in results.items():

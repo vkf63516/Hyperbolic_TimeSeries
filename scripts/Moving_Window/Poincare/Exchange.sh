@@ -1,11 +1,11 @@
 seq_len=720
 train_epochs=30
-patience=6
+patience=5
 enc_in=8
 manifold_type="Poincare"
 num_basis=6
-window_size=5
-data_path=Exchange.csv
+window_size=2
+data_path=exchange_rate.csv
 
 python run.py \
   --is_training 1 \
@@ -22,12 +22,12 @@ python run.py \
   --lradj "type3" \
   --encode_dim 64 \
   --hidden_dim 256 \
-  --batch_size 32 \
+  --batch_size 16 \
   --mstl_period 24 \
   --use_wandb \
   --learning_rate 1e-3 \
   --train_epochs $train_epochs \
-  --use_learnable_decomposition \
+  --use_no_decomposition \
   --enc_in $enc_in \
   --patience $patience \
   --manifold_type $manifold_type \
@@ -54,12 +54,12 @@ python run.py \
   --lradj "type3" \
   --encode_dim 64 \
   --hidden_dim 256 \
-  --batch_size 32 \
+  --batch_size 16 \
   --mstl_period 24 \
   --use_wandb \
   --learning_rate 1e-3 \
   --train_epochs $train_epochs \
-  --use_learnable_decomposition \
+  --use_no_decomposition \
   --enc_in $enc_in \
   --patience $patience \
   --manifold_type $manifold_type \
@@ -85,12 +85,12 @@ python run.py \
   --lradj "type3" \
   --encode_dim 64 \
   --hidden_dim 256 \
-  --batch_size 32 \
+  --batch_size 16 \
   --mstl_period 24 \
   --use_wandb \
   --learning_rate 1e-3 \
   --train_epochs $train_epochs \
-  --use_learnable_decomposition \
+  --use_no_decomposition \
   --enc_in $enc_in \
   --patience $patience \
   --manifold_type $manifold_type \
@@ -116,12 +116,12 @@ python run.py \
   --lradj "type3" \
   --encode_dim 64 \
   --hidden_dim 256 \
-  --batch_size 32 \
+  --batch_size 16 \
   --mstl_period 24 \
   --use_wandb \
   --learning_rate 1e-3 \
   --train_epochs $train_epochs \
-  --use_learnable_decomposition \
+  --use_no_decomposition \
   --enc_in $enc_in \
   --patience $patience \
   --manifold_type $manifold_type \

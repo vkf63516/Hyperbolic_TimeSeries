@@ -5,7 +5,7 @@ python run.py \
   --data_path traffic.csv \
   --model_id Traffic_coarse_hyperbolic \
   --model HyperbolicForecasting \
-  --data custom_decomposition \
+  --data custom \
   --features M \
   --seq_len 96 \
   --label_len 0 \
@@ -20,6 +20,6 @@ python run.py \
   --patience 3 \
   --manifold_type "Lorentzian" \
   --curvature 1.0 \
-  --use_decomposition \
+  --use_learnable_decomposition \
   --use_wandb \
   --num_workers 0

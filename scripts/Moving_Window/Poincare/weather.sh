@@ -67,6 +67,7 @@ python run.py \
   --use_segments \
   --fine_period 144 \
   --coarse_period 1008 \
+  --window_size $window_size \
   --use_moving_window
 
 python run.py \
@@ -97,6 +98,7 @@ python run.py \
   --manifold_type $manifold_type \
   --use_revin \
   --use_segments \
+  --window_size $window_size \
   --use_moving_window
 
 python run.py \
@@ -127,4 +129,5 @@ python run.py \
   --use_segments \
   --fine_period 144 \
   --coarse_period 1008 \
+  --window_size $window_size \
   --use_moving_window

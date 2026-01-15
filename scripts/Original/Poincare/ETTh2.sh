@@ -26,7 +26,7 @@ python run.py \
   --use_wandb \
   --learning_rate 1e-3 \
   --train_epochs $train_epochs \
-  --use_decomposition \
+  --use_learnable_decomposition \
   --enc_in $enc_in \
   --patience $patience \
   --manifold_type $manifold_type \
@@ -52,7 +52,7 @@ python run.py \
   --use_wandb \
   --learning_rate 1e-3 \
   --train_epochs $train_epochs \
-  --use_decomposition \
+  --use_learnable_decomposition \
   --enc_in 7 \
   --patience $patience \
   --manifold_type $manifold_type \
@@ -79,7 +79,7 @@ python run.py \
   --use_wandb \
   --learning_rate 1e-3 \
   --train_epochs $train_epochs \
-  --use_decomposition \
+  --use_learnable_decomposition \
   --enc_in $enc_in \
   --patience $patience \
   --manifold_type $manifold_type \
@@ -106,7 +106,7 @@ python run.py \
   --use_wandb \
   --learning_rate 1e-3 \
   --train_epochs $train_epochs \
-  --use_decomposition \
+  --use_learnable_decomposition \
   --enc_in $enc_in \
   --patience $patience \
   --manifold_type $manifold_type \

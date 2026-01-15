@@ -17,7 +17,6 @@ import torch.nn as nn
 from torch import optim
 from torch.optim import lr_scheduler
 from spec import EarlyStopping, compute_hierarchical_loss_with_manifold_dist
-from Decomposition.Orthogonal_Series_Trend_Decomposition import orthogonalMSTL
 import pandas as pd
 
 import os
@@ -32,11 +31,8 @@ class Exp_Main(Exp_Basic):
     def __init__(self, args):
         self.wandb_logger = None
         super(Exp_Main, self).__init__(args)
-        self.n_basis_components = args.num_basis
-        self.orthogonal_lr = args.orthogonal_lr
-        self.orthogonal_iters = args.orthogonal_iters
         self.manifold_type = args.manifold_type 
-        self.hypebolic_weight = args.hyperbolic_weight
+        self.hyperbolic_weight = args.hyperbolic_weight
         # Support for both segment-level and point-level
         self.use_segments = args.use_segments  # Default to point-level
         # Initialize decomposition cache
@@ -63,6 +59,7 @@ class Exp_Main(Exp_Basic):
                 'manifold_type': args.manifold_type,
                 'use_segments': args.use_segments,
                 'use_learnable_decomposition': args.use_learnable_decomposition,
+                'use_no_decomposition': args.use_no_decomposition,
                 'loss': args.loss,
                 'patience': args.patience,
             }
@@ -142,10 +139,8 @@ class Exp_Main(Exp_Basic):
                 if self.args.use_amp:
                     with torch.cuda.amp.autocast():
                         outputs, hyp_outputs = self.model(batch_x)
-                        orthogonal_loss = 0
                 else:
                     outputs, hyp_outputs = self.model(batch_x)
-                    orthogonal_loss = 0
                 f_dim = -1 if self.args.features == 'MS' else 0
                 outputs = outputs[:, -self.args.pred_len:, f_dim:]
                 batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
@@ -214,7 +209,6 @@ class Exp_Main(Exp_Basic):
                     with torch.cuda.amp.autocast():
                     
                         outputs, hyp_loss = self.model(batch_x)
-                        orthogonal_loss = 0
                         f_dim = -1 if self.args.features == 'MS' else 0
                         outputs = outputs[:, -self.args.pred_len:, f_dim:]
                         batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
@@ -223,7 +217,6 @@ class Exp_Main(Exp_Basic):
                 else:
                     
                     outputs, hyp_loss = self.model(batch_x)
-                    orthogonal_loss = 0
                     # print(outputs.shape,batch_y.shape)
                     f_dim = -1 if self.args.features == 'MS' else 0
                     outputs = outputs[:, -self.args.pred_len:, f_dim:]
@@ -246,7 +239,7 @@ class Exp_Main(Exp_Basic):
 
                     scaler.update()
                 else:
-                    back_loss = loss + self.hypebolic_weight * hyp_loss
+                    back_loss = loss + self.hyperbolic_weight * hyp_loss
                     back_loss.backward()
                     nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=5.0)
                     model_geooptim.step()
@@ -352,7 +345,6 @@ class Exp_Main(Exp_Basic):
                 else:
                     
                     outputs, hyp_outputs = self.model(batch_x)
-                    orthogonal_loss = 0
 
                 f_dim = -1 if self.args.features == 'MS' else 0
                 # print(outputs.shape,batch_y.shape)
