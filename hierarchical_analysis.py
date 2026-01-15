@@ -21,7 +21,7 @@ import torch
 warnings.filterwarnings('ignore')
 
 # Import learnable decomposition
-from Learnable_Decomposition import LearnableMultivariateDecomposition
+from Decomposition.Learnable_Decomposition import LearnableMultivariateDecomposition
 
 
 # ============================================
