@@ -5,6 +5,7 @@ enc_in=321
 encode_dim=128
 manifold_type="Poincare"
 data_path=electricity.csv
+window_size=5
 
 python run.py \
   --is_training 1 \
@@ -33,6 +34,7 @@ python run.py \
   --use_revin \
   --use_segments \
   --use_moving_window \
+  --window_size $window_size
 
 
 python run.py \
@@ -61,7 +63,8 @@ python run.py \
   --manifold_type $manifold_type \
   --use_revin \
   --use_segments \
-  --use_moving_window
+  --use_moving_window \
+  --window_size $window_size
 
 python run.py \
   --is_training 1 \
@@ -89,7 +92,8 @@ python run.py \
   --manifold_type $manifold_type \
   --use_revin \
   --use_segments \
-  --use_moving_window
+  --use_moving_window \
+  --window_size $window_size
 
 python run.py \
   --is_training 1 \
@@ -117,4 +121,5 @@ python run.py \
   --manifold_type $manifold_type \
   --use_revin \
   --use_segments \
-  --use_moving_window
+  --use_moving_window \
+  --window_size $window_size

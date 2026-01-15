@@ -1,7 +1,7 @@
 window_trend=720
 window_coarse=168
 window_fine=24
-seq_len=96
+seq_len=720
 data_path="ETTh1.csv"
 enc_in=7
 mstl_period=24

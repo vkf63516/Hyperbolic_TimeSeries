@@ -8,7 +8,7 @@ num_basis=10
 window_size=5
 
 python run.py \
-  --hyperbolic_weight 0.05 \
+  --hyperbolic_weight 0.1 \
   --is_training 1 \
   --model_id ETTm2_$seq_len'_'96_$manifold_type'_'type_exp1_Segment \
   --model HyperbolicForecasting \
@@ -41,7 +41,7 @@ python run.py \
 
 python run.py \
   --is_training 1 \
-  --hyperbolic_weight 0.05 \
+  --hyperbolic_weight 0.1 \
   --model_id ETTm2_$seq_len'_'192_$manifold_type'_'exp1_Segment \
   --model HyperbolicForecasting \
   --data ETTm2 \
@@ -72,7 +72,7 @@ python run.py \
 
 python run.py \
   --is_training 1 \
-  --hyperbolic_weight 0.05 \
+  --hyperbolic_weight 0.1 \
   --model_id ETTm2_$seq_len'_'336_$manifold_type'_'exp1_Segment \
   --model HyperbolicForecasting \
   --data ETTm2 \
@@ -104,7 +104,7 @@ python run.py \
 
 python run.py \
   --is_training 1 \
-  --hyperbolic_weight 0.05 \
+  --hyperbolic_weight 0.1 \
   --model_id ETTm2_$seq_len'_'720_$manifold_type'_'exp1_segment \
   --model HyperbolicForecasting \
   --data ETTm2 \
