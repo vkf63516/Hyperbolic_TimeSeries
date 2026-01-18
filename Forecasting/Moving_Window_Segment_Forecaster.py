@@ -254,124 +254,120 @@ class MovingWindowHyperbolicForecaster(nn.Module):
             trend_f, coarse_f, fine_f, resid_f: [B, seq_len] single feature
         
         Returns:
-            dict with predictions for this feature: [B, pred_len]
+            dict with predictions for this feature:  [B, pred_len]
         """
         B = trend_f.shape[0]
         
-        # Add feature dimension: [B, seq_len] → [B, seq_len, 1]
+        # Add feature dimension:  [B, seq_len] → [B, seq_len, 1]
         trend_f = trend_f.unsqueeze(-1)
         coarse_f = coarse_f.unsqueeze(-1)
         fine_f = fine_f.unsqueeze(-1)
         resid_f = resid_f.unsqueeze(-1)
         
-        # Encode to hyperbolic segments: [B, num_segments, encode_dim]
+        # Encode to hyperbolic segments:  [B, num_segments, encode_dim]
         encode_h = self.encode_hyperbolic(trend_f, coarse_f, fine_f, resid_f)
         
-        # Initialize moving windows with historical segments
-        # [B, num_segments, encode_dim]
-        z_current_trend = encode_h["trend_h"]
-        z_current_coarse = encode_h["seasonal_coarse_h"]
-        z_current_fine = encode_h["seasonal_fine_h"]
-        z_current_resid = encode_h["residual_h"]
+        # Initialize moving windows: Stack all components [4, B, num_segments, encode_dim]
+        z_components = torch.stack([
+            encode_h["trend_h"],
+            encode_h["seasonal_coarse_h"],
+            encode_h["seasonal_fine_h"],
+            encode_h["residual_h"]
+        ], dim=0)
         
         # Take last window_size segments
-        if z_current_trend.shape[1] > self.window_size:
-            z_current_trend = z_current_trend[:, -self.window_size:, :]
-        if z_current_coarse.shape[1] > self.window_size:
-            z_current_coarse = z_current_coarse[:, -self.window_size:, :]
-        if z_current_fine.shape[1] > self.window_size:
-            z_current_fine = z_current_fine[:, -self.window_size:, :]
-        if z_current_resid.shape[1] > self.window_size:
-            z_current_resid = z_current_resid[:, -self.window_size:, :]
+        if z_components.shape[2] > self.window_size:
+            z_components = z_components[:, :, -self.window_size:, :]
         
         # Storage for predicted latents
         latent_z = []
-        predictions_norm = []
-        cached_velocities_trend = None
-        cached_velocities_coarse = None
-        cached_velocities_fine = None 
-        cached_velocities_resid = None
+        cached_velocities = None  # Single cache for all components (batched)
+        
         # Autoregressive forecasting with moving window
         for seg_step in range(self.num_pred_segments):
-            # Compute velocities for ALL components at once (vectorized)
+            # Truncated BPTT
             if (seg_step + 1) % self.truncate_every == 0 and seg_step < self.num_pred_segments - 1:
-                z_current_trend = z_current_trend.detach()
-                z_current_coarse = z_current_coarse.detach()
-                z_current_fine = z_current_fine.detach()
-                z_current_resid = z_current_resid.detach()
-                cached_velocities_trend = None
-                cached_velocities_coarse = None
-                cached_velocities_fine = None
-                cached_velocities_resid = None
-       
-            # === Trend signal ===
-            z_last_trend = z_current_trend[:, -1, :]
-            z_prev_trend = z_current_trend[:, -2, :] if z_current_trend.shape[1] > 1 else None
-            average_velocity_trend, cached_velocities_trend = self.compute_combined_velocity_incremental(
-                z_current_trend, cached_velocities_trend
-            )
-            z_next_trend, _ = self.dynamics(z_last_trend, z_prev_trend, average_velocity_trend)
-            z_current_trend = torch.cat([z_current_trend[:, 1:, :], z_next_trend.unsqueeze(1)], dim=1)
-
-            z_last_coarse = z_current_coarse[:, -1, :]
-            z_prev_coarse = z_current_coarse[:, -2, :] if z_current_coarse.shape[1] > 1 else None
-            average_velocity_coarse, cached_velocities_coarse = self.compute_combined_velocity_incremental(
-                z_current_coarse, cached_velocities_coarse
-            )
-            z_next_coarse, _ = self.dynamics(z_last_coarse, z_prev_coarse, average_velocity_coarse)
-            z_current_coarse = torch.cat([z_current_coarse[:, 1:, :], z_next_coarse.unsqueeze(1)], dim=1)
-
-            z_last_fine = z_current_fine[:, -1, :]
-            z_prev_fine = z_current_fine[:, -2, :] if z_current_fine.shape[1] > 1 else None
-            average_velocity_fine, cached_velocities_fine = self.compute_combined_velocity_incremental(
-                z_current_fine, cached_velocities_fine
-            )
-            z_next_fine, _ = self.dynamics(z_last_fine, z_prev_fine, average_velocity_fine)
-            z_current_fine = torch.cat([z_current_fine[:, 1:, :], z_next_fine.unsqueeze(1)], dim=1)
-
-            z_last_resid = z_current_resid[:, -1, :]
-            z_prev_resid = z_current_resid[:, -2, :] if z_current_resid.shape[1] > 1 else None
-            average_velocity_resid, cached_velocities_resid = self.compute_combined_velocity_incremental(
-                z_current_resid, cached_velocities_resid
-            )
-            z_next_resid, _ = self.dynamics(z_last_resid, z_prev_resid, average_velocity_resid)
-            z_current_resid = torch.cat([z_current_resid[:, 1:, :], z_next_resid.unsqueeze(1)], dim=1)
-            if self.manifold_type == "Poincare":
-                z_fused = self.mobius_fusion_segments(z_next_trend, z_next_coarse, z_next_fine, z_next_resid)
+                z_components = z_components.detach()
+                cached_velocities = None
+            
+            num_comp, B, N, D = z_components.shape
+            
+            # === BATCHED Velocity Computation ===
+            # Flatten:  [4, B, N, D] → [4*B, N, D]
+            z_comp_flat = z_components.reshape(num_comp * B, N, D)
+            
+            # Flatten cached velocities if they exist
+            if cached_velocities is not None:
+                cache_flat = cached_velocities.reshape(num_comp * B, N-1, D)
             else:
-                z_fused = self.lorentz_fusion(z_next_trend, z_next_coarse, z_next_fine, z_next_resid)
-
-            latent_z.append(z_fused)
-        latent_z_stacked = torch.stack(latent_z, dim=1)  # [B*F, num_pred_segments, encode_dim]
-
-        #  Flatten segments into batch dimension
+                cache_flat = None
+            
+            # Single velocity call for ALL components
+            avg_velocity_flat, new_cache_flat = self.compute_combined_velocity_incremental(
+                z_comp_flat, cache_flat
+            )  # [4*B, D], [4*B, N-1, D]
+            
+            # Reshape cached velocities back:  [4*B, N-1, D] → [4, B, N-1, D]
+            cached_velocities = new_cache_flat.reshape(num_comp, B, N-1, D)
+            
+            # === BATCHED Dynamics ===
+            # Extract last and previous states (already flat from z_comp_flat)
+            z_last_flat = z_comp_flat[:, -1, :]  # [4*B, D]
+            z_prev_flat = z_comp_flat[:, -2, : ] if N > 1 else None  # [4*B, D]
+            
+            # SINGLE dynamics call for all components
+            z_next_flat, _ = self.dynamics(z_last_flat, z_prev_flat, avg_velocity_flat)
+            # [4*B, D]
+            
+            # === Update Windows ===
+            # Concatenate new state:  [4*B, N, D] 
+            z_comp_flat = torch.cat([
+                z_comp_flat[:, 1:, :],  # Drop oldest
+                z_next_flat.unsqueeze(1)  # Add newest
+            ], dim=1)
+            
+            # Reshape back:  [4*B, N, D] → [4, B, N, D]
+            z_components = z_comp_flat.reshape(num_comp, B, N, D)
+            
+            # === Unstack for Fusion ===
+            # Reshape:  [4*B, D] → [4, B, D]
+            z_next_all = z_next_flat.reshape(num_comp, B, D)
+            
+            z_next_trend = z_next_all[0]    # [B, D]
+            z_next_coarse = z_next_all[1]   # [B, D]
+            z_next_fine = z_next_all[2]     # [B, D]
+            z_next_resid = z_next_all[3]    # [B, D]
+            
+            # === Möbius/Lorentz Fusion ===
+            if self.manifold_type == "Poincare":
+                z_fused = self.mobius_fusion_segments(
+                    z_next_trend, z_next_coarse, z_next_fine, z_next_resid
+                )
+            else:
+                z_fused = self.lorentz_fusion(
+                    z_next_trend, z_next_coarse, z_next_fine, z_next_resid
+                )
+            
+            latent_z.append(z_fused)  # [B, D]
+        
+        # === Batched Reconstruction ===
+        # Stack all latents: [B, num_pred_segments, encode_dim]
+        latent_z_stacked = torch.stack(latent_z, dim=1)
+        
+        # Flatten segments into batch dimension
         BF, N, D = latent_z_stacked.shape
-        latent_flat = latent_z_stacked.reshape(BF * N, D)  # [B*F*num_pred_segments, encode_dim]
-
-        #  Call reconstructor ONCE
-        predictions_flat = self.reconstructor(latent_flat)  # [B*F*N, segment_length]
-
-        #  Reshape back
-        predictions_norm = predictions_flat.reshape(BF, N * self.segment_length)  # [B*F, pred_len]
-            # Update window: drop oldest, add newest
-
-        # Stack predicted segments
-        # Stack latent states
-        def stack_latents(lst):
-            return torch.stack(lst, dim=1)  # [B, num_segments, encode_dim]
-
-
-        # Batch decode all segments (output is [B, num_pred_segments, segment_length, 1])
-        # predictions_norm = torch.stack(predictions_norm, dim=1) 
-
-        # Flatten to [B, pred_len]
-        # predictions_norm = predictions_norm.reshape(B, self.num_pred_segments * self.segment_length)
+        latent_flat = latent_z_stacked.reshape(BF * N, D)  # [B*num_pred_segments, encode_dim]
+        
+        # Call reconstructor ONCE
+        predictions_flat = self.reconstructor(latent_flat)  # [B*N, segment_length]
+        
+        # Reshape back
+        predictions_norm = predictions_flat.reshape(BF, N * self.segment_length)  # [B, pred_len]
         
         return {
             'predictions': predictions_norm,
-            'latent_z': stack_latents(latent_z)
+            'latent_z': latent_z_stacked  # Already stacked! 
         }
-    
     def forward(self, trend, seasonal_coarse, seasonal_fine, residual):
         """
         Channel-independent forecasting with moving window trajectory modeling.

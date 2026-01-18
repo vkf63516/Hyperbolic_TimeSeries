@@ -122,7 +122,7 @@ class Model(nn.Module):
                             use_revin=self.use_revin,
                             window_size=self.window_size,
                             encode_dropout=0.3,
-                            recon_dropout=0.4,
+                            recon_dropout=0.2,
                         )
                 elif self.manifold_type == "Lorentzian":
                     self.forecaster = MovingWindowHyperbolicForecaster(

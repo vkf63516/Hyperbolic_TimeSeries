@@ -27,10 +27,6 @@ class SegmentLinearencodeMovingWindow(nn.Module):
         if self.lookback > self.num_segments * self.segment_length:
             self.pad_seq_len = (self.num_segments + 1) * self.segment_length - self.lookback
             self.num_segments += 1
-        if self.individual:
-            self.temporal_linears = nn.ModuleList()
-            for _ in range(self.num_channels):
-                self.temporal_linears.append(nn.Linear(segment_length, encode_dim))
 
         self.temporal_linears = nn.Linear(segment_length, encode_dim)
         

@@ -23,7 +23,7 @@ python run.py \
   --lradj "type3" \
   --encode_dim 64 \
   --hidden_dim 256 \
-  --batch_size 16 \
+  --batch_size 32 \
   --mstl_period 24 \
   --use_wandb \
   --learning_rate 1e-3 \
@@ -56,7 +56,7 @@ python run.py \
   --lradj "type3" \
   --encode_dim 64 \
   --hidden_dim 256 \
-  --batch_size 16 \
+  --batch_size 32 \
   --mstl_period 24 \
   --use_wandb \
   --learning_rate 1e-3 \
@@ -88,7 +88,7 @@ python run.py \
   --lradj "type3" \
   --encode_dim 64 \
   --hidden_dim 256 \
-  --batch_size 16 \
+  --batch_size 32 \
   --mstl_period 24 \
   --use_wandb \
   --learning_rate 1e-3 \
@@ -120,7 +120,7 @@ python run.py \
   --lradj "type3" \
   --encode_dim 64 \
   --hidden_dim 256 \
-  --batch_size 32 \
+  --batch_size 64 \
   --mstl_period 24 \
   --use_wandb \
   --learning_rate 1e-3 \
