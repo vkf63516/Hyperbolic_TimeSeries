@@ -19,16 +19,10 @@ class EuclideanSegmentReconstructionHead(nn.Module):
         # Input layer
         layers.append(nn.Linear(encode_dim, hidden_dim))
         layers.append(nn.LayerNorm(hidden_dim))
-        layers.append(nn.GELU())
+        layers.append(nn.ReLU())
         layers.append(nn.Dropout(dropout))
         
-        # Hidden layers
-        for _ in range(n_layers - 1):
-            layers.append(nn.Linear(hidden_dim, hidden_dim))
-            layers.append(nn.LayerNorm(hidden_dim))
-            layers.append(nn.GELU())
-            layers.append(nn.Dropout(dropout))
-        
+
         # Output layer
         layers.append(nn.Linear(hidden_dim, segment_length * output_dim))
         

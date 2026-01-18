@@ -710,7 +710,7 @@ if __name__ == '__main__':
     
     # Analysis parameters
     parser.add_argument('--save_dir', type=str, default='./plots/hierarchy')
-    parser.add_argument('--max_patterns', type=int, default=5000,
+    parser.add_argument('--max_patterns', type=int, default=3000,
                        help='Max patterns to extract (lower = less memory)')
     parser.add_argument('--window_fine', type=int, default=144)
     parser.add_argument('--window_coarse', type=int, default=1008)

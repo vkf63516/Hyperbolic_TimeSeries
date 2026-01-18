@@ -6,7 +6,7 @@ import os
 import sys
 from pathlib import Path
 from Decomposition.Learnable_Decomposition import LearnableMultivariateDecomposition
-from loss import hyperbolic_velocity_consistency_loss as hvcl
+from loss import hyperbolic_velocity_consistency_loss as hvcl, radial_diversity_loss as rdl, curvature_regularization_loss as crl
 from Forecasting.Moving_Window_Segment_Euclidean_Forecaster import MovingWindowEuclideanForecaster
 from Forecasting.Moving_Window_Segment_Forecaster import MovingWindowHyperbolicForecaster
 from Forecasting.Direct_Moving_Window_Segment_Forecaster import DirectHyperbolicForecaster
@@ -68,11 +68,11 @@ class Model(nn.Module):
                     hidden_dim=self.hidden_dim,
                     manifold_type=self.manifold_type,
                     segment_length=self.mstl_period,
-                    use_segment_norm=True,
                     use_revin=self.use_revin,
                     encode_dropout=0.5,
-                    dynamic_dropout=0.3,
+                    recon_dropout=0.2,
                     num_layers=2,
+                    window_size=self.window_size
                 )
             else:
 
@@ -122,7 +122,7 @@ class Model(nn.Module):
                             use_revin=self.use_revin,
                             window_size=self.window_size,
                             encode_dropout=0.3,
-                            recon_dropout=0.2,
+                            recon_dropout=0.4,
                         )
                 elif self.manifold_type == "Lorentzian":
                     self.forecaster = MovingWindowHyperbolicForecaster(
@@ -191,5 +191,5 @@ class Model(nn.Module):
             return x_hat, torch.tensor(0.0, device=x_hat.device)
         x_hyp = forecasts["hyperbolic_states"]["combined_h"]
         hyperbolic_loss = hvcl(z_trajectory=x_hyp, manifold=self.forecaster.manifold)
-        
+
         return x_hat, hyperbolic_loss

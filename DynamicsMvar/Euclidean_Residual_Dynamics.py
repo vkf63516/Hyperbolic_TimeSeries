@@ -29,7 +29,7 @@ class ResidualDynamics(nn.Module):
         # Output layer (maps back to encode_dim)
         layers.append(nn.Linear(hidden_dim, encode_dim))
         
-        self.residual_net = nn.Sequential(*layers)
+        self.residual_net = nn.Linear(encode_dim, encode_dim)
         
         # Learnable residual weight (initialized near 0 for stability)
         self.residual_weight = nn.Parameter(torch.tensor(0.1))

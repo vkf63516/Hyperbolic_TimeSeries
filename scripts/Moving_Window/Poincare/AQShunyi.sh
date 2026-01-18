@@ -10,6 +10,7 @@ window_size=2
 
 python run.py \
   --is_training 1 \
+  --hyperbolic_weight 0.1 \
   --model_id AQShunyi_$seq_len'_'$manifold_type'_'96_exp1_Segment \
   --model HyperbolicForecasting \
   --data custom \
@@ -39,6 +40,7 @@ python run.py \
 
 python run.py \
   --is_training 1 \
+  --hyperbolic_weight 0.1 \
   --model_id AQShunyi_$seq_len'_'$manifold'_'192_exp1_Segment \
   --model HyperbolicForecasting \
   --data custom \
@@ -68,6 +70,7 @@ python run.py \
 
 python run.py \
   --is_training 1 \
+  --hyperbolic_weight 0.1 \
   --model_id AQShunyi_$seq_len'_'$manifold_type'_'336_exp1_Segment \
   --model HyperbolicForecasting \
   --data custom \
@@ -96,6 +99,7 @@ python run.py \
 
 python run.py \
   --is_training 1 \
+  --hyperbolic_weight 0.1 \
   --model_id AQShunyi_$seq_len'_'$manifold_type'_'720_exp1_Segment \
   --model HyperbolicForecasting \
   --data custom \

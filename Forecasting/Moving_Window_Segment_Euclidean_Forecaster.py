@@ -19,7 +19,7 @@ class MovingWindowEuclideanForecaster(nn.Module):
     """
     def __init__(self, lookback, pred_len, n_features, encode_dim, hidden_dim, 
                  manifold_type, segment_length=24, 
-                 use_revin=False, dynamic_dropout=0.3, encode_dropout=0.5,
+                 use_revin=False, recon_dropout=0.3, encode_dropout=0.5,
                  num_layers=2, use_segment_norm=True, window_size=None, 
                  use_truncated_bptt=True, truncate_every=4):
         """
@@ -69,17 +69,13 @@ class MovingWindowEuclideanForecaster(nn.Module):
             lookback=lookback,
             encode_dim=encode_dim,
             segment_length=segment_length,
-            use_segment_norm=use_segment_norm,
             encode_dropout=encode_dropout,
         )
         self.step_size = nn.Parameter(torch.tensor(0.1))
 
         # Dynamics
         self.dynamics = ResidualDynamics(
-            encode_dim=encode_dim,
-            hidden_dim=hidden_dim,
-            dropout=dynamic_dropout,
-            n_layers=num_layers
+            encode_dim=encode_dim
         )
         
         # Reconstructor for SINGLE feature (output_dim=1)
@@ -88,7 +84,7 @@ class MovingWindowEuclideanForecaster(nn.Module):
             output_dim=1,  # Single feature output
             segment_length=segment_length,
             hidden_dim=hidden_dim,
-            dropout=0.2
+            dropout=recon_dropout
         )
         
         total_params = sum(p.numel() for p in self.parameters())
@@ -121,7 +117,7 @@ class MovingWindowEuclideanForecaster(nn.Module):
         z_start_flat = z_start.reshape(B * (N-1), D)
         z_end_flat = z_end.reshape(B * (N-1), D)
         
-        velocities_flat = self.manifold.logmap(z_start_flat, z_end_flat)
+        velocities_flat = z_end_flat - z_start_flat
         velocities = velocities_flat.view(B, N-1, D)
         
         # === FIXED: Exponential averaging ===
@@ -248,9 +244,5 @@ class MovingWindowEuclideanForecaster(nn.Module):
             return component_b.view(B, F, -1).permute(0, 2, 1).contiguous()
 
         return {
-            'predictions': predictions,
-            'trend_predictions': uncollapse_comp_predict(batched_out["trend"]),
-            'coarse_predictions': uncollapse_comp_predict(batched_out["coarse"]),
-            'fine_predictions': uncollapse_comp_predict(batched_out["fine"]),
-            'residual_predictions': uncollapse_comp_predict(batched_out["residual"]),
+            'predictions': predictions
         }

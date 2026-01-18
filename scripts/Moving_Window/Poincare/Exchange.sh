@@ -9,6 +9,7 @@ data_path=exchange_rate.csv
 
 python run.py \
   --is_training 1 \
+  --hyperbolic_weight 0.1 \
   --model_id Exchange_$seq_len'_'$manifold_type'_'96_exp1_Segment \
   --model HyperbolicForecasting \
   --data custom \
@@ -27,7 +28,7 @@ python run.py \
   --use_wandb \
   --learning_rate 1e-3 \
   --train_epochs $train_epochs \
-  --use_no_decomposition \
+  --use_learnable_decomposition \
   --enc_in $enc_in \
   --patience $patience \
   --manifold_type $manifold_type \
@@ -41,6 +42,7 @@ python run.py \
 
 python run.py \
   --is_training 1 \
+  --hyperbolic_weight 0.15 \
   --model_id Exchange_$seq_len'_'$manifold'_'192_exp1_Segment \
   --model HyperbolicForecasting \
   --data custom \
@@ -59,7 +61,7 @@ python run.py \
   --use_wandb \
   --learning_rate 1e-3 \
   --train_epochs $train_epochs \
-  --use_no_decomposition \
+  --use_learnable_decomposition \
   --enc_in $enc_in \
   --patience $patience \
   --manifold_type $manifold_type \
@@ -72,6 +74,7 @@ python run.py \
 
 python run.py \
   --is_training 1 \
+  --hyperbolic_weight 0.1 \
   --model_id Exchange_$seq_len'_'$manifold_type'_'336_exp1_Segment \
   --model HyperbolicForecasting \
   --data custom \
@@ -90,7 +93,7 @@ python run.py \
   --use_wandb \
   --learning_rate 1e-3 \
   --train_epochs $train_epochs \
-  --use_no_decomposition \
+  --use_learnable_decomposition \
   --enc_in $enc_in \
   --patience $patience \
   --manifold_type $manifold_type \
@@ -103,6 +106,7 @@ python run.py \
 
 python run.py \
   --is_training 1 \
+  --hyperbolic_weight 0.1 \
   --model_id Exchange_$seq_len'_'$manifold_type'_'720_exp1_Segment \
   --model HyperbolicForecasting \
   --data custom \
@@ -116,12 +120,12 @@ python run.py \
   --lradj "type3" \
   --encode_dim 64 \
   --hidden_dim 256 \
-  --batch_size 16 \
+  --batch_size 32 \
   --mstl_period 24 \
   --use_wandb \
   --learning_rate 1e-3 \
   --train_epochs $train_epochs \
-  --use_no_decomposition \
+  --use_learnable_decomposition \
   --enc_in $enc_in \
   --patience $patience \
   --manifold_type $manifold_type \

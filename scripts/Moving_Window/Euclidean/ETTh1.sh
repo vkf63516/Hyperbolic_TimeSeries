@@ -10,7 +10,6 @@ window_size=5
 
 python run.py \
   --is_training 1 \
-  --hyperbolic_weight 0.1 \
   --model_id ETTh1_$seq_len'_'96_$manifold_type'_'type_exp1_Segment \
   --model HyperbolicForecasting \
   --data ETTh1 \
@@ -25,7 +24,7 @@ python run.py \
   --encode_dim 64 \
   --hidden_dim $hidden_dim \
   --batch_size 32 \
-  --learning_rate 1e-2 \
+  --learning_rate 1e-3 \
   --train_epochs $train_epochs \
   --use_learnable_decomposition \
   --enc_in $enc_in \
@@ -92,7 +91,7 @@ python run.py \
   --use_revin \
   --use_wandb \
   --use_segments \
-  --window_size 4 \
+  --window_size $window_size \
   --use_moving_window
 
 
@@ -121,5 +120,5 @@ python run.py \
   --use_revin \
   --use_wandb \
   --use_segments \
-  --window_size 6 \
+  --window_size $window_size \
   --use_moving_window

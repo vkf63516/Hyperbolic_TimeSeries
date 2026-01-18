@@ -6,7 +6,7 @@ manifold_type="Poincare"
 data_path=ETTh1.csv
 hidden_dim=256
 num_basis=10 
-window_size=5
+window_size=2
 
 python run.py \
   --is_training 1 \
@@ -27,10 +27,12 @@ python run.py \
   --batch_size 32 \
   --learning_rate 1e-3 \
   --train_epochs $train_epochs \
-  --use_learnable_decomposition \
+  --use_no_decomposition \
   --enc_in $enc_in \
   --patience $patience \
   --manifold_type $manifold_type \
+  --mstl_period 24 \
+  --curvature 1.0 \
   --use_revin \
   --use_wandb \
   --use_segments \
@@ -56,7 +58,7 @@ python run.py \
   --batch_size 32 \
   --learning_rate 1e-3 \
   --train_epochs $train_epochs \
-  --use_learnable_decomposition \
+  --use_no_decomposition \
   --enc_in 7 \
   --patience $patience \
   --manifold_type $manifold_type \
@@ -86,7 +88,7 @@ python run.py \
   --batch_size 32 \
   --learning_rate 1e-3 \
   --train_epochs $train_epochs \
-  --use_learnable_decomposition \
+  --use_no_decomposition \
   --enc_in $enc_in \
   --patience $patience \
   --manifold_type $manifold_type \
@@ -116,7 +118,7 @@ python run.py \
   --batch_size 32 \
   --learning_rate 1e-3 \
   --train_epochs $train_epochs \
-  --use_learnable_decomposition \
+  --use_no_decomposition \
   --enc_in $enc_in \
   --patience $patience \
   --manifold_type $manifold_type \

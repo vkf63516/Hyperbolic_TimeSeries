@@ -33,7 +33,7 @@ class DirectHyperbolicForecaster(nn.Module):
         self.use_truncated_bptt = use_truncated_bptt
         self.truncate_every = truncate_every
         self.window_size = window_size
-        
+        num_input_segments = lookback // segment_length
         print(f"\n{'='*70}")
         print(f"ABLATION: Direct Hyperbolic Forecaster (No Decomposition)")
         print(f"{'='*70}")
@@ -42,6 +42,16 @@ class DirectHyperbolicForecaster(nn.Module):
         print(f"Segment length: {segment_length}")
         print(f"Encode dim: {encode_dim}")
         print(f"Strategy: Raw signal → Hyperbolic encoding")
+        print(f"\n{'='*70}")
+        print(f"Channel-Independent Moving Window Hyperbolic Forecaster")
+        print(f"{'='*70}")
+        print(f"Features: {n_features} (processed independently)")
+        print(f"Lookback: {lookback} → {num_input_segments} segments")
+        print(f"Segment length: {segment_length}")
+        print(f"encode dim: {encode_dim}")
+        print(f"Window size: {self.window_size}")
+        print(f"Strategy: channel independence + hyperbolic dynamics")
+
         
         if self.use_revin:
             self.revin = RevIN(num_features=n_features, eps=1e-5, affine=True)
@@ -74,32 +84,48 @@ class DirectHyperbolicForecaster(nn.Module):
             dropout=recon_dropout,
         )
     
-    def compute_combined_velocity(self, z_current, decay=0.9):
-        """Same as decomposed version"""
+    def compute_combined_velocity_incremental(self, z_current, cached_velocities=None, decay=0.9):
+        """
+        Incremental velocity computation for moving window.
+        
+        Returns:
+            avg_velocity: [B, D]
+            new_cached_velocities: [B, N-1, D] to pass to next step
+        """
         B, N, D = z_current.shape
         
-        if self.window_size is None:
-            return None
+        if cached_velocities is None: 
+            # First call:  compute all velocities
+            z_start = z_current[:, :-1, :]
+            z_end = z_current[: , 1:, :]
+            z_start_flat = z_start.reshape(B * (N-1), D)
+            z_end_flat = z_end. reshape(B * (N-1), D)
+            velocities_flat = self.manifold.logmap(z_start_flat, z_end_flat)
+            velocities = velocities_flat.view(B, N-1, D)
+        else:
+            # Incremental:  drop oldest, add newest
+            # cached_velocities:  [B, N-1, D] from previous window
+            # Only compute NEW velocity:  z_current[-2] → z_current[-1]
+            z_prev = z_current[:, -2, :]  # [B, D]
+            z_last = z_current[:, -1, :]  # [B, D]
+            new_velocity = self.manifold.logmap(z_prev, z_last)  # [B, D]
+            
+            # Move window: remove oldest velocity (index 0), append new
+            velocities = torch.cat([
+                cached_velocities[:, 1:, : ],  # Drop first velocity
+                new_velocity.unsqueeze(1)      # Add new velocity
+            ], dim=1)  # [B, N-1, D]
         
-        z_start = z_current[:, :-1, :]
-        z_end = z_current[:, 1:, :]
-        
-        z_start_flat = z_start.reshape(B * (N-1), D)
-        z_end_flat = z_end.reshape(B * (N-1), D)
-        
-        velocities_flat = self.manifold.logmap(z_start_flat, z_end_flat)
-        velocities = velocities_flat.view(B, N-1, D)
-        
+        # Compute weighted average (same as before)
         if decay == 1.0:
             avg_velocity = velocities.mean(dim=1)
         else:
             indices = torch.arange(N-1, dtype=torch.float32, device=z_current.device)
-            weights = decay ** (N - 2 - indices)
+            weights = decay ** (N - 2 - indices)  # Recent gets higher weight
             weights = weights / weights.sum()
             avg_velocity = (velocities * weights.view(1, -1, 1)).sum(dim=1)
         
-        return avg_velocity
-    
+        return avg_velocity, velocities    
     def process_batched_features(self, x_raw):
         """
         Process raw signal (no decomposition).
@@ -116,7 +142,7 @@ class DirectHyperbolicForecaster(nn.Module):
         x_raw = x_raw.unsqueeze(-1)
         
         # Encode directly (no decomposition)
-        encode_h = self.encode_hyperbolic(x_raw.squeeze(-1))  # [B, num_segments, encode_dim]
+        encode_h = self.encode_hyperbolic(x_raw)  # [B, num_segments, encode_dim]
         
         # Initialize moving window
         z_current = encode_h["combined_h"]
@@ -127,15 +153,20 @@ class DirectHyperbolicForecaster(nn.Module):
         
         latent_z = []
         predictions_norm = []
+        cached_velocities = None
+
         
         # Same autoregressive forecasting loop
         for seg_step in range(self.num_pred_segments):
             if (seg_step + 1) % self.truncate_every == 0 and seg_step < self.num_pred_segments - 1:
                 z_current = z_current.detach()
+                cached_velocities = None
             
             z_last = z_current[:, -1, :]
             z_prev = z_current[:, -2, : ] if z_current.shape[1] > 1 else None
-            average_velocity = self.compute_combined_velocity(z_current)
+            average_velocity, cached_velocities = self.compute_combined_velocity_incremental(
+                z_current, cached_velocities
+            )            
             z_next, _ = self.dynamics(z_last, z_prev, average_velocity)
             
             latent_z.append(z_next)

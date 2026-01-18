@@ -1,5 +1,5 @@
 import torch
-import torch.nn.functional as F
+import torch.nn.functional as Func
 from geoopt.manifolds import Lorentz, PoincareBall
 
 def hyperbolic_velocity_consistency_loss(z_trajectory, manifold, beta=1.0):
@@ -20,16 +20,16 @@ def hyperbolic_velocity_consistency_loss(z_trajectory, manifold, beta=1.0):
         return torch.tensor(0.0, device=z_trajectory.device, dtype=z_trajectory.dtype)
     
     # Compute velocities
-    z_start = z_trajectory[:, :-1, :]. reshape(-1, D)  # [B*(N-1), D]
+    z_start = z_trajectory[:, :-1, :].reshape(-1, D)  # [B*(N-1), D]
     z_end = z_trajectory[:, 1:, :].reshape(-1, D)     # [B*(N-1), D]
     
-    velocities_flat = manifold. logmap(z_start, z_end)  # [B*(N-1), D]
-    velocities = velocities_flat. view(B, N-1, D)       # [B, N-1, D]
+    velocities_flat = manifold.logmap(z_start, z_end)  # [B*(N-1), D]
+    velocities = velocities_flat.view(B, N-1, D)       # [B, N-1, D]
     
     # ✅ Batched parallel transport
     # Transport all v[t] from z[t] to z[t+1] at once
     v_curr_all = velocities[: , :-1, : ].reshape(-1, D)      # [B*(N-2), D]
-    v_next_all = velocities[:, 1:, :]. reshape(-1, D)       # [B*(N-2), D]
+    v_next_all = velocities[:, 1:, :].reshape(-1, D)       # [B*(N-2), D]
     
     z_from_all = z_trajectory[:, :-2, : ].reshape(-1, D)    # [B*(N-2), D]
     z_to_all = z_trajectory[:, 1:-1, :].reshape(-1, D)     # [B*(N-2), D]
@@ -73,6 +73,7 @@ def radial_diversity_loss(z_trajectory, manifold, target_variance=0.1, beta=1.0)
         B, F, N, D = z_trajectory.shape
         # Reshape to [B*F*N, D] for radius computation
         z_flat = z_trajectory.reshape(B * F * N, D)
+        B = B * F
     elif z_trajectory. dim() == 3:
         B, N, D = z_trajectory.shape
         z_flat = z_trajectory.reshape(B * N, D)
@@ -91,7 +92,7 @@ def radial_diversity_loss(z_trajectory, manifold, target_variance=0.1, beta=1.0)
     
     # Penalize if variance is below target (encourages spreading)
     # L_div = max(0, σ²_target - actual_variance)
-    loss = F.relu(target_variance - radius_variance)
+    loss = Func.relu(target_variance - radius_variance)
     
     return beta * loss
 
@@ -107,8 +108,7 @@ def compute_hyperbolic_radius(points, manifold):
     Returns:
         radii: [N] tensor of radii
     """
-    curvature = manifold.c. item() if hasattr(manifold. c, 'item') else manifold.c
-    
+    curvature = manifold.c
     if isinstance(manifold, Lorentz):
         # Lorentzian model: r = (1/√c) * arccosh(-√c * x_0)
         # Origin in Lorentz:  o = (1/√c, 0, ..., 0)
@@ -141,7 +141,6 @@ def compute_hyperbolic_radius(points, manifold):
         inner_arg = sqrt_c * norms
         
         # Clamp to stay within Poincaré ball
-        inner_arg = torch.clamp(inner_arg, max=1.0 - 1e-7)
         
         radii = (1.0 / sqrt_c) * torch.atanh(inner_arg)
         
@@ -221,12 +220,12 @@ def curvature_regularization_loss(z_trajectory, manifold, r_threshold=0.5,
         # Mean radius formulation (from image):
         # L_curv = max(0, r_threshold - (1/B) * Σ r_b)
         mean_radius = radii.mean()
-        loss = F.relu(r_threshold - mean_radius)
+        loss = Func.relu(r_threshold - mean_radius)
         
     elif formulation == 'per_point':
         # Per-point formulation (stronger):
         # L_curv = (1/B) * Σ max(0, r_min - r_b)
-        per_point_violations = F.relu(r_min_per_point - radii)
+        per_point_violations = Func.relu(r_min_per_point - radii)
         loss = per_point_violations.mean()
         
     else:

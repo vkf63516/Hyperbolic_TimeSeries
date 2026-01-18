@@ -4,6 +4,60 @@ import geoopt
 from spec import safe_expmap0
 from encode.Moving_Window.moving_segment_linear_encode_poincare import SegmentLinearencodeMovingWindow
 
+class SegmentLinearencodeMovingWindow(nn.Module):
+    """
+    This done for each feature 
+    Produces ONE encodeding per segment.
+    Input:  [B, seq_len]
+    Output: [B, num_segments, encode_dim]  # One encodeding per segment
+    """
+    
+    def __init__(self, lookback, encode_dim, num_channels, segment_length=24, dropout=0.1, individual=False):
+        super().__init__()
+        
+        self.encode_dim = encode_dim
+        self.segment_length = segment_length
+        self.lookback = lookback
+        self.num_segments = lookback // segment_length
+        self.pad_seq_len = 0
+        self.num_channels = num_channels
+        self.individual = individual
+        
+        if self.lookback > self.num_segments * self.segment_length:
+            self.pad_seq_len = (self.num_segments + 1) * self.segment_length - self.lookback
+            self.num_segments += 1
+        if self.individual:
+            self.temporal_linears = nn.ModuleList()
+            for _ in range(self.num_channels):
+                self.temporal_linears.append(nn.Linear(segment_length, encode_dim))
+
+        self.temporal_linears = nn.Linear(segment_length, encode_dim)
+        
+        self.dropout = nn.Dropout(dropout)
+    
+    def forward(self, x):
+        """
+        Args:
+            x: [B, seq_len] - single feature
+        Returns:
+            z: [B, num_segments, encode_dim] - trajectory
+        """
+        B = x.shape[0]
+        
+        # Pad if necessary
+        if self.pad_seq_len > 0:
+            pad = torch.zeros(B, self.pad_seq_len, device=x.device, dtype=x.dtype)
+            x = torch.cat([x, pad], dim=1)
+        
+        # Reshape into segments
+        x_seg = x.view(B, self.num_segments, self.segment_length)  # [B, num_seg, seg_len]
+        
+        # encode each segment (KEEP segment structure!)
+    
+        seg_encode = self.temporal_linears(x_seg)  # [B, num_segments, encode_dim]
+        seg_encode = self.dropout(seg_encode)
+        
+        return seg_encode
 
 class DirectPoincareMovingWindow(nn.Module):
     """

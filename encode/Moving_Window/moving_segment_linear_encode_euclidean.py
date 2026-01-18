@@ -58,20 +58,16 @@ class SegmentParallelEuclideanMovingWindow(nn.Module):
         
         # Segment-aware encoders (output per-segment encodedings)
         self.trend_encode = SegmentLinearencodeMovingWindow(
-            encode_dim=encode_dim, lookback=lookback, segment_length=segment_length,
-            use_segment_norm=use_segment_norm, dropout=encode_dropout
+            encode_dim=encode_dim, lookback=lookback, segment_length=segment_length, dropout=encode_dropout
         )
         self.seasonal_coarse_encode = SegmentLinearencodeMovingWindow(
-            encode_dim=encode_dim, lookback=lookback, segment_length=segment_length,
-            use_segment_norm=use_segment_norm, dropout=encode_dropout
+            encode_dim=encode_dim, lookback=lookback, segment_length=segment_length, dropout=encode_dropout
         )
         self.seasonal_fine_encode = SegmentLinearencodeMovingWindow(
-            encode_dim=encode_dim, lookback=lookback, segment_length=segment_length, 
-            use_segment_norm=use_segment_norm, dropout=encode_dropout
+            encode_dim=encode_dim, lookback=lookback, segment_length=segment_length, dropout=encode_dropout
         )
         self.residual_encode = SegmentLinearencodeMovingWindow(
-            encode_dim=encode_dim, lookback=lookback, segment_length=segment_length,
-            use_segment_norm=use_segment_norm, dropout=encode_dropout
+            encode_dim=encode_dim, lookback=lookback, segment_length=segment_length, dropout=encode_dropout
         )
         
 

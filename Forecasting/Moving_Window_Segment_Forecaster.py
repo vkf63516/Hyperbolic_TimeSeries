@@ -6,7 +6,7 @@ from encode.Linear.segment_linear_encode_lorentz import SegmentedParallelLorentz
 from DynamicsMvar.Poincare_Residual_Dynamics import HyperbolicPoincareDynamics
 from DynamicsMvar.Lorentz_Residual_Dynamics import HyperbolicLorentzDynamics
 from Lifting.hyperbolic_segment_reconstructor import HyperbolicSegmentReconstructionHead
-from spec import RevIN
+from spec import RevIN, safe_expmap, safe_expmap0
 
 
 class MovingWindowHyperbolicForecaster(nn.Module):
@@ -105,48 +105,146 @@ class MovingWindowHyperbolicForecaster(nn.Module):
             hidden_dim=hidden_dim,
             dropout=recon_dropout,
         )
+        self.mobius_weights = nn.Parameter(torch.ones(4) * 0.25)
+        self.lorentz_weights = nn.Parameter(torch.ones(4) * 0.25)
 
 
-    def compute_combined_velocity(self, z_current, decay=0.9):
+
+    def mobius_fusion_segments(self, z_next_trend, z_next_coarse, z_next_fine, z_next_resid):
         """
-        Exponentially-weighted velocity averaging (FIXED).
+        Fuse components for each segment independently using Möbius addition.
         
         Args:
-            decay: 0.9 = moderate recency (recent 4x more weight)
-                0.85 = strong recency (recent 8x more weight)
-                0.95 = mild recency (recent 2x more weight)
-                1.0 = uniform (no recency bias)
+            z_next_trend, z_next_coarsr, z_next_fine, z_next_resid: [B, encode_dim]
+        
+        Returns:
+            combined: [B, encode_dim]
+        """
+        # Normalize weights
+        weights = torch.softmax(self.mobius_weights, dim=0)
+
+        # Sequential Möbius addition with weights
+        combined = self.manifold.mobius_scalar_mul(weights[0], z_next_trend)
+        
+        scaled_coarse = self.manifold.mobius_scalar_mul(weights[1], z_next_coarse)
+        combined = self.manifold.mobius_add(combined, scaled_coarse)
+        
+        scaled_fine = self.manifold.mobius_scalar_mul(weights[2], z_next_fine)
+        combined = self.manifold.mobius_add(combined, scaled_fine)
+    
+        scaled_residual = self.manifold.mobius_scalar_mul(weights[3], z_next_resid)
+        combined = self.manifold.mobius_add(combined, scaled_residual)
+        
+        # Ensure numerical stability
+        combined = self.manifold.projx(combined)
+                
+        return combined
+
+    def weighted_lorentz_mean(self, points, weights):
+        """
+        Compute weighted Einstein midpoint (Fréchet mean) in Lorentz manifold.
+        This is the proper way to combine multiple points in hyperbolic space.
+        
+        Uses iterative algorithm to find the point that minimizes weighted distances.
+        
+        Args:
+            points: list of [B, encode_dim+1] - points on Lorentz manifold
+            weights: [num_points] - normalized weights
+        
+        Returns:
+            mean_point: [B, encode_dim+1] - weighted mean on manifold
+        """
+        # Initialize at weighted tangent space mean
+        tangents = [self.manifold.logmap0(p) for p in points]
+        weighted_tangent = sum(w * t for w, t in zip(weights, tangents))
+        current_mean = safe_expmap0(self.manifold, weighted_tangent)
+        current_mean = self.manifold.projx(current_mean)
+        
+        # Iterative refinement (Karcher flow)
+        # Usually converges in 5-10 iterations
+        for _ in range(10):
+            # Compute tangent vectors from current mean to each point
+            tangent_vecs = [self.manifold.logmap(current_mean, p) for p in points]
+            
+            # Weighted sum in tangent space at current mean
+            weighted_vec = sum(w * v for w, v in zip(weights, tangent_vecs))
+            
+            # Check convergence
+            if torch.norm(weighted_vec, dim=-1).max() < 1e-5:
+                break
+            
+            # Move along weighted direction
+            current_mean = safe_expmap(self.manifold, current_mean, 0.5 * weighted_vec)
+            current_mean = self.manifold.projx(current_mean)
+        
+        return current_mean
+
+    def lorentz_fusion(self, z_next_trend, z_next_coarse, z_next_fine, z_next_resid):
+        """
+        Non-hierarchical fusion using weighted Einstein midpoint in Lorentz space.
+        This is the geometrically correct way to combine points in hyperbolic space.
+        
+        Args:
+            z_next_trend, z_next_coarse, z_next_fine, z_next_resid: [B, encode_dim+1]
+        
+        Returns:
+            combined_h: [B, encode_dim+1] - combined point on manifold
+            combined_tangent: [B, encode_dim] - tangent vector representation at origin
+        """
+        # Normalize weights to sum to 1
+        weights = torch.softmax(self.lorentz_weights, dim=0)
+        
+        # Collect all points
+        points = [z_next_trend, z_next_coarse, z_next_fine, z_next_resid]
+        
+        # Compute weighted Einstein midpoint
+        combined_h = self.weighted_lorentz_mean(points, weights)
+                
+        return combined_h
+
+
+    def compute_combined_velocity_incremental(self, z_current, cached_velocities=None, decay=0.9):
+        """
+        Incremental velocity computation for moving window.
+        
+        Returns:
+            avg_velocity: [B, D]
+            new_cached_velocities: [B, N-1, D] to pass to next step
         """
         B, N, D = z_current.shape
         
-        # # Optional window limiting
-        # if self.window_size is not None and self.window_size < N:
-        #     z_current = z_current[:, -self.window_size-1:, :]
-        #     N = self.window_size + 1
+        if cached_velocities is None: 
+            # First call:  compute all velocities
+            z_start = z_current[:, :-1, :]
+            z_end = z_current[: , 1:, :]
+            z_start_flat = z_start.reshape(B * (N-1), D)
+            z_end_flat = z_end.reshape(B * (N-1), D)
+            velocities_flat = self.manifold.logmap(z_start_flat, z_end_flat)
+            velocities = velocities_flat.view(B, N-1, D)
+        else:
+            # Incremental:  drop oldest, add newest
+            # cached_velocities:  [B, N-1, D] from previous window
+            # Only compute NEW velocity:  z_current[-2] → z_current[-1]
+            z_prev = z_current[:, -2, :]  # [B, D]
+            z_last = z_current[:, -1, :]  # [B, D]
+            new_velocity = self.manifold.logmap(z_prev, z_last)  # [B, D]
+            
+            # Move window: remove oldest velocity (index 0), append new
+            velocities = torch.cat([
+                cached_velocities[:, 1:, : ],  # Drop first velocity
+                new_velocity.unsqueeze(1)      # Add new velocity
+            ], dim=1)  # [B, N-1, D]
         
-        # Compute velocities
-        if self.window_size == None:
-            return None
-        z_start = z_current[:, :-1, :]
-        z_end = z_current[:, 1:, :]
-        
-        z_start_flat = z_start.reshape(B * (N-1), D)
-        z_end_flat = z_end.reshape(B * (N-1), D)
-        
-        velocities_flat = self.manifold.logmap(z_start_flat, z_end_flat)
-        velocities = velocities_flat.view(B, N-1, D)
-        
-        # === FIXED: Exponential averaging ===
+        # Compute weighted average (same as before)
         if decay == 1.0:
             avg_velocity = velocities.mean(dim=1)
         else:
-            # Create weights on GPU (FIXED)
             indices = torch.arange(N-1, dtype=torch.float32, device=z_current.device)
             weights = decay ** (N - 2 - indices)  # Recent gets higher weight
             weights = weights / weights.sum()
             avg_velocity = (velocities * weights.view(1, -1, 1)).sum(dim=1)
         
-        return avg_velocity
+        return avg_velocity, velocities
         
     def process_batched_features(self, trend_f, coarse_f, fine_f, resid_f):
         """
@@ -170,39 +268,92 @@ class MovingWindowHyperbolicForecaster(nn.Module):
         encode_h = self.encode_hyperbolic(trend_f, coarse_f, fine_f, resid_f)
         
         # Initialize moving windows with historical segments
-        z_current = encode_h["combined_h"]  # [B, num_segments, encode_dim]
+        # [B, num_segments, encode_dim]
         z_current_trend = encode_h["trend_h"]
         z_current_coarse = encode_h["seasonal_coarse_h"]
         z_current_fine = encode_h["seasonal_fine_h"]
         z_current_resid = encode_h["residual_h"]
         
         # Take last window_size segments
-        if z_current.shape[1] > self.window_size:
-            z_current = z_current[:, -self.window_size:, :]
+        if z_current_trend.shape[1] > self.window_size:
+            z_current_trend = z_current_trend[:, -self.window_size:, :]
+        if z_current_coarse.shape[1] > self.window_size:
+            z_current_coarse = z_current_coarse[:, -self.window_size:, :]
+        if z_current_fine.shape[1] > self.window_size:
+            z_current_fine = z_current_fine[:, -self.window_size:, :]
+        if z_current_resid.shape[1] > self.window_size:
+            z_current_resid = z_current_resid[:, -self.window_size:, :]
         
         # Storage for predicted latents
         latent_z = []
         predictions_norm = []
-
-
+        cached_velocities_trend = None
+        cached_velocities_coarse = None
+        cached_velocities_fine = None 
+        cached_velocities_resid = None
         # Autoregressive forecasting with moving window
         for seg_step in range(self.num_pred_segments):
             # Compute velocities for ALL components at once (vectorized)
             if (seg_step + 1) % self.truncate_every == 0 and seg_step < self.num_pred_segments - 1:
-                z_current = z_current.detach()
+                z_current_trend = z_current_trend.detach()
+                z_current_coarse = z_current_coarse.detach()
+                z_current_fine = z_current_fine.detach()
+                z_current_resid = z_current_resid.detach()
+                cached_velocities_trend = None
+                cached_velocities_coarse = None
+                cached_velocities_fine = None
+                cached_velocities_resid = None
        
-            # === Combined signal ===
-            z_last = z_current[:, -1, :]
-            z_prev = z_current[:, -2, :] if z_current.shape[1] > 1 else None
-            average_velocity = self.compute_combined_velocity(z_current)
-            z_next, _ = self.dynamics(z_last, z_prev, average_velocity)
+            # === Trend signal ===
+            z_last_trend = z_current_trend[:, -1, :]
+            z_prev_trend = z_current_trend[:, -2, :] if z_current_trend.shape[1] > 1 else None
+            average_velocity_trend, cached_velocities_trend = self.compute_combined_velocity_incremental(
+                z_current_trend, cached_velocities_trend
+            )
+            z_next_trend, _ = self.dynamics(z_last_trend, z_prev_trend, average_velocity_trend)
+            z_current_trend = torch.cat([z_current_trend[:, 1:, :], z_next_trend.unsqueeze(1)], dim=1)
 
-            latent_z.append(z_next)
-            
+            z_last_coarse = z_current_coarse[:, -1, :]
+            z_prev_coarse = z_current_coarse[:, -2, :] if z_current_coarse.shape[1] > 1 else None
+            average_velocity_coarse, cached_velocities_coarse = self.compute_combined_velocity_incremental(
+                z_current_coarse, cached_velocities_coarse
+            )
+            z_next_coarse, _ = self.dynamics(z_last_coarse, z_prev_coarse, average_velocity_coarse)
+            z_current_coarse = torch.cat([z_current_coarse[:, 1:, :], z_next_coarse.unsqueeze(1)], dim=1)
+
+            z_last_fine = z_current_fine[:, -1, :]
+            z_prev_fine = z_current_fine[:, -2, :] if z_current_fine.shape[1] > 1 else None
+            average_velocity_fine, cached_velocities_fine = self.compute_combined_velocity_incremental(
+                z_current_fine, cached_velocities_fine
+            )
+            z_next_fine, _ = self.dynamics(z_last_fine, z_prev_fine, average_velocity_fine)
+            z_current_fine = torch.cat([z_current_fine[:, 1:, :], z_next_fine.unsqueeze(1)], dim=1)
+
+            z_last_resid = z_current_resid[:, -1, :]
+            z_prev_resid = z_current_resid[:, -2, :] if z_current_resid.shape[1] > 1 else None
+            average_velocity_resid, cached_velocities_resid = self.compute_combined_velocity_incremental(
+                z_current_resid, cached_velocities_resid
+            )
+            z_next_resid, _ = self.dynamics(z_last_resid, z_prev_resid, average_velocity_resid)
+            z_current_resid = torch.cat([z_current_resid[:, 1:, :], z_next_resid.unsqueeze(1)], dim=1)
+            if self.manifold_type == "Poincare":
+                z_fused = self.mobius_fusion_segments(z_next_trend, z_next_coarse, z_next_fine, z_next_resid)
+            else:
+                z_fused = self.lorentz_fusion(z_next_trend, z_next_coarse, z_next_fine, z_next_resid)
+
+            latent_z.append(z_fused)
+        latent_z_stacked = torch.stack(latent_z, dim=1)  # [B*F, num_pred_segments, encode_dim]
+
+        #  Flatten segments into batch dimension
+        BF, N, D = latent_z_stacked.shape
+        latent_flat = latent_z_stacked.reshape(BF * N, D)  # [B*F*num_pred_segments, encode_dim]
+
+        #  Call reconstructor ONCE
+        predictions_flat = self.reconstructor(latent_flat)  # [B*F*N, segment_length]
+
+        #  Reshape back
+        predictions_norm = predictions_flat.reshape(BF, N * self.segment_length)  # [B*F, pred_len]
             # Update window: drop oldest, add newest
-            z_current = torch.cat([z_current[:, 1:, :], z_next.unsqueeze(1)], dim=1)
-            x_pred_norm_seg = self.reconstructor(z_next)
-            predictions_norm.append(x_pred_norm_seg)
 
         # Stack predicted segments
         # Stack latent states
@@ -211,10 +362,10 @@ class MovingWindowHyperbolicForecaster(nn.Module):
 
 
         # Batch decode all segments (output is [B, num_pred_segments, segment_length, 1])
-        predictions_norm = torch.stack(predictions_norm, dim=1) 
+        # predictions_norm = torch.stack(predictions_norm, dim=1) 
 
         # Flatten to [B, pred_len]
-        predictions_norm = predictions_norm.reshape(B, self.num_pred_segments * self.segment_length)
+        # predictions_norm = predictions_norm.reshape(B, self.num_pred_segments * self.segment_length)
         
         return {
             'predictions': predictions_norm,
