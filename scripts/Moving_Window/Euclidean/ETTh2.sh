@@ -24,7 +24,7 @@ python run.py \
   --hidden_dim 256 \
   --batch_size 32 \
   --use_wandb \
-  --learning_rate 1e-3 \
+  --learning_rate 1e-1 \
   --train_epochs $train_epochs \
   --use_learnable_decomposition \
   --enc_in $enc_in \

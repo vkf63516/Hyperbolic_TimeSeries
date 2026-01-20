@@ -23,7 +23,7 @@ python run.py \
   --lradj "type3" \
   --encode_dim 64 \
   --hidden_dim 256 \
-  --batch_size 32 \
+  --batch_size 16 \
   --mstl_period 24 \
   --use_wandb \
   --learning_rate 1e-3 \
@@ -87,7 +87,7 @@ python run.py \
   --pred_len 336 \
   --lradj "type3" \
   --encode_dim 64 \
-  --hidden_dim 256 \
+  --hidden_dim 64 \
   --batch_size 32 \
   --mstl_period 24 \
   --use_wandb \
@@ -99,8 +99,8 @@ python run.py \
   --manifold_type $manifold_type \
   --use_revin \
   --use_segments \
-  --fine_period 1 \
-  --coarse_period 7 \
+  --fine_period 24 \
+  --coarse_period 168 \
   --use_moving_window \
   --window_size $window_size
 
@@ -119,8 +119,8 @@ python run.py \
   --pred_len 720 \
   --lradj "type3" \
   --encode_dim 64 \
-  --hidden_dim 256 \
-  --batch_size 64 \
+  --hidden_dim 64 \
+  --batch_size 16 \
   --mstl_period 24 \
   --use_wandb \
   --learning_rate 1e-3 \
@@ -131,7 +131,7 @@ python run.py \
   --manifold_type $manifold_type \
   --use_revin \
   --use_segments \
-  --fine_period 1 \
-  --coarse_period 7 \
+  --fine_period 24 \
+  --coarse_period 168 \
   --use_moving_window \
   --window_size $window_size

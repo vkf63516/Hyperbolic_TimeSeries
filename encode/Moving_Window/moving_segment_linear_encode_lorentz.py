@@ -1,4 +1,5 @@
 
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -56,8 +57,7 @@ class SegmentLinearencodeMovingWindow(nn.Module):
 
 class SegmentedParallelLorentzMovingWindow(nn.Module):
     """
-    Encode each feature for moving window that outputs [B, num_segments, encode_dim].
-    Each segment is independently mapped to hyperbolic space.
+    Moving window Lorentz encoder with ADAPTIVE scaling for high-volatility data.
     """
     
     def __init__(self, lookback, encode_dim=32, curvature=1.0, segment_length=24,
@@ -66,12 +66,12 @@ class SegmentedParallelLorentzMovingWindow(nn.Module):
         
         self.encode_dim = encode_dim
         
-        # Segment-aware encoders (output per-segment encodedings)
+        # Segment encoders
         self.trend_encode = SegmentLinearencodeMovingWindow(
             encode_dim=encode_dim, lookback=lookback, segment_length=segment_length, dropout=encode_dropout
         )
         self.seasonal_coarse_encode = SegmentLinearencodeMovingWindow(
-            encode_dim=encode_dim, lookback=lookback, segment_length=segment_length,dropout=encode_dropout
+            encode_dim=encode_dim, lookback=lookback, segment_length=segment_length, dropout=encode_dropout
         )
         self.seasonal_fine_encode = SegmentLinearencodeMovingWindow(
             encode_dim=encode_dim, lookback=lookback, segment_length=segment_length, dropout=encode_dropout
@@ -83,137 +83,183 @@ class SegmentedParallelLorentzMovingWindow(nn.Module):
         # Lorentz manifold
         self.manifold = geoopt.manifolds.Lorentz(k=curvature)
         
-        # Scaling parameter
-        self.effective_scale = nn.Parameter(torch.tensor(1.0))
+        # ? FIX 1: Much more conservative initial scaling for high-volatility data
+        self.effective_scale = nn.Parameter(torch.tensor(0.001))  # Was 0.1 ? Now 0.01
         
-        # Möbius fusion weights
+        # Fusion weights
         self.lorentz_weights = nn.Parameter(torch.ones(4) * 0.25)
     
     def map_segments_to_hyperbolic(self, segment_encodes):
         """
-        Map each segment encodeding to hyperbolic space independently.
-        
-        Args:
-            segment_encodes: [B, num_segments, encode_dim]
-        
-        Returns:
-            hyperbolic_encodes: [B, num_segments, encode_dim]
+        FIXED: More aggressive normalization for high-volatility data.
         """
         B, N, D = segment_encodes.shape
         
-        # Flatten segments for batch processing
-        encodes_flat = segment_encodes.reshape(B * N, D)  # [B*N, encode_dim]
-        
-        # Scale
+        # ? FIX 2: Tanh ensures scale stays in (-1, 1)
         effective_scale = torch.tanh(self.effective_scale)
-        scaled_encodes = encodes_flat * effective_scale
         
-        # Map to hyperbolic space
-        hyperbolic_flat = safe_expmap0(self.manifold, scaled_encodes)  # [B*N, encode_dim]
+        # Process each segment individually
+        hyperbolic_segments = []
         
-        # Project to manifold
-        hyperbolic_flat = self.manifold.projx(hyperbolic_flat)
+        for seg_idx in range(N):
+            seg = segment_encodes[:, seg_idx, :]  # [B, encode_dim]
+            
+            # Scale
+            scaled_seg = seg * effective_scale
+            
+            # ? FIX 3: Much stricter clamping (3.0 ? 1.5)
+            norm = torch.norm(scaled_seg, dim=-1, keepdim=True).clamp(min=1e-8)
+            scaled_seg = scaled_seg / norm * torch.clamp(norm, max=1.5)  # Was 3.0
+            
+            # Map to Lorentz
+            hyp_seg = safe_expmap0(self.manifold, scaled_seg)
+            hyp_seg = self.manifold.projx(hyp_seg)
+            
+            # ? FIX 4: Early NaN detection
+            if torch.isnan(hyp_seg).any():
+                print(f"?? NaN in map_segments at seg {seg_idx}, using origin")
+                # Use origin in Lorentz space:  [sqrt(1/k), 0, 0, ..., 0]
+                origin = torch.zeros(B, D + 1, device=seg.device, dtype=seg.dtype)
+                origin[:, 0] = torch.sqrt(1.0 / self.manifold.k)
+                hyp_seg = origin
+            
+            hyperbolic_segments.append(hyp_seg)
         
-        # Reshape back to sequence
-        hyperbolic_encodes = hyperbolic_flat.view(B, N, D)  # [B, num_segments, encode_dim]
-        
+        hyperbolic_encodes = torch.stack(hyperbolic_segments, dim=1)
         return hyperbolic_encodes
-    def weighted_lorentz_mean(self, points, weights):
+ 
+ 
+#    def map_segments_to_hyperbolic(self, segment_encodes):
+#        """
+#        VECTORIZED: Process all segments at once (like Poincare).
+#        SAFE: Clamps BEFORE expmap to prevent NaN. 
+#        """
+#        B, N, D = segment_encodes.shape
+#        
+#        # Bounded scaling
+#        effective_scale = torch.tanh(self.effective_scale)
+#        scaled_encodes = segment_encodes * effective_scale  # [B, N, D]
+#        
+#        # CRITICAL: Clamp norms BEFORE Lorentz projection
+#        norms = torch.norm(scaled_encodes, dim=-1, keepdim=True).clamp(min=1e-8)
+#        max_norm = 1.0  # Conservative for Lorentz (not 1.5!)
+#        scaled_encodes = scaled_encodes / norms * torch.clamp(norms, max=max_norm)
+#        
+#        # Flatten for batch expmap
+#        scaled_flat = scaled_encodes.reshape(B * N, D)  # [B*N, D]
+#        
+#        # Single batched call (10-30x faster than loop)
+#        hyp_flat = safe_expmap0(self. manifold, scaled_flat)  # [B*N, D+1]
+#        hyp_flat = self.manifold.projx(hyp_flat)
+#        
+#        # Reshape back
+#        hyperbolic_encodes = hyp_flat.view(B, N, D + 1)  # [B, N, D+1]
+#        
+#        # NaN check AFTER full batch (avoids per-segment overhead)
+#        if torch.isnan(hyperbolic_encodes).any():
+#            print(" NaN detected in batch encoding - using conservative fallback")
+#            # Fallback: use origin for ALL segments (maintains gradient flow)
+#            origin = torch.zeros(B, N, D + 1, device=segment_encodes.device)
+#            origin[:, : , 0] = torch.sqrt(1.0 / self. manifold.k)
+#            return origin
+#        
+#        return hyperbolic_encodes
+#    
+    def weighted_lorentz_mean_segments(self, points, weights):
         """
-        Compute weighted Einstein midpoint (Fréchet mean) in Lorentz manifold.
-        This is the proper way to combine multiple points in hyperbolic space.
-        
-        Uses iterative algorithm to find the point that minimizes weighted distances.
-        
-        Args:
-            points: list of [B, encode_dim+1] - points on Lorentz manifold
-            weights: [num_points] - normalized weights
-        
-        Returns:
-            mean_point: [B, encode_dim+1] - weighted mean on manifold
+        ? FIXED: Conservative fusion with multiple fallback strategies.
         """
-        # Initialize at weighted tangent space mean
-        tangents = [self.manifold.logmap0(p) for p in points]
-        weighted_tangent = sum(w * t for w, t in zip(weights, tangents))
-        current_mean = safe_expmap0(self.manifold, weighted_tangent)
-        current_mean = self.manifold.projx(current_mean)
+        B, N, D_plus_1 = points[0].shape
+        combined_segments = []
         
-        # Iterative refinement (Karcher flow)
-        # Usually converges in 5-10 iterations
-        for _ in range(10):
-            # Compute tangent vectors from current mean to each point
-            tangent_vecs = [self.manifold.logmap(current_mean, p) for p in points]
+        for seg_idx in range(N):
+            seg_points = [p[: , seg_idx, :] for p in points]
             
-            # Weighted sum in tangent space at current mean
-            weighted_vec = sum(w * v for w, v in zip(weights, tangent_vecs))
+            # Compute weighted tangent
+            tangents = [self.manifold.logmap0(p) for p in seg_points]
+            weighted_tangent = sum(w * t for w, t in zip(weights, tangents))
             
-            # Check convergence
-            if torch.norm(weighted_vec, dim=-1).max() < 1e-5:
-                break
+            # ? FIX 5: Check for NaN/Inf in tangents BEFORE clamping
+            if torch.isnan(weighted_tangent).any() or torch.isinf(weighted_tangent).any():
+                print(f"?? Invalid tangent at segment {seg_idx}, using first point")
+                combined_segments.append(seg_points[0])
+                continue
             
-            # Move along weighted direction
-            current_mean = safe_expmap(self.manifold, current_mean, 0.5 * weighted_vec)
+            # ? FIX 6: More conservative clamping (5.0 ? 2.0)
+            tangent_norm = torch.norm(weighted_tangent, dim=-1, keepdim=True)
+            max_norm = 2.0  # Was 5.0
+            if (tangent_norm > max_norm).any():
+                weighted_tangent = weighted_tangent / tangent_norm * torch.clamp(tangent_norm, max=max_norm)
+            
+            # Try to map to manifold
+            current_mean = safe_expmap0(self.manifold, weighted_tangent)
             current_mean = self.manifold.projx(current_mean)
-        
-        return current_mean
-
-    def lorentz_fusion(self, z_trend_h, z_coarse_h, z_fine_h, z_residual_h):
-        """
-        Non-hierarchical fusion using weighted Einstein midpoint in Lorentz space.
-        This is the geometrically correct way to combine points in hyperbolic space.
-        
-        Args:
-            z_trend_h, z_coarse_h, z_fine_h, z_residual_h: [B, encode_dim+1]
-        
-        Returns:
-            combined_h: [B, encode_dim+1] - combined point on manifold
-            combined_tangent: [B, encode_dim] - tangent vector representation at origin
-        """
-        # Normalize weights to sum to 1
-        weights = torch.softmax(self.lorentz_weights, dim=0)
-        
-        # Collect all points
-        points = [z_trend_h, z_coarse_h, z_fine_h, z_residual_h]
-        
-        # Compute weighted Einstein midpoint
-        combined_h = self.weighted_lorentz_mean(points, weights)
+            
+            # ? FIX 7: Check for NaN BEFORE iteration
+            if torch.isnan(current_mean).any():
+                print(f"?? NaN in initial mean at segment {seg_idx}, using first point")
+                combined_segments.append(seg_points[0])
+                continue
+            
+            # ? FIX 8: Reduced iterations (10 ? 5) with smaller steps
+            for iteration in range(5):
+                tangent_vecs = [self.manifold.logmap(current_mean, p) for p in seg_points]
+                weighted_vec = sum(w * v for w, v in zip(weights, tangent_vecs))
                 
+                # Early convergence
+                if torch.norm(weighted_vec, dim=-1).max() < 1e-5:
+                    break
+                
+                # Conservative update
+                vec_norm = torch.norm(weighted_vec, dim=-1, keepdim=True)
+                if (vec_norm > max_norm).any():
+                    weighted_vec = weighted_vec / vec_norm * torch.clamp(vec_norm, max=max_norm)
+                
+                # ? FIX 9: Smaller step size (0.3 ? 0.1)
+                next_mean = safe_expmap(self.manifold, current_mean, 0.1 * weighted_vec)
+                next_mean = self.manifold.projx(next_mean)
+                
+                if torch.isnan(next_mean).any():
+                    break  # Keep current_mean
+                
+                current_mean = next_mean
+            
+            combined_segments.append(current_mean)
+        
+        return torch.stack(combined_segments, dim=1)
+    
+    def lorentz_fusion(self, z_trend_h, z_coarse_h, z_fine_h, z_residual_h):
+        """Fusion across all segment positions."""
+        weights = torch.softmax(self.lorentz_weights, dim=0)
+        points = [z_trend_h, z_coarse_h, z_fine_h, z_residual_h]
+        combined_h = self.weighted_lorentz_mean_segments(points, weights)
         return combined_h
-
+    
     def forward(self, trend, seasonal_coarse, seasonal_fine, residual):
         """
-        Encode decomposed time series components to Lorentz hyperbolic space.
+        Forward with fixed dimension handling.
         
         Args:
-            trend: [B, seq_len, input_dim] 
-            seasonal_coarse: [B, seq_len, input_dim] 
-            seasonal_fine: [B, seq_len, input_dim] 
-            residual: [B, seq_len, input_dim] 
-        
+            trend, seasonal_coarse, seasonal_fine, residual: [B, seq_len, 1] 
+            
         Returns:
-            dict with:
-                - trend_tangent, seasonal_coarse_tangent, seasonal_fine_tangent, residual_tangent: [B, encode_dim]
-                - trend_h, seasonal_coarse_h, seasonal_fine_h, residual_h: [B, encode_dim+1]
-                - combined_tangent: [B, encode_dim]
-                - combined_h: [B, encode_dim+1]
+            dict with components of shape [B, num_segments, encode_dim+1]
         """
-        # 1) Encode to Euclidean latent (tangent vectors at origin)
-        z_trend_segments = self.trend_encode(trend)  # [B, encode_dim]
+        # Encode to segments:  [B, num_segments, encode_dim]
+        z_trend_segments = self.trend_encode(trend)
         z_coarse_segments = self.seasonal_coarse_encode(seasonal_coarse)
         z_fine_segments = self.seasonal_fine_encode(seasonal_fine)
         z_residual_segments = self.residual_encode(residual)
-
+        
+        # Map to hyperbolic (FIXED: now returns [B, num_segments, encode_dim+1])
         z_trend_h = self.map_segments_to_hyperbolic(z_trend_segments)
         z_coarse_h = self.map_segments_to_hyperbolic(z_coarse_segments)
         z_fine_h = self.map_segments_to_hyperbolic(z_fine_segments)
         z_residual_h = self.map_segments_to_hyperbolic(z_residual_segments)
-            
-    
-        # Non-hierarchical: Use weighted Einstein midpoint (Fréchet mean)
-        combined_h = self.lorentz_fusion(
-            z_trend_h, z_coarse_h, z_fine_h, z_residual_h
-        )
-
+        
+        # Fusion
+        combined_h = self.lorentz_fusion(z_trend_h, z_coarse_h, z_fine_h, z_residual_h)
+        
         return {
             "trend_h": z_trend_h,
             "seasonal_coarse_h": z_coarse_h,

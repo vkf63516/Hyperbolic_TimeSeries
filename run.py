@@ -32,7 +32,9 @@ parser.add_argument('--model', type=str, required=True, default='HyperbolicForec
 parser.add_argument('--gradient_truncation_K', type=int, default=6, 
                     help='truncation steps for BPTT in hyperbolic forecasting')
 # NEW: Segment-level vs Point-level hyperbolic encodedings
-parser.add_argument('--hyperbolic_weight', type=float, default=0.2, help='hyperbolic consistency weight')
+parser.add_argument('--hyperbolic_weight', type=float, default=0.2, help='temporal consistency weight')
+parser.add_argument('--hierarchy_weight', type=float, default=0.0001, help='hierarchy weight')
+
 parser.add_argument('--share_feature_weights', action='store_true', default=False,
                     help='share weights across features (for high-D data)')
 parser.add_argument('--mstl_period', type=int, default=24,

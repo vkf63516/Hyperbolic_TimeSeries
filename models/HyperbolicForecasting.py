@@ -183,13 +183,15 @@ class Model(nn.Module):
             residual = components['residual']
 
             forecasts = self.forecaster(trend, seasonal_coarse, seasonal_fine, residual)
+            hierarchy_loss = forecasts["hierarchy_loss"]
         else:
             forecasts = self.forecaster(batch_x)
+            hierarchy_loss = torch.tensor(0.0, device=x_hat.device)
         # Get individual hyperbolic representations
         x_hat = forecasts["predictions"]
         if self.manifold_type == "Euclidean":
-            return x_hat, torch.tensor(0.0, device=x_hat.device)
+            return x_hat, torch.tensor(0.0, device=x_hat.device), torch.tensor(0.0, device=x_hat.device)
         x_hyp = forecasts["hyperbolic_states"]["combined_h"]
         hyperbolic_loss = hvcl(z_trajectory=x_hyp, manifold=self.forecaster.manifold)
 
-        return x_hat, hyperbolic_loss
+        return x_hat, hyperbolic_loss, hierarchy_loss

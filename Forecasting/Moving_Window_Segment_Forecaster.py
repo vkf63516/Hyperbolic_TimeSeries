@@ -6,7 +6,7 @@ from encode.Linear.segment_linear_encode_lorentz import SegmentedParallelLorentz
 from DynamicsMvar.Poincare_Residual_Dynamics import HyperbolicPoincareDynamics
 from DynamicsMvar.Lorentz_Residual_Dynamics import HyperbolicLorentzDynamics
 from Lifting.hyperbolic_segment_reconstructor import HyperbolicSegmentReconstructionHead
-from spec import RevIN, safe_expmap, safe_expmap0
+from spec import RevIN, safe_expmap, safe_expmap0, compute_hierarchical_loss_with_manifold_dist
 
 
 class MovingWindowHyperbolicForecaster(nn.Module):
@@ -102,6 +102,7 @@ class MovingWindowHyperbolicForecaster(nn.Module):
             output_dim=1,
             segment_length=segment_length,  # NEW
             manifold=self.manifold,
+            manifold_type=self.manifold_type,
             hidden_dim=hidden_dim,
             dropout=recon_dropout,
         )
@@ -140,68 +141,67 @@ class MovingWindowHyperbolicForecaster(nn.Module):
                 
         return combined
 
-    def weighted_lorentz_mean(self, points, weights):
+    def weighted_lorentz_mean_segments(self, points, weights):
         """
-        Compute weighted Einstein midpoint (Fréchet mean) in Lorentz manifold.
-        This is the proper way to combine multiple points in hyperbolic space.
-        
-        Uses iterative algorithm to find the point that minimizes weighted distances.
-        
-        Args:
-            points: list of [B, encode_dim+1] - points on Lorentz manifold
-            weights: [num_points] - normalized weights
-        
-        Returns:
-            mean_point: [B, encode_dim+1] - weighted mean on manifold
+        ? FIXED: Conservative fusion with multiple fallback strategies.
         """
-        # Initialize at weighted tangent space mean
+        B, D_plus_1 = points[0].shape
+        
+        # Compute weighted tangent
         tangents = [self.manifold.logmap0(p) for p in points]
         weighted_tangent = sum(w * t for w, t in zip(weights, tangents))
+        
+        # ? FIX 5: Check for NaN/Inf in tangents BEFORE clamping
+        if torch.isnan(weighted_tangent).any() or torch.isinf(weighted_tangent).any():
+            print(f"?? Invalid tangent at segment {points[0]}, using first point")
+            return points[0]
+        
+        # ? FIX 6: More conservative clamping (5.0 ? 2.0)
+        tangent_norm = torch.norm(weighted_tangent, dim=-1, keepdim=True)
+        max_norm = 2.0  # Was 5.0
+        if (tangent_norm > max_norm).any():
+            weighted_tangent = weighted_tangent / tangent_norm * torch.clamp(tangent_norm, max=max_norm)
+        
+        # Try to map to manifold
         current_mean = safe_expmap0(self.manifold, weighted_tangent)
         current_mean = self.manifold.projx(current_mean)
         
-        # Iterative refinement (Karcher flow)
-        # Usually converges in 5-10 iterations
-        for _ in range(10):
-            # Compute tangent vectors from current mean to each point
+        # ? FIX 7: Check for NaN BEFORE iteration
+        if torch.isnan(current_mean).any() or torch.isinf(current_mean).any():
+            print(f"?? NaN in initial mean at {points[0]}, using first point")
+            return point[0]
+        
+        # ? FIX 8: Reduced iterations (10 ? 5) with smaller steps
+        for iteration in range(5):
             tangent_vecs = [self.manifold.logmap(current_mean, p) for p in points]
-            
-            # Weighted sum in tangent space at current mean
             weighted_vec = sum(w * v for w, v in zip(weights, tangent_vecs))
             
-            # Check convergence
+            # Early convergence
             if torch.norm(weighted_vec, dim=-1).max() < 1e-5:
                 break
             
-            # Move along weighted direction
-            current_mean = safe_expmap(self.manifold, current_mean, 0.5 * weighted_vec)
-            current_mean = self.manifold.projx(current_mean)
+            # Conservative update
+            vec_norm = torch.norm(weighted_vec, dim=-1, keepdim=True)
+            if (vec_norm > max_norm).any():
+                weighted_vec = weighted_vec / vec_norm * torch.clamp(vec_norm, max=max_norm)
+            
+            # ? FIX 9: Smaller step size (0.3 ? 0.1)
+            next_mean = safe_expmap(self.manifold, current_mean, 0.1 * weighted_vec)
+            next_mean = self.manifold.projx(next_mean)
+            
+            if torch.isnan(next_mean).any():
+                break  # Keep current_mean
+            
+            current_mean = next_mean
         
         return current_mean
-
-    def lorentz_fusion(self, z_next_trend, z_next_coarse, z_next_fine, z_next_resid):
-        """
-        Non-hierarchical fusion using weighted Einstein midpoint in Lorentz space.
-        This is the geometrically correct way to combine points in hyperbolic space.
-        
-        Args:
-            z_next_trend, z_next_coarse, z_next_fine, z_next_resid: [B, encode_dim+1]
-        
-        Returns:
-            combined_h: [B, encode_dim+1] - combined point on manifold
-            combined_tangent: [B, encode_dim] - tangent vector representation at origin
-        """
-        # Normalize weights to sum to 1
+    
+    def lorentz_fusion(self, z_trend_h, z_coarse_h, z_fine_h, z_residual_h):
+        """Fusion across all segment positions."""
         weights = torch.softmax(self.lorentz_weights, dim=0)
-        
-        # Collect all points
-        points = [z_next_trend, z_next_coarse, z_next_fine, z_next_resid]
-        
-        # Compute weighted Einstein midpoint
-        combined_h = self.weighted_lorentz_mean(points, weights)
-                
+        points = [z_trend_h, z_coarse_h, z_fine_h, z_residual_h]
+        combined_h = self.weighted_lorentz_mean_segments(points, weights)
         return combined_h
-
 
     def compute_combined_velocity_incremental(self, z_current, cached_velocities=None, decay=0.9):
         """
@@ -281,6 +281,11 @@ class MovingWindowHyperbolicForecaster(nn.Module):
         
         # Storage for predicted latents
         latent_z = []
+        latent_trend = []
+        latent_coarse = []
+        latent_fine = []
+        latent_resid = []
+        hierarchy_losses = []
         cached_velocities = None  # Single cache for all components (batched)
         
         # Autoregressive forecasting with moving window
@@ -337,6 +342,18 @@ class MovingWindowHyperbolicForecaster(nn.Module):
             z_next_coarse = z_next_all[1]   # [B, D]
             z_next_fine = z_next_all[2]     # [B, D]
             z_next_resid = z_next_all[3]    # [B, D]
+            encodings_dict = {
+                "trend_h": z_next_trend,
+                "seasonal_coarse_h": z_next_coarse,
+                "seasonal_fine_h": z_next_fine,
+                "residual_h": z_next_resid
+            }
+            step_hierarchy_loss = compute_hierarchical_loss_with_manifold_dist(
+                encodings_dict, 
+                manifold=self.manifold,
+                margin=0.1
+            )
+            hierarchy_losses.append(step_hierarchy_loss)
             
             # === Möbius/Lorentz Fusion ===
             if self.manifold_type == "Poincare":
@@ -353,6 +370,8 @@ class MovingWindowHyperbolicForecaster(nn.Module):
         # === Batched Reconstruction ===
         # Stack all latents: [B, num_pred_segments, encode_dim]
         latent_z_stacked = torch.stack(latent_z, dim=1)
+ 
+        avg_hierarchy_loss = torch.mean(torch.stack(hierarchy_losses)) if hierarchy_losses else torch.tensor(0.0)
         
         # Flatten segments into batch dimension
         BF, N, D = latent_z_stacked.shape
@@ -366,7 +385,8 @@ class MovingWindowHyperbolicForecaster(nn.Module):
         
         return {
             'predictions': predictions_norm,
-            'latent_z': latent_z_stacked  # Already stacked! 
+            'latent_z': latent_z_stacked,  # Already stacked! 
+            'hierarchy_loss': avg_hierarchy_loss
         }
     def forward(self, trend, seasonal_coarse, seasonal_fine, residual):
         """
@@ -427,7 +447,8 @@ class MovingWindowHyperbolicForecaster(nn.Module):
             'predictions': predictions,
             'hyperbolic_states': {
                 "combined_h": uncollapse_latent(batched_out["latent_z"]),
-            }
+            },
+            'hierarchy_loss': batched_out['hierarchy_loss']
         }
 
     def _normalize_component(self, component):

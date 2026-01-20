@@ -57,21 +57,10 @@ class HyperbolicPoincareDynamics(nn.Module):
         self.manifold = manifold
         self.encode_dim = encode_dim
         
-        # Only 2 learnable parameters!
+        # Only 2 learnable parameters and one linear layer!
         self.alpha = nn.Parameter(torch.tensor(0.7))
         self.step_size = nn.Parameter(torch.tensor(1.0))
         self.velocity_net = nn.Linear(encode_dim, encode_dim)
-        # self.velocity_net = nn.Linear(encode_dim // 2, encode_dim)
-        # layers = []
-        
-        # # Input layer
-        # layers.append(nn.Linear(encode_dim, encode_dim // 2))
-        # layers.append(nn.LayerNorm(encode_dim // 2))
-        # layers.append(nn.ReLU())
-        # layers.append(nn.Dropout(0.3))
-        # layers.append(nn.Linear(encode_dim // 2, encode_dim))
-        
-        # self.velocity_net = nn.Sequential(*layers)
     
     def forward(self, x_current, x_previous=None, average_velocity=None):
         """

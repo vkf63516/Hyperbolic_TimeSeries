@@ -33,6 +33,7 @@ class Exp_Main(Exp_Basic):
         super(Exp_Main, self).__init__(args)
         self.manifold_type = args.manifold_type 
         self.hyperbolic_weight = args.hyperbolic_weight
+        self.hierarchy_weight = args.hierarchy_weight
         # Support for both segment-level and point-level
         self.use_segments = args.use_segments  # Default to point-level
         # Initialize decomposition cache
@@ -138,9 +139,9 @@ class Exp_Main(Exp_Basic):
                 # encoder - decoder
                 if self.args.use_amp:
                     with torch.cuda.amp.autocast():
-                        outputs, hyp_outputs = self.model(batch_x)
+                        outputs, hyp_outputs, hierarchy_outputs = self.model(batch_x)
                 else:
-                    outputs, hyp_outputs = self.model(batch_x)
+                    outputs, hyp_outputs, hierarchy_outputs = self.model(batch_x)
                 f_dim = -1 if self.args.features == 'MS' else 0
                 outputs = outputs[:, -self.args.pred_len:, f_dim:]
                 batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
@@ -208,7 +209,7 @@ class Exp_Main(Exp_Basic):
                 if self.args.use_amp:
                     with torch.cuda.amp.autocast():
                     
-                        outputs, hyp_loss = self.model(batch_x)
+                        outputs, hyp_loss, hierarchy_loss = self.model(batch_x)
                         f_dim = -1 if self.args.features == 'MS' else 0
                         outputs = outputs[:, -self.args.pred_len:, f_dim:]
                         batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
@@ -216,7 +217,7 @@ class Exp_Main(Exp_Basic):
                         train_loss.append(loss.item())
                 else:
                     
-                    outputs, hyp_loss = self.model(batch_x)
+                    outputs, hyp_loss, hierarchy_loss = self.model(batch_x)
                     # print(outputs.shape,batch_y.shape)
                     f_dim = -1 if self.args.features == 'MS' else 0
                     outputs = outputs[:, -self.args.pred_len:, f_dim:]
@@ -239,7 +240,7 @@ class Exp_Main(Exp_Basic):
 
                     scaler.update()
                 else:
-                    back_loss = loss + self.hyperbolic_weight * hyp_loss
+                    back_loss = loss + self.hyperbolic_weight * hyp_loss + self.hierarchy_weight * hierarchy_loss
                     back_loss.backward()
                     nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=5.0)
                     model_geooptim.step()
@@ -341,10 +342,10 @@ class Exp_Main(Exp_Basic):
                 # encoder - decoder
                 if self.args.use_amp:
                     with torch.cuda.amp.autocast():
-                        outputs, hyp_outputs = self.model(batch_x)
+                        outputs, hyp_outputs, hierarchy_outputs = self.model(batch_x)
                 else:
                     
-                    outputs, hyp_outputs = self.model(batch_x)
+                    outputs, hyp_outputs, hierarchy_outputs = self.model(batch_x)
 
                 f_dim = -1 if self.args.features == 'MS' else 0
                 # print(outputs.shape,batch_y.shape)

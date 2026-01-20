@@ -30,7 +30,7 @@ def compute_hierarchical_loss_with_manifold_dist(encodedings_dict, manifold, mar
     residual_h = encodedings_dict["residual_h"]
     
     # Origin on Lorentz manifold
-    origin = manifold.origin  # [1, 0, 0, ..., 0]
+    origin = manifold.origin(trend_h.shape[-1], device=trend_h.device)  # [1, 0, 0, ..., 0]
     
     # Hyperbolic distances from origin (encodes depth)
     trend_dist_from_origin = manifold.dist(trend_h, origin)
@@ -62,20 +62,24 @@ def compute_hierarchical_loss_with_manifold_dist(encodedings_dict, manifold, mar
     return total_loss
 
 
-def segment_safe_expmap0(manifold, u, max_norm=10.0, eps=1e-6):
-    original_shape = u.shape
-    B, N, D = original_shape
-    u = u.reshape(B * N, D)
-    norm = u.norm(dim=-1, keepdim=True).clamp_min(eps)
-    scale = torch.minimum(torch.ones_like(norm), max_norm) / norm
-    # clamp = torch.clamp(scale, max=max_norm) / norm
-    u = u * scale
-    # Exponential map
-    x = manifold.expmap0(u)
-    x = manifold.projx(x)
-    manifold_dim = x.shape[-1]  # encode_dim + 1 for Lorentz
-    x = x.reshape(B, N, manifold_dim)
-    return x
+def safe_expmap0_lorentz(manifold, v, eps=1e-8, initial_scale=0.1):
+    """
+    Safe expmap0 for Lorentz manifold based on MiT implementation. 
+    Uses tanh scaling to prevent overflow in acosh. 
+    """
+    # Apply tanh scaling like MiT
+    scale_factor = torch.tensor(initial_scale, device=v.device, dtype=v.dtype)
+    effective_scale = torch.tanh(scale_factor)  # Maps to (-1, 1)
+    
+    scaled_v = v * effective_scale
+    
+    # Use native expmap0 (geoopt handles the math correctly)
+    result = manifold.expmap0(scaled_v)
+    
+    # Project to ensure manifold constraint
+    result = manifold.projx(result)
+    
+    return result
 
 
 def safe_expmap(manifold, base_point, v, eps=1e-15, max_norm=7.0):
