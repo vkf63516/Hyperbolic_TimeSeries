@@ -9,7 +9,8 @@ window_size=2
 
 python run.py \
   --is_training 1 \
-  --hyperbolic_weight 0.1 \
+  --hyperbolic_weight 0.0 \
+  --hierarchy_weight 0.0 \
   --model_id AQWan_$seq_len'_'$manifold_type'_'96_exp1_Segment \
   --model HyperbolicForecasting \
   --data custom \

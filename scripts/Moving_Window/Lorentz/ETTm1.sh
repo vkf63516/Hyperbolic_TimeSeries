@@ -25,7 +25,7 @@ python run.py \
   --encode_dim 64 \
   --hidden_dim $hidden_dim \
   --batch_size 32 \
-  --learning_rate 1e-1 \
+  --learning_rate 1e-3 \
   --train_epochs $train_epochs \
   --use_learnable_decomposition \
   --enc_in $enc_in \
@@ -57,7 +57,7 @@ python run.py \
   --encode_dim 64 \
   --hidden_dim $hidden_dim \
   --batch_size 32 \
-  --learning_rate 1e-1 \
+  --learning_rate 1e-3 \
   --train_epochs $train_epochs \
   --use_learnable_decomposition \
   --enc_in $enc_in \
@@ -89,7 +89,7 @@ python run.py \
   --encode_dim 64 \
   --hidden_dim $hidden_dim \
   --batch_size 32 \
-  --learning_rate 1e-1 \
+  --learning_rate 1e-3 \
   --train_epochs $train_epochs \
   --use_learnable_decomposition \
   --enc_in $enc_in \
@@ -121,7 +121,7 @@ python run.py \
   --encode_dim 64 \
   --hidden_dim $hidden_dim \
   --batch_size 32 \
-  --learning_rate 1e-1 \
+  --learning_rate 1e-3 \
   --train_epochs $train_epochs \
   --use_learnable_decomposition \
   --enc_in $enc_in \

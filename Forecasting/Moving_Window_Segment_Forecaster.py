@@ -216,7 +216,7 @@ class MovingWindowHyperbolicForecaster(nn.Module):
         if cached_velocities is None: 
             # First call:  compute all velocities
             z_start = z_current[:, :-1, :]
-            z_end = z_current[: , 1:, :]
+            z_end = z_current[:, 1:, :]
             z_start_flat = z_start.reshape(B * (N-1), D)
             z_end_flat = z_end.reshape(B * (N-1), D)
             velocities_flat = self.manifold.logmap(z_start_flat, z_end_flat)
@@ -318,7 +318,7 @@ class MovingWindowHyperbolicForecaster(nn.Module):
             # === BATCHED Dynamics ===
             # Extract last and previous states (already flat from z_comp_flat)
             z_last_flat = z_comp_flat[:, -1, :]  # [4*B, D]
-            z_prev_flat = z_comp_flat[:, -2, : ] if N > 1 else None  # [4*B, D]
+            z_prev_flat = z_comp_flat[:, -2, :] if N > 1 else None  # [4*B, D]
             
             # SINGLE dynamics call for all components
             z_next_flat, _ = self.dynamics(z_last_flat, z_prev_flat, avg_velocity_flat)

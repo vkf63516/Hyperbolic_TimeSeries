@@ -7,7 +7,7 @@ from encode.Linear.segment_linear_encode_lorentz import SegmentedParallelLorentz
 from DynamicsMvar.Poincare_Residual_Dynamics import HyperbolicPoincareDynamics
 from DynamicsMvar.Lorentz_Residual_Dynamics import HyperbolicLorentzDynamics
 from Lifting.hyperbolic_segment_reconstructor import HyperbolicSegmentReconstructionHead  # NEW
-from spec import RevIN, safe_expmap
+from spec import RevIN, safe_expmap, compute_hierarchical_loss_with_manifold_dist
 
 
 class SegmentedHyperbolicForecaster(nn.Module):
@@ -68,6 +68,13 @@ class SegmentedHyperbolicForecaster(nn.Module):
         self.encode_dropout = encode_dropout
         self.dynamic_dropout = dynamic_dropout
         self.num_layers=num_layers
+        num_input_segments = lookback // segment_length
+        if window_size is not None:
+            self.window_size = min(window_size, num_input_segments)
+        else:
+        # Adaptive:  cap at 15 segments for efficiency
+            self.window_size = min(15, num_input_segments)
+        print(f"Window size: {self.window_size} segments")
         self.share_feature_weights = share_feature_weights
         if self.use_revin:
             self.revin = RevIN(num_features=n_features, eps=1e-5, affine=True)
@@ -101,9 +108,12 @@ class SegmentedHyperbolicForecaster(nn.Module):
             output_dim=n_features,
             segment_length=segment_length,  # NEW
             manifold=self.manifold,
+            manifold_type=self.manifold_type,
             hidden_dim=hidden_dim,
             dropout=recon_dropout
         )
+        self.mobius_weights = nn.Parameter(torch.ones(4) * 0.25)
+
 
     def _create_dynamics(self):
         if self.manifold_type == "Poincare":
@@ -116,127 +126,206 @@ class SegmentedHyperbolicForecaster(nn.Module):
                 encode_dim=self.encode_dim,
                 manifold=self.manifold
             )
-        
-    
-    def forward(self, trend, seasonal_coarse, seasonal_fine, residual):
+
+    def mobius_fusion_segments(self, z_next_trend, z_next_coarse, z_next_fine, z_next_resid):
         """
-        Segment-level forecasting.
+        Fuse components for each segment independently using Möbius addition.
         
         Args:
-            trend: [B, seq_len, n_features]
-            seasonal_coarse: [B, seq_len, n_features]
-            seasonal_fine: [B, seq_len, n_features]
-            residual: [B, seq_len, n_features]
+            z_next_trend, z_next_coarsr, z_next_fine, z_next_resid: [B, encode_dim]
         
         Returns:
-            dict with:
-                - predictions: [B, pred_len, n_features]
-                - trend_predictions: [B, pred_len, n_features]
-                - coarse_predictions: [B, pred_len, n_features]
-                - fine_predictions: [B, pred_len, n_features]
-                - residual_predictions: [B, pred_len, n_features]
+            combined: [B, encode_dim]
         """
-        # Encode (segments handled internally)
-        x_combined = trend + seasonal_coarse + seasonal_fine + residual  # [B, lookback, n_features]
-        
-        # Step 2: Store RevIN stats from combined signal (NO transformation applied!)
-        if self.use_revin:
-            # This ONLY stores mean and std, doesn't transform the data
-            # We pass mode='norm' but it's just to compute and store stats
-            self.revin(x_combined, mode='norm')
+        # Normalize weights
+        weights = torch.softmax(self.mobius_weights, dim=0)
 
+        # Sequential Möbius addition with weights
+        combined = self.manifold.mobius_scalar_mul(weights[0], z_next_trend)
+        
+        scaled_coarse = self.manifold.mobius_scalar_mul(weights[1], z_next_coarse)
+        combined = self.manifold.mobius_add(combined, scaled_coarse)
+        
+        scaled_fine = self.manifold.mobius_scalar_mul(weights[2], z_next_fine)
+        combined = self.manifold.mobius_add(combined, scaled_fine)
+    
+        scaled_residual = self.manifold.mobius_scalar_mul(weights[3], z_next_resid)
+        combined = self.manifold.mobius_add(combined, scaled_residual)
+        
+        # Ensure numerical stability
+        combined = self.manifold.projx(combined)
+                
+        return combined
+
+        
+    def compute_combined_velocity_incremental(self, z_current, cached_velocities=None, decay=0.9):
+        """
+        Incremental velocity computation for moving window. 
+        
+        Args:
+            z_current: [B, N, D] - current window of segments
+            cached_velocities: [B, N-1, D] - velocities from previous step
+            decay:  float - exponential decay for weighting recent velocities
+        
+        Returns: 
+            avg_velocity: [B, D] - weighted average velocity
+            new_cached_velocities: [B, N-1, D] - updated cache
+        """
+        B, N, D = z_current.shape
+        
+        if N < 2:
+            avg_velocity = torch.zeros(B, D, device=z_current.device, dtype=z_current.dtype)
+            cached_velocities_out = torch.zeros(B, 0, D, device=z_current.device, dtype=z_current.dtype)
+            return avg_velocity, cached_velocities_out
+        
+        if cached_velocities is None: 
+            # First call:  compute all velocities
+            z_start = z_current[:, :-1, :]  # [B, N-1, D]
+            z_end = z_current[:, 1:, :]     # [B, N-1, D]
+            z_start_flat = z_start.reshape(B * (N-1), D)
+            z_end_flat = z_end.reshape(B * (N-1), D)
+            velocities_flat = self.manifold.logmap(z_start_flat, z_end_flat)
+            velocities = velocities_flat.view(B, N-1, D)
+        else:
+            # Incremental:  drop oldest, add newest
+            z_prev = z_current[:, -2, :]  # [B, D]
+            z_last = z_current[:, -1, :]  # [B, D]
+            new_velocity = self.manifold.logmap(z_prev, z_last)  # [B, D]
+            
+            # Move window:  remove oldest velocity, append new
+            velocities = torch.cat([
+                cached_velocities[:, 1:, :],  # Drop first
+                new_velocity.unsqueeze(1)      # Add new
+            ], dim=1)
+        
+        # Compute weighted average
+        if decay == 1.0:
+            avg_velocity = velocities.mean(dim=1)
+        else:
+            indices = torch.arange(N-1, dtype=torch.float32, device=z_current.device)
+            weights = decay ** (N - 2 - indices)  # Recent gets higher weight
+            weights = weights / weights.sum()
+            avg_velocity = (velocities * weights.view(1, -1, 1)).sum(dim=1)
+        
+        return avg_velocity, velocities
+
+
+    def forward(self, trend, seasonal_coarse, seasonal_fine, residual):
+        """Segment-level forecasting with moving window."""
+        
+        # Encode (same as before)
+        x_combined = trend + seasonal_coarse + seasonal_fine + residual
+        
+        if self.use_revin:
+            self.revin(x_combined, mode='norm')
+        
         encode_h = self.encode_hyperbolic(trend, seasonal_coarse, seasonal_fine, residual)
         
-        z_current_trend = encode_h["trend_h"]
-        z_current_coarse = encode_h["seasonal_coarse_h"]
-        z_current_fine = encode_h["seasonal_fine_h"]
-        z_current_resid = encode_h["residual_h"]
-        z_current = encode_h["combined_h"]
+        # NEW: Stack components for batched processing [5, B, num_segments, encode_dim]
+        z_components = torch.stack([
+            encode_h["trend_h"].unsqueeze(1),
+            encode_h["seasonal_coarse_h"].unsqueeze(1),
+            encode_h["seasonal_fine_h"].unsqueeze(1),
+            encode_h["residual_h"].unsqueeze(1)
+        ], dim=0)
+        # NEW: Initialize moving window (take last window_size segments)
+        if z_components.shape[2] > self.window_size:
+            z_components = z_components[:, :, -self.window_size:, :]
         
-        z_previous = None
-        z_previous_trend = None
-        z_previous_coarse = None
-        z_previous_fine = None
-        z_previous_resid = None
-        # Storage for SEGMENT predictions (not point predictions!)
+        # Storage
+        predictions_norm = []
         trend_predictions = []
         coarse_predictions = []
         fine_predictions = []
         residual_predictions = []
-        predictions_norm = []
-
+        
         latent_z = []
-        latent_trend   = []
-        latent_coarse  = []
-        latent_fine    = []
-        latent_resid   = []
+        latent_trend = []
+        latent_coarse = []
+        latent_fine = []
+        latent_resid = []
+        hierarchy_losses = []
 
-        # Autoregressive rollout over SEGMENTS
+        cached_velocities = None  # For incremental velocity computation
+        
+        # NEW:  Autoregressive rollout with moving window
         for seg_step in range(self.num_pred_segments):
-            # Predict next state via Dynamics
-            z_current, z_previous = self.dynamics(z_current, z_previous)
-            z_current_trend, z_previous_trend = self.dynamics(z_current_trend, z_previous_trend)
-            z_current_coarse, z_previous_coarse = self.dynamics(z_current_coarse, z_previous_coarse)
-            z_current_fine, z_previous_fine = self.dynamics(z_current_fine, z_previous_fine)
-            z_current_resid, z_previous_resid = self.dynamics(z_current_resid, z_previous_resid)   
-            latent_z.append(z_current)
-            latent_trend.append(z_current_trend)
-            latent_coarse.append(z_current_coarse)
-            latent_fine.append(z_current_fine)
-            latent_resid.append(z_current_resid)
-            # Truncated BPTT (every N segments, not every N points!)
+            # Truncated BPTT
             if (seg_step + 1) % self.truncate_every == 0 and seg_step < self.num_pred_segments - 1:
-                z_current = z_current.detach()
-                z_current_trend = z_current_trend.detach()
-                z_current_coarse = z_current_coarse.detach()
-                z_current_fine = z_current_fine.detach()
-                z_current_resid = z_current_resid.detach()
+                z_components = z_components.detach()
+                cached_velocities = None
             
-            if z_previous is not None:
-                z_previous = z_previous.detach()
-                z_previous_trend = z_previous_trend.detach()
-                z_previous_coarse = z_previous_coarse.detach()
-                z_previous_fine = z_previous_fine.detach()
-                z_previous_resid = z_previous_resid.detach()
-
-            # Reconstruct entire SEGMENTS (not single points!)
-            x_pred_norm_seg = self.reconstructor(z_current)  # [B, segment_length, n_features]
-            predictions_norm.append(x_pred_norm_seg)
-
-            trend_pred_seg = self.reconstructor(z_current_trend)
-            trend_predictions.append(trend_pred_seg)
-
-            coarse_pred_seg = self.reconstructor(z_current_coarse)
-            coarse_predictions.append(coarse_pred_seg)
-
-            fine_pred_seg = self.reconstructor(z_current_fine)
-            fine_predictions.append(fine_pred_seg)
-
-            residual_pred_seg = self.reconstructor(z_current_resid)
-            residual_predictions.append(residual_pred_seg)
+            num_comp, B, N, D = z_components.shape
+            
+            # Flatten for batched processing:  [5, B, N, D] → [5*B, N, D]
+            z_comp_flat = z_components.reshape(num_comp * B, N, D)
+            
+            # Flatten cached velocities
+            if cached_velocities is not None:
+                cache_flat = cached_velocities.reshape(num_comp * B, N-1, D)
+            else:
+                cache_flat = None
+            
+            # Compute velocities for ALL components in one call
+            avg_velocity_flat, new_cache_flat = self.compute_combined_velocity_incremental(
+                z_comp_flat, cache_flat
+            )
+            
+            # Reshape cache back
+            cached_velocities = new_cache_flat.reshape(num_comp, B, N-1, D)
+            
+            # Extract states
+            z_last_flat = z_comp_flat[:, -1, :]   # [5*B, D]
+            z_prev_flat = z_comp_flat[:, -2, :] if N > 1 else None
+            
+            # Dynamics with velocity
+            z_next_flat, _ = self.dynamics(z_last_flat, z_prev_flat, avg_velocity_flat)
+            
+            # Update window:  drop oldest, add newest
+            z_comp_flat = torch.cat([
+                z_comp_flat[:, 1:, :],       # Drop first segment
+                z_next_flat.unsqueeze(1)     # Add new prediction
+            ], dim=1)
+            
+            # Reshape back:  [5*B, N, D] → [5, B, N, D]
+            z_components = z_comp_flat.reshape(num_comp, B, N, D)
+            
+            # Unstack for reconstruction
+            z_next_all = z_next_flat.reshape(num_comp, B, D)
+            z_current_trend = z_next_all[0]
+            z_current_coarse = z_next_all[1]
+            z_current_fine = z_next_all[2]
+            z_current_resid = z_next_all[3]
+            encodings_dict = {
+                "trend_h": z_current_trend,
+                "seasonal_coarse_h": z_current_coarse,
+                "seasonal_fine_h": z_current_fine,
+                "residual_h": z_current_resid
+            }
+            hierarchy_loss = compute_hierarchical_loss_with_manifold_dist(encodings_dict, self.manifold)
+            hierarchy_losses.append(hierarchy_loss)
+            z_fused = self.mobius_fusion_segments(z_current_trend, z_current_coarse, z_current_fine, z_current_resid)
+            
+            # Store latents
+            # latent_z.append(z_fused)
+            # latent_trend.append(z_current_trend)
+            # latent_coarse.append(z_current_coarse)
+            # latent_fine.append(z_current_fine)
+            # latent_resid.append(z_current_resid)
+            
+            # Reconstruct segments
+            predictions_norm.append(self.reconstructor(z_fused))
+           
+        # Stack and reshape (same as before)
+        predictions_norm = torch.stack(predictions_norm, dim=1).reshape(-1, self.pred_len, self.n_features)
+      
         
-        # Stack segments and reshape to [B, pred_len, n_features]
-        # predictions: list of [B, segment_length, n_features] → [B, num_segments, segment_length, n_features]
-        predictions_norm = torch.stack(predictions_norm, dim=1)  # [B, num_segments, segment_length, n_features]
-        predictions_norm = predictions_norm.reshape(-1, self.pred_len, self.n_features)
-        
-        trend_predictions = torch.stack(trend_predictions, dim=1)
-        trend_predictions = trend_predictions.reshape(-1, self.pred_len, self.n_features)
-        
-        coarse_predictions = torch.stack(coarse_predictions, dim=1)
-        coarse_predictions = coarse_predictions.reshape(-1, self.pred_len, self.n_features)
-        
-        fine_predictions = torch.stack(fine_predictions, dim=1)
-        fine_predictions = fine_predictions.reshape(-1, self.pred_len, self.n_features)
-        
-        residual_predictions = torch.stack(residual_predictions, dim=1)
-        residual_predictions = residual_predictions.reshape(-1, self.pred_len, self.n_features)
-
         if self.use_revin:
             predictions = self.revin(predictions_norm, mode='denorm')
         else:
             predictions = predictions_norm
         
+        average_hierarchy_loss = torch.mean(torch.stack(hierarchy_losses)) if hierarchy_losses else torch.tensor(0.0)
         # ---- NEW: Stack hyperbolic latent states ----
         def stack_latents(lst):
             segs = torch.stack(lst, dim=1)  # [B, num_segments, encode_dim+1]
@@ -253,9 +342,6 @@ class SegmentedHyperbolicForecaster(nn.Module):
 
         return {
             'predictions': predictions,  # [B, pred_len, n_features]
-            'trend_predictions': trend_predictions,
-            'coarse_predictions': coarse_predictions,
-            'fine_predictions': fine_predictions,
-            'residual_predictions': residual_predictions,
-            'hyperbolic_states': hyperbolic_states
+            'hyperbolic_states': hyperbolic_states,
+            'hierarchy_loss': average_hierarchy_loss
         }

@@ -12,7 +12,6 @@ from Forecasting.Moving_Window_Segment_Forecaster import MovingWindowHyperbolicF
 from Forecasting.Direct_Moving_Window_Segment_Forecaster import DirectHyperbolicForecaster
 from Forecasting.Segment_Euclidean_Forecaster import SegmentForecastEuclidean
 from Forecasting.Segment_Forecaster import SegmentedHyperbolicForecaster
-
 class Model(nn.Module):
     """
     Hyperbolic Forecasting Model
@@ -154,9 +153,9 @@ class Model(nn.Module):
                     use_revin=self.use_revin,
                     encode_dropout=0.5,
                     recon_dropout=0.3,
+                    window_size=self.window_size,
                     num_layers=2
                 )
-
             # Forecaster: Autoregressively predicts in hyperbolic space
 
    

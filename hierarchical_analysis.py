@@ -39,30 +39,6 @@ def set_seed(seed=42):
     print(f"✓ Random seed set to {seed}")
 
 
-def detect_periods_acf(data, max_lag=500):
-    """Detect dominant periods using autocorrelation."""
-    ts = data[: , 0] if data.ndim > 1 else data
-    autocorr = acf(ts, nlags=min(max_lag, len(ts)//2), fft=True)
-    peaks, properties = find_peaks(autocorr[1:], prominence=0.1)
-    peaks = peaks + 1
-    
-    if len(peaks) >= 2:
-        peak_heights = autocorr[peaks]
-        top_indices = np.argsort(peak_heights)[-2:][::-1]
-        periods = peaks[top_indices]
-        fine_period = min(periods)
-        coarse_period = max(periods)
-    elif len(peaks) == 1:
-        fine_period = peaks[0]
-        coarse_period = fine_period * 7
-    else:
-        fine_period = 24
-        coarse_period = 168
-    
-    print(f"Detected periods: fine={fine_period}, coarse={coarse_period}")
-    return [fine_period, coarse_period]
-
-
 def apply_learnable_decomposition_streaming(
     args, 
     component='fine',
@@ -337,7 +313,7 @@ def compute_euclidean_score(hierarchy_score, spherical_score,
 def experiment_hierarchical_structure_efficient(
     args,
     component='fine',
-    window_size=144, 
+    window_size=5, 
     max_patterns=5000,
     use_pretrained=False,
     model_path=None,
@@ -693,7 +669,7 @@ if __name__ == '__main__':
     parser.add_argument('--data', type=str, default='custom')
     parser.add_argument('--root_path', type=str, default='./time-series-dataset/dataset/')
     parser.add_argument('--data_path', type=str, default='weather.csv')
-    parser.add_argument('--features', type=str, default='MS')
+    parser.add_argument('--features', type=str, default='M')
     parser.add_argument('--target', type=str, default='OT')
     parser.add_argument('--seq_len', type=int, default=336)
     parser.add_argument('--label_len', type=int, default=48)
@@ -710,7 +686,7 @@ if __name__ == '__main__':
     
     # Analysis parameters
     parser.add_argument('--save_dir', type=str, default='./plots/hierarchy')
-    parser.add_argument('--max_patterns', type=int, default=3000,
+    parser.add_argument('--max_patterns', type=int, default=5000,
                        help='Max patterns to extract (lower = less memory)')
     parser.add_argument('--window_fine', type=int, default=144)
     parser.add_argument('--window_coarse', type=int, default=1008)

@@ -2,7 +2,7 @@
 torch
 numpy
 pandas
-
+thop
 # Scientific computing
 scipy
 scikit-learn
@@ -10,7 +10,7 @@ scikit-learn
 # Visualization
 matplotlib
 seaborn
-
+statsmodels
 # Hyperbolic geometry
 geoopt
 

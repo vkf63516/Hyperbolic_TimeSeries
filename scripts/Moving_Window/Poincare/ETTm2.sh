@@ -5,10 +5,11 @@ enc_in=7
 manifold_type="Poincare"
 data_path=ETTm2.csv
 num_basis=10
-window_size=5
+window_size=2
 
 python run.py \
   --hyperbolic_weight 0.1 \
+  --hierarchy_weight 0.0001 \
   --is_training 1 \
   --model_id ETTm2_$seq_len'_'96_$manifold_type'_'type_exp1_Segment \
   --model HyperbolicForecasting \

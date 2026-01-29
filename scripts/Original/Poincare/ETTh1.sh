@@ -8,6 +8,8 @@ window_size=2
 
 python run.py \
   --is_training 1 \
+  --hyperbolic_weight 0.1 \
+  --hierarchy_weight 0.1 \
   --model_id ETTh1_$seq_len'_'96_$manifold_type'_'type_exp1_Segment \
   --model HyperbolicForecasting \
   --data ETTh1 \
@@ -31,10 +33,13 @@ python run.py \
   --manifold_type $manifold_type \
   --use_revin \
   --use_segments \
-  --share_feature_weights 
+  --share_feature_weights \
+  --window_size $window_size 
 
 python run.py \
   --is_training 1 \
+  --hyperbolic_weight 0.1 \
+  --hierarchy_weight 0.0005 \
   --model_id ETTh1_$seq_len'_'192_$manifold_type'_'exp1_Segment \
   --model HyperbolicForecasting \
   --data ETTh1 \
@@ -57,11 +62,14 @@ python run.py \
   --patience $patience \
   --manifold_type $manifold_type \
   --use_revin \
-  --use_segments 
+  --use_segments \
+  --window_size $window_size
 
 
 python run.py \
   --is_training 1 \
+  --hyperbolic_weight 0.1 \
+  --hierarchy_weight 0.0005 \
   --model_id ETTh1_$seq_len'_'336_$manifold_type'_'exp1_Segment \
   --model HyperbolicForecasting \
   --data ETTh1 \
@@ -73,7 +81,7 @@ python run.py \
   --label_len 0 \
   --pred_len 336 \
   --lradj "type3" \
-  --encode_dim 32 \
+  --encode_dim 64 \
   --hidden_dim 256 \
   --batch_size 32 \
   --use_wandb \
@@ -84,11 +92,14 @@ python run.py \
   --patience $patience \
   --manifold_type $manifold_type \
   --use_revin \
-  --use_segments 
+  --use_segments \
+  --window_size $window_size
 
 
 python run.py \
   --is_training 1 \
+  --hyperbolic_weight 0.1 \
+  --hierarchy_weight 0.1 \
   --model_id ETTh1_$seq_len'_'720_$manifold_type'_'exp1_segment \
   --model HyperbolicForecasting \
   --data ETTh1 \
@@ -100,7 +111,7 @@ python run.py \
   --label_len 0 \
   --pred_len 720 \
   --lradj "type3" \
-  --encode_dim 32 \
+  --encode_dim 64 \
   --hidden_dim 256 \
   --batch_size 32 \
   --use_wandb \
@@ -111,4 +122,5 @@ python run.py \
   --patience $patience \
   --manifold_type $manifold_type \
   --use_revin \
-  --use_segments 
+  --use_segments \
+  --window_size $window_size

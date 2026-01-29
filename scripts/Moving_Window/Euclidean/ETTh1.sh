@@ -6,7 +6,7 @@ manifold_type="Euclidean"
 data_path=ETTh1.csv
 hidden_dim=256
 num_basis=10 
-window_size=5
+window_size=2
 
 python run.py \
   --is_training 1 \
