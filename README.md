@@ -1,4 +1,4 @@
-### HyperForecast: Hyperbolic Dynamics for Time Series Forecasting ###
+### HyperForecast: Velocity-Driven Hyperbolic Dynamics with Learnable Decomposition for Time Series Forecasting ###
 
 This repository contains the official implementation of HyperForecast, a hyperbolic geometry–based framework for long-term time series forecasting. The model combines learnable multi-scale decomposition with geodesic dynamics in hyperbolic space to capture hierarchical temporal structure across frequencies.
 
