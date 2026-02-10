@@ -1,10 +1,53 @@
-import geoopt
+from .poincare_disk import *
 import torch
 import torch.nn as nn
 from spec import safe_expmap
 # ============================================
 # Poincaré Ball Operations
 # ============================================
+class PoincareLinear(nn.Module):
+    """Poincare fully connected linear layer"""
+
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        ball: PoincareBall,
+        bias: bool = True,
+        id_init: bool = True,
+    ) -> None:
+        super(PoincareLinear, self).__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.ball = ball
+        self.has_bias = bias
+        self.id_init = id_init
+
+        self.z = nn.Parameter(torch.empty(in_features, out_features))
+        if self.has_bias:
+            self.bias = nn.Parameter(torch.empty(out_features))
+        self.reset_parameters()
+
+    def reset_parameters(self) -> None:
+        if self.id_init:
+            self.z = nn.Parameter(
+                1 / 2 * torch.eye(self.in_features, self.out_features)
+            )
+        else:
+            nn.init.normal_(
+                self.z, mean=0, std=(2 * self.in_features * self.out_features) ** -0.5
+            )
+        if self.has_bias:
+            nn.init.zeros_(self.bias)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.ball.expmap0(x, dim=-1)
+        y = self.ball.fully_connected(
+            x=x,
+            z=self.z,
+            bias=self.bias,
+        )
+        return self.ball.logmap0(y, dim=-1)
 
 def poincare_residual_update(x_current, x_update, manifold, alpha=0.7):
     """
@@ -56,11 +99,13 @@ class HyperbolicPoincareDynamics(nn.Module):
         super().__init__()
         self.manifold = manifold
         self.encode_dim = encode_dim
-        
+        self.ball = poincareball_factory(
+            c=1.0, custom_autograd=False, learnable=True
+        )
         # Only 2 learnable parameters and one linear layer!
         self.alpha = nn.Parameter(torch.tensor(0.7))
         self.step_size = nn.Parameter(torch.tensor(1.0))
-        self.velocity_net = nn.Linear(encode_dim, encode_dim)
+        self.velocity_net = PoincareLinear(encode_dim, encode_dim, self.ball)
     
     def forward(self, x_current, x_previous=None, average_velocity=None):
         """
