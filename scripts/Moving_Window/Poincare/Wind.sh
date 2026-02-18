@@ -92,7 +92,7 @@ python run.py \
   --encode_dim 64 \
   --hidden_dim $hidden_dim \
   --batch_size 32 \
-  --learning_rate 1e-1 \
+  --learning_rate 1e-3 \
   --train_epochs $train_epochs \
   --use_learnable_decomposition \
   --enc_in $enc_in \
@@ -101,7 +101,7 @@ python run.py \
   --use_revin \
   --use_wandb \
   --use_segments \
-  --window_size 5 \
+  --window_size 6 \
   --fine_period 96 \
   --coarse_period 672 \
   --use_moving_window
@@ -110,6 +110,7 @@ python run.py \
 python run.py \
   --is_training 1 \
   --hyperbolic_weight 0.1 \
+  --hierarchy_weight 0.0001 \
   --model_id Wind_$seq_len'_'720_$manifold_type'_'exp1_segment \
   --model HyperbolicForecasting \
   --data custom \
@@ -133,7 +134,7 @@ python run.py \
   --use_revin \
   --use_wandb \
   --use_segments \
-  --window_size $window_size \
+  --window_size 6 \
   --fine_period 96 \
   --coarse_period 672 \
   --use_moving_window

@@ -17,3 +17,11 @@ Forecasts future values by evolving latent representations along geodesics using
 
 Manifold-Aware Training
 Includes hierarchy and temporal consistency regularization to stabilize long-horizon forecasting.
+
+Acknowledgements
+
+We would like to thank the authors of the following open-source projects for their valuable contributions, which provides significant help for our work:
+
+[Time-Series-Library (THUML)](https://github.com/thuml/Time-Series-Library)
+[TimeBase (ICML 2025)](https://github.com/hqh0728/TimeBase)
+[DLinear (AAAI 2023)](https://github.com/cure-lab/LTSF-Linear/tree/main)

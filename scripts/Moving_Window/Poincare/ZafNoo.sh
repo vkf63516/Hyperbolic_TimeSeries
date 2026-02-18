@@ -69,7 +69,7 @@ python run.py \
   --mstl_period 24 \
   --fine_period 48 \
   --coarse_period 336 \
-  --window_size 6 \
+  --window_size 5 \
   --use_moving_window
 
 
@@ -107,7 +107,7 @@ python run.py \
 
 python run.py \
   --is_training 1 \
-  --hyperbolic_weight 0.1 \
+  --hyperbolic_weight 0.2 \
   --hierarchy_weight 0.1 \
   --model_id ZafNoo_$seq_len'_'$manifold_type'_'720_exp1_Segment \
   --model HyperbolicForecasting \

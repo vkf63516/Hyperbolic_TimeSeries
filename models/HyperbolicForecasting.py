@@ -12,6 +12,7 @@ from Forecasting.Moving_Window_Segment_Forecaster import MovingWindowHyperbolicF
 from Forecasting.Direct_Moving_Window_Segment_Forecaster import DirectHyperbolicForecaster
 from Forecasting.Segment_Euclidean_Forecaster import SegmentForecastEuclidean
 from Forecasting.Segment_Forecaster import SegmentedHyperbolicForecaster
+from Forecasting.Multi_Horizon_Forecasting import DirectMultiHorizonHyperbolicForecaster
 class Model(nn.Module):
     """
     Hyperbolic Forecasting Model
@@ -45,6 +46,7 @@ class Model(nn.Module):
         self.enc_in = configs.enc_in
         self.coarse_period = configs.coarse_period
         self.fine_period = configs.fine_period
+        self.check = True
         # encodeding: Maps decomposed components to hyperbolic space
         if self.use_learnable_decomposition:
             self.decomposer = LearnableMultivariateDecomposition(
@@ -151,8 +153,8 @@ class Model(nn.Module):
                     manifold_type=self.manifold_type,
                     segment_length=self.mstl_period,
                     use_revin=self.use_revin,
-                    encode_dropout=0.5,
-                    recon_dropout=0.3,
+                    encode_dropout=0.3,
+                    recon_dropout=0.2,
                     window_size=self.window_size,
                     num_layers=2
                 )
