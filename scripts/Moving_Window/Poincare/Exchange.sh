@@ -10,6 +10,7 @@ data_path=exchange_rate.csv
 python run.py \
   --is_training 1 \
   --hyperbolic_weight 0.1 \
+  --hierarchy_weight 0.1 \
   --model_id Exchange_$seq_len'_'$manifold_type'_'96_exp1_Segment \
   --model HyperbolicForecasting \
   --data custom \
@@ -41,7 +42,8 @@ python run.py \
 
 python run.py \
   --is_training 1 \
-  --hyperbolic_weight 0.1 \
+  --hyperbolic_weight 0.2 \
+  --hierarchy_weight 0.1 \
   --model_id Exchange_$seq_len'_'$manifold'_'192_exp1_Segment \
   --model HyperbolicForecasting \
   --data custom \
@@ -74,6 +76,7 @@ python run.py \
 python run.py \
   --is_training 1 \
   --hyperbolic_weight 0.1 \
+  --hierarchy_weight 0.0001 \
   --model_id Exchange_$seq_len'_'$manifold_type'_'336_exp1_Segment \
   --model HyperbolicForecasting \
   --data custom \
@@ -106,6 +109,7 @@ python run.py \
 python run.py \
   --is_training 1 \
   --hyperbolic_weight 0.1 \
+  --hierarchy_weight 0.1 \
   --model_id Exchange_$seq_len'_'$manifold_type'_'720_exp1_Segment \
   --model HyperbolicForecasting \
   --data custom \
