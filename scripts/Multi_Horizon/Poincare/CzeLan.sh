@@ -36,7 +36,7 @@ python run.py \
   --fine_period 48 \
   --coarse_period 336 \
   --window_size $window_size \
-  --use_moving_window
+  --use_multi_horizon
 
 
 python run.py \
@@ -67,7 +67,7 @@ python run.py \
   --fine_period 48 \
   --coarse_period 336 \
   --window_size $window_size \
-  --use_moving_window
+  --use_multi_horizon
 
 
 python run.py \
@@ -98,7 +98,7 @@ python run.py \
   --fine_period 48 \
   --coarse_period 336 \
   --window_size $window_size \
-  --use_moving_window
+  --use_multi_horizon
 
 python run.py \
   --is_training 1 \
@@ -128,4 +128,4 @@ python run.py \
   --fine_period 48 \
   --coarse_period 336 \
   --window_size $window_size \
-  --use_moving_window
+  --use_multi_horizon

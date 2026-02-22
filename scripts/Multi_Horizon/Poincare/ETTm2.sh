@@ -37,7 +37,8 @@ python run.py \
   --mstl_period 24 \
   --fine_period 96 \
   --coarse_period 672 \
-  --use_moving_window
+  --use_multi_horizon
+
 
 
 python run.py \
@@ -69,7 +70,8 @@ python run.py \
   --mstl_period 24 \
   --fine_period 96 \
   --coarse_period 672 \
-  --use_moving_window
+  --use_multi_horizon
+
 
 python run.py \
   --is_training 1 \
@@ -100,7 +102,8 @@ python run.py \
   --mstl_period 24 \
   --fine_period 96 \
   --coarse_period 672 \
-  --use_moving_window
+  --use_multi_horizon
+
 
 
 python run.py \
@@ -132,5 +135,6 @@ python run.py \
   --mstl_period 24 \
   --fine_period 96 \
   --coarse_period 672 \
-  --use_moving_window
+  --use_multi_horizon
+
 
