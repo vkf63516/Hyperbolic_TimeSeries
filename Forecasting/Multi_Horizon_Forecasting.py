@@ -46,12 +46,7 @@ class ParallelDirectPoincareDynamics(nn.Module):
             return torch.zeros(B, D, device=z_history.device)
         
         # Compute velocities between consecutive segments
-        velocities = []
-        for i in range(N - 1):
-            v_i = self.manifold.logmap(z_history[:, i, :], z_history[:, i + 1, :])
-            velocities.append(v_i)
-        
-        velocities = torch.stack(velocities, dim=1)  # [B, N-1, D]
+        velocities = self.manifold.logmap(z_history[:, :-1, :], z_history[:, 1:, :])  # [B, N-1, D]
         
         # Exponentially weighted average (recent segments weighted more)
         weights = torch.tensor(

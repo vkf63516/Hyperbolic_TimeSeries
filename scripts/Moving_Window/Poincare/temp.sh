@@ -73,6 +73,8 @@ python run.py \
 
 python run.py \
   --is_training 1 \
+  --hyperbolic_weight 0.1 \
+  --hierarchy_weight 0.1 \
   --model_id Temp_$seq_len'_'$manifold_type'_'336_exp1_Segment \
   --model HyperbolicForecasting \
   --data custom \
@@ -98,7 +100,7 @@ python run.py \
   --use_segments \
   --fine_period 8 \
   --coarse_period 56 \
-  --window_size $window_size \
+  --window_size 6 \
   --use_moving_window
 
 python run.py \
