@@ -1,16 +1,15 @@
 seq_len=720
 train_epochs=30
 patience=5
-enc_in=862
+enc_in=207
 manifold_type="Poincare"
-data_path=traffic.csv
-window_size=6
+data_path=METR-LA.csv
+window_size=5
 
 python run.py \
   --is_training 1 \
-  --hyperbolic_weight 0.2 \
-  --hierarchy_weight 0.1 \
-  --model_id Traffic_$seq_len'_'$manifold_type'_'96_exp1_Segment \
+  --hierarchy_weight 0.25 \
+  --model_id METRLA_$seq_len'_'$manifold_type'_'96_exp1_Segment \
   --model HyperbolicForecasting \
   --data custom \
   --root_path ./time-series-dataset/dataset/ \
@@ -25,7 +24,7 @@ python run.py \
   --hidden_dim 256 \
   --batch_size 32 \
   --use_wandb \
-  --learning_rate 1e- \
+  --learning_rate 1e-3 \
   --train_epochs $train_epochs \
   --use_learnable_decomposition \
   --enc_in $enc_in \
@@ -33,15 +32,16 @@ python run.py \
   --manifold_type $manifold_type \
   --use_revin \
   --use_segments \
-  --use_moving_window \
+  --use_multi_horizon \
+  --fine_period 288 \
+  --coarse_period 2016 \
   --window_size $window_size
+
 
 
 python run.py \
   --is_training 1 \
-  --hierarchy_weight 0.1 \
-  --hyperbolic_weight 0.1 \
-  --model_id Traffic_$seq_len'_'$manifold'_'192_exp1_Segment \
+  --model_id METRLA_$seq_len'_'$manifold'_'192_exp1_Segment \
   --model HyperbolicForecasting \
   --data custom \
   --root_path ./time-series-dataset/dataset/ \
@@ -56,7 +56,7 @@ python run.py \
   --hidden_dim 256 \
   --batch_size 32 \
   --use_wandb \
-  --learning_rate 1e-2 \
+  --learning_rate 1e-3 \
   --train_epochs $train_epochs \
   --use_learnable_decomposition \
   --enc_in $enc_in \
@@ -64,15 +64,14 @@ python run.py \
   --manifold_type $manifold_type \
   --use_revin \
   --use_segments \
-  --use_moving_window \
+  --use_multi_horizon \
+  --fine_period 288 \
+  --coarse_period 2016 \
   --window_size $window_size
-
 
 python run.py \
   --is_training 1 \
-  --hyperbolic_weight 0.1 \
-  --hierarchy_weight 0.001 \
-  --model_id Traffic_$seq_len'_'$manifold_type'_'336_exp1_Segment \
+  --model_id METRLA_$seq_len'_'$manifold_type'_'336_exp1_Segment \
   --model HyperbolicForecasting \
   --data custom \
   --root_path ./time-series-dataset/dataset/ \
@@ -95,15 +94,15 @@ python run.py \
   --manifold_type $manifold_type \
   --use_revin \
   --use_segments \
-  --use_moving_window \
+  --use_multi_horizon \
+  --fine_period 288 \
+  --coarse_period 2016 \
   --window_size $window_size
 
 
 python run.py \
   --is_training 1 \
-  --hyperbolic_weight 0.1 \
-  --hierarchy_weight 0.0001 \
-  --model_id Traffic_$seq_len'_'$manifold_type'_'720_exp1_Segment \
+  --model_id METRLA_$seq_len'_'$manifold_type'_'720_exp1_Segment \
   --model HyperbolicForecasting \
   --data custom \
   --root_path ./time-series-dataset/dataset/ \
@@ -126,5 +125,7 @@ python run.py \
   --manifold_type $manifold_type \
   --use_revin \
   --use_segments \
-  --use_moving_window \
+  --use_multi_horizon \
+  --fine_period 288 \
+  --coarse_period 2016 \
   --window_size $window_size

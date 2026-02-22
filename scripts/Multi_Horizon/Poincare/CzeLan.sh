@@ -1,22 +1,22 @@
 seq_len=720
 train_epochs=30
 patience=5
-enc_in=862
+enc_in=11
 manifold_type="Poincare"
-data_path=traffic.csv
-window_size=6
+data_path=CzeLan.csv
+num_basis=10
+window_size=5
 
 python run.py \
   --is_training 1 \
-  --hyperbolic_weight 0.2 \
-  --hierarchy_weight 0.1 \
-  --model_id Traffic_$seq_len'_'$manifold_type'_'96_exp1_Segment \
+  --hyperbolic_weight 0.05 \
+  --model_id CzeLan_$seq_len'_'$manifold_type'_'96_exp1_Segment \
   --model HyperbolicForecasting \
   --data custom \
   --root_path ./time-series-dataset/dataset/ \
   --data_path $data_path \
   --features M \
-  --num_basis 10 \
+  --num_basis $num_basis \
   --label_len 0 \
   --seq_len $seq_len \
   --pred_len 96 \
@@ -25,7 +25,7 @@ python run.py \
   --hidden_dim 256 \
   --batch_size 32 \
   --use_wandb \
-  --learning_rate 1e- \
+  --learning_rate 1e-3 \
   --train_epochs $train_epochs \
   --use_learnable_decomposition \
   --enc_in $enc_in \
@@ -33,21 +33,21 @@ python run.py \
   --manifold_type $manifold_type \
   --use_revin \
   --use_segments \
-  --use_moving_window \
-  --window_size $window_size
+  --fine_period 48 \
+  --coarse_period 336 \
+  --window_size $window_size \
+  --use_moving_window
 
 
 python run.py \
   --is_training 1 \
-  --hierarchy_weight 0.1 \
-  --hyperbolic_weight 0.1 \
-  --model_id Traffic_$seq_len'_'$manifold'_'192_exp1_Segment \
+  --model_id CzeLan_$seq_len'_'$manifold'_'192_exp1_Segment \
   --model HyperbolicForecasting \
   --data custom \
   --root_path ./time-series-dataset/dataset/ \
   --data_path $data_path \
   --features M \
-  --num_basis 10 \
+  --num_basis $num_basis \
   --label_len 0 \
   --seq_len $seq_len \
   --pred_len 192 \
@@ -56,7 +56,7 @@ python run.py \
   --hidden_dim 256 \
   --batch_size 32 \
   --use_wandb \
-  --learning_rate 1e-2 \
+  --learning_rate 1e-3 \
   --train_epochs $train_epochs \
   --use_learnable_decomposition \
   --enc_in $enc_in \
@@ -64,21 +64,21 @@ python run.py \
   --manifold_type $manifold_type \
   --use_revin \
   --use_segments \
-  --use_moving_window \
-  --window_size $window_size
+  --fine_period 48 \
+  --coarse_period 336 \
+  --window_size $window_size \
+  --use_moving_window
 
 
 python run.py \
   --is_training 1 \
-  --hyperbolic_weight 0.1 \
-  --hierarchy_weight 0.001 \
-  --model_id Traffic_$seq_len'_'$manifold_type'_'336_exp1_Segment \
+  --model_id CzeLan_$seq_len'_'$manifold_type'_'336_exp1_Segment \
   --model HyperbolicForecasting \
   --data custom \
   --root_path ./time-series-dataset/dataset/ \
   --data_path $data_path \
   --features M \
-  --num_basis 10 \
+  --num_basis $num_basis \
   --label_len 0 \
   --seq_len $seq_len \
   --pred_len 336 \
@@ -95,21 +95,20 @@ python run.py \
   --manifold_type $manifold_type \
   --use_revin \
   --use_segments \
-  --use_moving_window \
-  --window_size $window_size
-
+  --fine_period 48 \
+  --coarse_period 336 \
+  --window_size $window_size \
+  --use_moving_window
 
 python run.py \
   --is_training 1 \
-  --hyperbolic_weight 0.1 \
-  --hierarchy_weight 0.0001 \
-  --model_id Traffic_$seq_len'_'$manifold_type'_'720_exp1_Segment \
+  --model_id CzeLan_$seq_len'_'$manifold_type'_'720_exp1_Segment \
   --model HyperbolicForecasting \
   --data custom \
   --root_path ./time-series-dataset/dataset/ \
   --data_path $data_path \
   --features M \
-  --num_basis 10 \
+  --num_basis $num_basis \
   --label_len 0 \
   --seq_len $seq_len \
   --pred_len 720 \
@@ -126,5 +125,7 @@ python run.py \
   --manifold_type $manifold_type \
   --use_revin \
   --use_segments \
-  --use_moving_window \
-  --window_size $window_size
+  --fine_period 48 \
+  --coarse_period 336 \
+  --window_size $window_size \
+  --use_moving_window

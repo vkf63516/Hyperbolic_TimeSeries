@@ -36,6 +36,7 @@ class Model(nn.Module):
         self.manifold_type = configs.manifold_type
         self.use_attention_pooling = configs.use_attention_pooling
         self.use_revin = configs.use_revin
+        self.use_multi_horizon = configs.use_multi_horizon
         self.use_moving_window = configs.use_moving_window
         self.num_basis = configs.num_basis
         self.window_size = configs.window_size
@@ -140,6 +141,22 @@ class Model(nn.Module):
                         encode_dropout=0.3,
                         recon_dropout=0.2,
                     )
+            elif self.use_multi_horizon:
+                print("********************************")
+                self.forecaster = DirectMultiHorizonHyperbolicForecaster(
+                    lookback=self.seq_len,
+                    pred_len=self.pred_len,
+                    n_features=self.enc_in,
+                    encode_dim=self.encode_dim,
+                    hidden_dim=self.hidden_dim,
+                    curvature=self.curvature,
+                    manifold_type=self.manifold_type,
+                    segment_length=self.mstl_period,
+                    use_revin=self.use_revin,
+                    encode_dropout=0.3,
+                    recon_dropout=0.2,
+                    window_size=self.window_size
+                )
 
             else:
 
@@ -158,7 +175,6 @@ class Model(nn.Module):
                     window_size=self.window_size,
                     num_layers=2
                 )
-            # Forecaster: Autoregressively predicts in hyperbolic space
 
    
     
