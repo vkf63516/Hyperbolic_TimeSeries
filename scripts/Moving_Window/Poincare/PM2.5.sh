@@ -105,7 +105,7 @@ python run.py \
 
 python run.py \
   --is_training 1 \
-  --hyperbolic_weight 0.0 \
+  --hyperbolic_weight 0.1 \
   --hierarchy_weight 0.5 \
   --model_id PM25_$seq_len'_'$manifold_type'_'720_exp1_Segment \
   --model HyperbolicForecasting \

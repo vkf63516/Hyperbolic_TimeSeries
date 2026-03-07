@@ -242,7 +242,7 @@ class MovingWindowHyperbolicForecaster(nn.Module):
             indices = torch.arange(N-1, dtype=torch.float32, device=z_current.device)
             weights = decay ** (N - 2 - indices)  # Recent gets higher weight
             weights = weights / weights.sum()
-            avg_velocity = (velocities * weights.view(1, -1, 1)).mean(dim=1)
+            avg_velocity = (velocities * weights.view(1, -1, 1)).sum(dim=1)
         
         return avg_velocity, velocities
         

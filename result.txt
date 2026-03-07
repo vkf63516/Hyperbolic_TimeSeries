@@ -1962,3 +1962,15 @@ mse:0.4644673466682434, mae:0.462781697511673, rmse:0.6815184354782104
 ETTh1_720_720_Poincare_exp1_segment_HyperbolicForecasting_ETTh1_ETTh1.csv_ftM_sl720_pl720_exp_ebfixed_Poincare_0_seed2023  
 mse:0.5913642048835754, mae:0.5596814751625061, rmse:0.7690020799636841
 
+ETTh1_720_96_Poincare_type_exp1_Segment_HyperbolicForecasting_ETTh1_ETTh1.csv_ftM_sl720_pl96_exp_ebfixed_Poincare_0_seed2023  
+mse:0.6970764994621277, mae:0.5863440036773682, rmse:0.834911048412323
+
+ETTh1_720_96_Poincare_type_exp1_Segment_HyperbolicForecasting_ETTh1_ETTh1.csv_ftM_sl720_pl96_exp_ebfixed_Poincare_0_seed2023  
+mse:0.3852044641971588, mae:0.4173213541507721, rmse:0.6206484436988831
+
+ETTh1_720_192_Poincare_exp1_Segment_HyperbolicForecasting_ETTh1_ETTh1.csv_ftM_sl720_pl192_exp_ebfixed_Poincare_0_seed2023  
+mse:0.4575038552284241, mae:0.46792542934417725, rmse:0.6763902902603149
+
+ETTh1_720_336_Poincare_exp1_Segment_HyperbolicForecasting_ETTh1_ETTh1.csv_ftM_sl720_pl336_exp_ebfixed_Poincare_0_seed2023  
+mse:0.4712494909763336, mae:0.46752867102622986, rmse:0.6864761114120483
+

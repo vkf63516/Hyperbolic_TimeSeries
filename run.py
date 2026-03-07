@@ -89,6 +89,7 @@ parser.add_argument('--pred_len', type=int, default=96, help='prediction sequenc
 parser.add_argument('--enc_in', type=int, default=7, help='encoder input size')
 parser.add_argument('--encode', type=str, default='fixed',help='time features encoding, options:[timeF, fixed, learned]')
 parser.add_argument('--window_size', type=int, default=None, help='size of window segments for average velocity')
+parser.add_argument('--inverse', action='store_true', help='inverse output data', default=False)
 # optimization
 parser.add_argument('--use_orthogonal', action='store_true', default=False, help='orthogonal loss')
 parser.add_argument('--use_revin', action='store_true', default=False, help='RevIN')

@@ -7,6 +7,8 @@ import math
 # --------------------------
 # Clamping with safe Exponential map
 # --------------------------
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import torch
 import torch.nn as nn
 import geoopt
@@ -213,3 +215,90 @@ class EarlyStopping:
             print(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ...')
         torch.save(model.state_dict(), path + '/' + 'checkpoint.pth')
         self.val_loss_min = val_loss
+
+def plot_forecast(y_true, y_pred, x_enc=None, time_index=None, feature_names=None):
+    """
+    Create interactive forecast plot
+    
+    Args:
+        y_true: Ground truth values (numpy array or torch tensor)
+        y_pred: Predicted values (numpy array or torch tensor)
+        x_enc: Optional historical values before forecast
+        time_index: Optional time stamps for x-axis
+        feature_names: Optional names for each feature/channel
+    
+    Returns:
+        Plotly figure object
+    """
+    
+    # Convert to numpy if needed
+    if torch.is_tensor(y_true):
+        y_true = y_true.detach().cpu().numpy()
+    if torch.is_tensor(y_pred):
+        y_pred = y_pred.detach().cpu().numpy()
+    if torch.is_tensor(x_enc):
+        x_enc = x_enc.detach().cpu().numpy()
+    
+    # Get dimensions
+    n_samples, pred_len, n_features = y_true.shape
+    
+    # Create time index if not provided
+    if time_index is None:
+        if x_enc is not None:
+            history_len = x_enc.shape[1]
+            time_index = np.arange(-history_len, pred_len)
+        else:
+            time_index = np.arange(pred_len)
+    
+    # Create default feature names if not provided
+    if feature_names is None:
+        feature_names = [f"Feature {i+1}" for i in range(n_features)]
+    
+    # Create subplots
+    fig = make_subplots(rows=n_features, cols=1, shared_xaxes=True,
+                        subplot_titles=feature_names)
+    
+    # Add traces for each feature
+    for i, name in enumerate(feature_names):
+        # Add historical values if available
+        if x_enc is not None:
+            history_len = x_enc.shape[1]
+            history_time = time_index[:history_len]
+            
+            # Show history for all samples with light lines
+            for j in range(n_samples):
+                fig.add_trace(
+                    go.Scatter(
+                        x=history_time, 
+                        y=x_enc[j, :, i],
+                        line=dict(color='lightgrey', width=1),
+                        showlegend=False
+                    ),
+                    row=i+1, col=1
+                )
+        
+        # Add forecast period
+        forecast_time = time_index[-pred_len:]
+        
+        # True values
+        for j in range(n_samples):
+            fig.add_trace(
+                go.Scatter(
+                    x=forecast_time,
+                    y=y_true[j, :, i],
+                    mode='lines',
+                    name=f'True' if j==0 else None,
+                    line=dict(color='blue'),
+                    showlegend=j==0
+                ),
+                row=i+1, col=1
+            )
+            
+            # Predictions
+            fig.add_trace(
+                go.Scatter(
+                    x=forecast_time,
+                    y=y_pred[j, :, i],
+                    mode='lines',
+                )
+            )

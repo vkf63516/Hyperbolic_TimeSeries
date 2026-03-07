@@ -55,7 +55,7 @@ class ParallelDirectPoincareDynamics(nn.Module):
         )
         weights = weights / weights.sum()
         
-        v_avg = (velocities * weights.view(1, -1, 1)).mean(dim=1)
+        v_avg = (velocities * weights.view(1, -1, 1)).sum(dim=1)
         
         return v_avg
     
@@ -82,7 +82,7 @@ class ParallelDirectPoincareDynamics(nn.Module):
             v_0t = self.velocity_net(v_init)
             v_t = step * t * v_0t
             # Geodesic evolution
-            z_t = self.manifold.expmap(z_0, v_t)
+            z_t = safe_expmap(self.manifold, z_0, v_t)
             predictions.append(z_t)
         
         return torch.stack(predictions, dim=1)  # [B, T, D]

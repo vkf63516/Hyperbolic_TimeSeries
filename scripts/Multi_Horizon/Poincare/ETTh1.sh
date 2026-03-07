@@ -22,6 +22,7 @@ python run.py \
   --label_len 0 \
   --seq_len $seq_len \
   --pred_len 96 \
+  --inverse \
   --lradj "type3" \
   --encode_dim 64 \
   --hidden_dim $hidden_dim \
