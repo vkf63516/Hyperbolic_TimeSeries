@@ -55,7 +55,7 @@ class ParallelDirectPoincareDynamics(nn.Module):
         )
         weights = weights / weights.sum()
         
-        v_avg = (velocities * weights.view(1, -1, 1)).sum(dim=1)
+        v_avg = (velocities * weights.view(1, -1, 1)).mean(dim=1)
         
         return v_avg
     
