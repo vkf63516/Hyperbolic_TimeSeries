@@ -34,7 +34,6 @@ class Model(nn.Module):
         self.mstl_period = configs.mstl_period
         self.use_segments = configs.use_segments
         self.manifold_type = configs.manifold_type
-        self.use_attention_pooling = configs.use_attention_pooling
         self.use_revin = configs.use_revin
         self.use_multi_horizon = configs.use_multi_horizon
         self.use_moving_window = configs.use_moving_window
@@ -44,6 +43,7 @@ class Model(nn.Module):
         self.use_no_decomposition = configs.use_no_decomposition
         # Model dimensions
         # Number of input features
+        self.trend_period = configs.trend_period
         self.enc_in = configs.enc_in
         self.coarse_period = configs.coarse_period
         self.fine_period = configs.fine_period

@@ -354,7 +354,7 @@ class MovingWindowHyperbolicForecaster(nn.Module):
                 margin=0.1
             )
             hierarchy_losses.append(step_hierarchy_loss)
-            
+            latent_trend.append(z_next_trend)
             # === Möbius/Lorentz Fusion ===
             if self.manifold_type == "Poincare":
                 z_fused = self.mobius_fusion_segments(

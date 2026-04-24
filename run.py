@@ -42,7 +42,7 @@ parser.add_argument('--mstl_period', type=int, default=24,
 parser.add_argument('--use_moving_window', action='store_true', default=False,
                     help='use moving window approach (True) or regular approach (False)')
 parser.add_argument('--use_multi_horizon', action='store_true', default=False,
-                    help='use one shot forecaster variant')
+                    help='use NAR forecaster variant')
 parser.add_argument('--use_segments', action='store_true', default=False,
                     help='use segment-level hyperbolic encodedings (True) or point-level (False)')
 # ============================================
@@ -53,14 +53,15 @@ parser.add_argument('--use_no_decomposition', action='store_true', default=False
 
 parser.add_argument('--fine_period', type=int, default=24,
                     help='fine-grained seasonal period (e.g., 24 for daily in hourly data)')
+parser.add_argument('--trend_period', type=int, default=336,
+                    help='smooth trend period')
 parser.add_argument('--coarse_period', type=int, default=168,
                     help='coarse-grained seasonal period (e.g., 168 for weekly in hourly data)')
 parser.add_argument('--num_basis', type=int, default=6,
                     help='number of basis components for orthogonalMSTL')
 parser.add_argument('--use_wandb', action='store_true', 
                     help='use wandb for experiment tracking')
-parser.add_argument("--use_attention_pooling", action="store_true", default=False,
-                    help="uses attention to give more relevance to specific timesteps")
+
 # Data processing
 
 parser.add_argument('--log_interval', type=int, default=100,

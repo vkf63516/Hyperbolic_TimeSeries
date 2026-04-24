@@ -307,11 +307,11 @@ class SegmentedHyperbolicForecaster(nn.Module):
             z_fused = self.mobius_fusion_segments(z_current_trend, z_current_coarse, z_current_fine, z_current_resid)
             
             # Store latents
-            # latent_z.append(z_fused)
-            # latent_trend.append(z_current_trend)
-            # latent_coarse.append(z_current_coarse)
-            # latent_fine.append(z_current_fine)
-            # latent_resid.append(z_current_resid)
+            latent_z.append(z_fused)
+            latent_trend.append(z_current_trend)
+            latent_coarse.append(z_current_coarse)
+            latent_fine.append(z_current_fine)
+            latent_resid.append(z_current_resid)
             
             # Reconstruct segments
             predictions_norm.append(self.reconstructor(z_fused))

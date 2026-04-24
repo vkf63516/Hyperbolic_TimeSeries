@@ -27,3 +27,5 @@ We would like to thank the authors of the following open-source projects for the
 [TimeBase (ICML 2025)](https://github.com/hqh0728/TimeBase)
 
 [DLinear (AAAI 2023)](https://github.com/cure-lab/LTSF-Linear/tree/main)
+
+[Poincare]

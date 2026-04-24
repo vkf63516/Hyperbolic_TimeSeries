@@ -8,8 +8,8 @@ data_path=electricity.csv
 window_size=5
 python run.py \
   --is_training 1 \
-  --hyperbolic_weight 0.1 \
-  --hierarchy_weight 0.0 \
+  --hyperbolic_weight 0.05 \
+  --hierarchy_weight 0.001 \
   --model_id Electricity_$seq_len'_'$manifold_type'_'96_exp1_Segment \
   --model HyperbolicForecasting \
   --data custom \

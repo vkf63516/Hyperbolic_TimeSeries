@@ -61,6 +61,8 @@ class Exp_Main(Exp_Basic):
                 'use_segments': args.use_segments,
                 'use_learnable_decomposition': args.use_learnable_decomposition,
                 'use_no_decomposition': args.use_no_decomposition,
+                'use_moving_window': args.use_moving_window,
+                'use_multi_horizon': args.use_multi_horizon,
                 'loss': args.loss,
                 'patience': args.patience,
             }

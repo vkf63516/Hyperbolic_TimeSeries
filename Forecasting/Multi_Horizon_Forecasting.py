@@ -5,7 +5,7 @@ from Lifting.horizon_hyperbolic_segment_reconstructor import HorizonHyperbolicSe
 from spec import RevIN, safe_expmap
 from DynamicsMvar.poincare_disk import poincareball_factory
 from DynamicsMvar.Poincare_Residual_Dynamics import PoincareLinear
-from spec import compute_hierarchical_loss_with_manifold_dist
+from spec import safe_expmap, compute_hierarchical_loss_with_manifold_dist
 
 class ParallelDirectPoincareDynamics(nn.Module):
     """
@@ -23,13 +23,19 @@ class ParallelDirectPoincareDynamics(nn.Module):
         
         # ===== Single time-conditional velocity network =====
         self.velocity_net = PoincareLinear(
-            encode_dim,  
+            encode_dim,  # +1 for time index
             encode_dim,
             self.ball
         )
         
         # Learnable step sizes per timestep
         self.step_sizes = nn.Parameter(torch.tensor(1.0))
+        
+        # Precompute normalized time indices [0, 1]
+        self.register_buffer(
+            'time_indices',
+            torch.linspace(0, 1, num_horizons).reshape(-1, 1)
+        )
     
     def compute_initial_velocity(self, z_history):
         """
@@ -46,7 +52,7 @@ class ParallelDirectPoincareDynamics(nn.Module):
             return torch.zeros(B, D, device=z_history.device)
         
         # Compute velocities between consecutive segments
-        velocities = self.manifold.logmap(z_history[:, :-1, :], z_history[:, 1:, :])  # [B, N-1, D]
+        velocities = self.manifold.logmap(z_history[:, :-1, :], z_history[:, 1:, :])
         
         # Exponentially weighted average (recent segments weighted more)
         weights = torch.tensor(
@@ -76,17 +82,53 @@ class ParallelDirectPoincareDynamics(nn.Module):
         predictions = []
         
         step = torch.sigmoid(self.step_sizes)
-        
-        for t in range(1, T + 1):
-            # Scale velocity by point ()
-            v_0t = self.velocity_net(v_init)
-            v_t = step * t * v_0t
-            # Geodesic evolution
-            z_t = safe_expmap(self.manifold, z_0, v_t)
-            predictions.append(z_t)
-        
-        return torch.stack(predictions, dim=1)  # [B, T, D]
+        v_0t = self.velocity_net(v_init)        
+        t_vals = torch.arange(1, T + 1, device=z_0.device).float()  # [T]
+        v_all = (step * t_vals.view(T, 1, 1) * v_0t.unsqueeze(0))   # [T, B, D]
+        v_all = v_all.permute(1, 0, 2).reshape(B * T, D)             # [B*T, D]
+        z_0_exp = z_0.unsqueeze(1).expand(B, T, D).reshape(B * T, D) # [B*T, D]
+    
+        z_all = self.manifold.expmap(z_0_exp, v_all)           # [B*T, D]
+        return z_all.view(B, T, D)                                    # [B, T, D]
 
+        # B, D = z_0.shape
+        # T = self.num_horizons
+        
+        # # ===== Prepare batched inputs =====
+        # # Expand velocity: [B, D] → [B, T, D]
+        # v_init_expanded = v_init.unsqueeze(1).expand(B, T, D)
+        # print(v_init_expanded.shape)
+        # # Expand time: [T, 1] → [B, T, 1]
+        # time_expanded = self.time_indices.unsqueeze(0).expand(B, T, 1)
+        
+        # # Concatenate: [B, T, D+1]
+        # v_with_time = torch.cat([v_init_expanded, time_expanded], dim=-1)
+        
+        # # Flatten for batched processing: [B*T, D+1]
+        # v_flat = v_with_time.reshape(B * T, D+1)
+        
+        # # ===== SINGLE forward pass through PoincareLinear for ALL timesteps =====
+        # v_transformed_flat = self.velocity_net(v_flat)  # [B*T, D]
+        
+        # # Reshape: [B*T, D] → [B, T, D]
+        # v_transformed = v_transformed_flat.reshape(B, T, D)
+        
+        # # ===== Scale by step sizes =====
+        # step_sizes = torch.sigmoid(self.step_sizes).view(1, T, 1)
+        # v_scaled = v_transformed * step_sizes  # [B, T, D]
+        
+        # # ===== Batched exponential map =====
+        # # Expand z_0 for all timesteps: [B, D] → [B, T, D] → [B*T, D]
+        # z_0_expanded = z_0.unsqueeze(1).expand(B, T, D).reshape(B * T, D)
+        # v_scaled_flat = v_scaled.reshape(B * T, D)
+        
+        # # ALL geodesic evolutions computed in parallel!
+        # z_all_flat = safe_expmap(self.manifold, z_0_expanded, v_scaled_flat)
+        
+        # # Reshape: [B*T, D] → [B, T, D]
+        # z_all = z_all_flat.reshape(B, T, D)
+        
+        # return z_all  # [B, num_horizons, encode_dim]
 
 class DirectMultiHorizonHyperbolicForecaster(nn.Module):
     """

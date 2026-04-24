@@ -79,6 +79,7 @@ class DirectHyperbolicForecaster(nn.Module):
             encode_dim=encode_dim,
             output_dim=1,
             segment_length=segment_length,
+            manifold_type=self.manifold_type,
             manifold=self.manifold,
             hidden_dim=hidden_dim,
             dropout=recon_dropout,

@@ -47,7 +47,6 @@ def objective(trial, pred_len, manifold_type='Euclidean'):
     Focused optimization - only core hyperparameters.
     
     FIXED settings (not searched):
-    - use_attention_pooling: True
     """
     
     # ONLY sample these 4 core hyperparameters

@@ -22,7 +22,6 @@ python run.py \
   --label_len 0 \
   --seq_len $seq_len \
   --pred_len 96 \
-  --inverse \
   --lradj "type3" \
   --encode_dim 64 \
   --hidden_dim $hidden_dim \
@@ -38,7 +37,8 @@ python run.py \
   --use_revin \
   --use_wandb \
   --use_segments \
-  --use_multi_horizon
+  --window_size $window_size \
+  --use_moving_window
 
 python run.py \
   --is_training 1 \
@@ -68,8 +68,7 @@ python run.py \
   --use_wandb \
   --use_segments \
   --window_size $window_size \
-  --use_multi_horizon
-
+  --use_moving_window
 
 
 python run.py \
@@ -100,7 +99,7 @@ python run.py \
   --use_wandb \
   --use_segments \
   --window_size $window_size \
-  --use_multi_horizon
+  --use_moving_window
 
 
 python run.py \
@@ -131,4 +130,4 @@ python run.py \
   --use_wandb \
   --use_segments \
   --window_size $window_size \
-  --use_multi_horizon
+  --use_moving_window

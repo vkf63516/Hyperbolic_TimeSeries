@@ -59,9 +59,10 @@ def compute_hierarchical_loss_with_manifold_dist(encodedings_dict, manifold, mar
         coarse_to_fine +
         fine_to_residual
     ).mean()
-    
+    # print(f"Entailment Loss: {entailment_loss}")
+    # print(f"Hierarchy Loss: {hierarchy_loss}")
     total_loss = hierarchy_loss + 0.5 * entailment_loss
-    return total_loss
+    return hierarchy_loss + 0.5 * entailment_loss
 
 
 def safe_expmap0_lorentz(manifold, v, eps=1e-8, initial_scale=0.1):
@@ -84,7 +85,7 @@ def safe_expmap0_lorentz(manifold, v, eps=1e-8, initial_scale=0.1):
     return result
 
 
-def safe_expmap(manifold, base_point, v, eps=1e-15, max_norm=7.0):
+def safe_expmap(manifold, base_point, v, eps=1e-15, max_norm=8.5):
     """Similar to safe_expmap0 but for non-origin base points"""
     v_norm = torch.norm(v, dim=-1, keepdim=True).clamp(min=eps)
     # print(f"V_norm ")
