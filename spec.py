@@ -54,15 +54,15 @@ def compute_hierarchical_loss_with_manifold_dist(encodedings_dict, manifold, mar
     coarse_to_fine = manifold.dist(coarse_h, fine_h)
     fine_to_residual = manifold.dist(fine_h, residual_h)
     
-    entailment_loss = (
+    coherency = (
         trend_to_coarse +
         coarse_to_fine +
         fine_to_residual
     ).mean()
     # print(f"Entailment Loss: {entailment_loss}")
     # print(f"Hierarchy Loss: {hierarchy_loss}")
-    total_loss = hierarchy_loss + 0.5 * entailment_loss
-    return hierarchy_loss + 0.5 * entailment_loss
+    total_loss = hierarchy_loss + 0.5 * coherency
+    return total_loss
 
 
 def safe_expmap0_lorentz(manifold, v, eps=1e-8, initial_scale=0.1):
