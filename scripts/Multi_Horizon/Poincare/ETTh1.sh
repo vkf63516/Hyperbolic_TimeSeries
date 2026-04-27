@@ -2,7 +2,7 @@ seq_len=720
 train_epochs=30
 patience=5
 enc_in=7
-manifold_type="Euclidean"
+manifold_type="Poincare"
 data_path=ETTh1.csv
 hidden_dim=256
 num_basis=10 
@@ -38,7 +38,7 @@ python run.py \
   --use_wandb \
   --use_segments \
   --window_size $window_size \
-  --use_moving_window
+  --use_multi_horizon
 
 python run.py \
   --is_training 1 \
@@ -68,7 +68,7 @@ python run.py \
   --use_wandb \
   --use_segments \
   --window_size $window_size \
-  --use_moving_window
+  --use_multi_horizon
 
 
 python run.py \
@@ -99,8 +99,7 @@ python run.py \
   --use_wandb \
   --use_segments \
   --window_size $window_size \
-  --use_moving_window
-
+  --use_multi_horizon
 
 python run.py \
   --is_training 1 \
@@ -130,4 +129,4 @@ python run.py \
   --use_wandb \
   --use_segments \
   --window_size $window_size \
-  --use_moving_window
+  --use_multi_horizon

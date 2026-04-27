@@ -64,32 +64,6 @@ def compute_hierarchical_loss_with_manifold_dist(encodedings_dict, manifold, mar
     total_loss = hierarchy_loss + 0.5 * coherency
     return total_loss
 
-def euclidean_hierarchical_loss(encodings_dict, margin=0.1):
-    trend_h = encodings_dict["trend_e"]
-    coarse_h = encodings_dict["seasonal_coarse_e"]
-    fine_h = encodings_dict["seasonal_fine_e"]
-    residual_h = encodings_dict["residual_e"]
-    
-    # Euclidean distance from origin = L2 norm
-    trend_dist = trend_h.norm(dim=-1)
-    coarse_dist = coarse_h.norm(dim=-1)
-    fine_dist = fine_h.norm(dim=-1)
-    residual_dist = residual_h.norm(dim=-1)
-    
-    hierarchy_loss = (
-        torch.relu(trend_dist + margin - coarse_dist) +
-        torch.relu(coarse_dist + margin - fine_dist) +
-        torch.relu(fine_dist + margin - residual_dist)
-    ).mean()
-    
-    # Entailment
-    trend_to_coarse  = (trend_h - coarse_h).norm(dim=-1)
-    coarse_to_fine   = (coarse_h - fine_h).norm(dim=-1)
-    fine_to_residual = (fine_h - residual_h).norm(dim=-1)
-    
-    coherency = (trend_to_coarse + coarse_to_fine + fine_to_residual).mean()
-    total_loss = hierarchy_loss + 0.5 * coherency
-    return total_loss
 
 def safe_expmap0_lorentz(manifold, v, eps=1e-8, initial_scale=0.1):
     """

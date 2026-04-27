@@ -12,7 +12,7 @@ import gc
 def setup_device():
     if torch.cuda.is_available():
         try:
-            torch.cuda. empty_cache()
+            torch.cuda.empty_cache()
             device = torch.device('cuda')
             print("Using GPU")
         except: 

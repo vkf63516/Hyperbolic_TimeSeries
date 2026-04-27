@@ -2052,3 +2052,6 @@ mse:0.3059815466403961, mae:0.42073655128479004, rmse:0.5531559586524963
 Exchange_720_Euclidean_720_exp1_Segment_HyperbolicForecasting_custom_exchange_rate.csv_ftM_sl720_pl720_exp_ebfixed_Euclidean_0_seed2023  
 mse:1.2563769817352295, mae:0.8449679017066956, rmse:1.120882272720337
 
+Temp_OneShot_720_Euclidean_96_exp1_Segment_HyperbolicForecasting_custom_temp.csv_ftM_sl720_pl96_exp_ebfixed_Euclidean_0_seed2023  
+mse:0.12580449879169464, mae:0.2716151177883148, rmse:0.3546893000602722
+

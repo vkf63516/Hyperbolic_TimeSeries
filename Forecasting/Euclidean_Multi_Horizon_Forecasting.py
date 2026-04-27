@@ -2,8 +2,8 @@ import torch
 import torch.nn as nn
 from Lifting.horizon_euclidean_segment_reconstructor import EuclideanHorizonSegmentReconstructionHead
 from encode.Multi_Horizon.segment_encode_multi_horizon_euclidean import SegmentedParallelEuclideanMultiHorizon
-from spec import RevIN, safe_expmap, euclidean_hierarchical_loss
-from loss import euclidean_velocity_consistency_loss
+from spec import RevIN, safe_expmap
+
 
 class ParallelDirectEuclideanDynamics(nn.Module):
     def __init__(self, encode_dim, num_horizons):
@@ -172,10 +172,7 @@ class EuclideanMultiHorizonHyperbolicForecaster(nn.Module):
             "seasonal_fine_e":   z_fine_future,
             "residual_e":        z_resid_future
         }
-        hierarchy_loss = euclidean_hierarchical_loss(
-            encodings_dict,
-            margin=0.1
-        )
+
         
         # ===== Euclidean fusion =====
         z_fused = self.euclidean_fusion(
@@ -187,7 +184,6 @@ class EuclideanMultiHorizonHyperbolicForecaster(nn.Module):
         predictions = prediction.reshape(B, self.segment_length * self.num_pred_segments)
         
         # ===== Temporal consistency loss =====
-        consistency_loss = euclidean_velocity_consistency_loss(z_fused)
         
         return {
             'predictions':        predictions,
@@ -196,8 +192,6 @@ class EuclideanMultiHorizonHyperbolicForecaster(nn.Module):
             'latent_coarse':      z_coarse_future,
             'latent_fine':        z_fine_future,
             'latent_resid':       z_resid_future,
-            'hierarchy_loss':     hierarchy_loss,
-            'consistency_loss':   consistency_loss
         }
     
     def forward(self, trend, seasonal_coarse, seasonal_fine, residual):
