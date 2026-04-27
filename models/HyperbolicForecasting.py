@@ -207,7 +207,7 @@ class Model(nn.Module):
         Returns:
             predictions: [B, pred_len, output_dim]
         """
-        if self.decomposer is not None:
+        if self.decomposer is not None and self.manifold_type != "Euclidean":
             components = self.decomposer(batch_x)
             trend = components['trend']
             seasonal_coarse = components['seasonal_coarse']
