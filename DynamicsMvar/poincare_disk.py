@@ -26,6 +26,14 @@ class PoincareBallStdGrad(nn.Module):
     def c(self):
         return nn.functional.softplus(self.isp_c)
 
+    def origin(self, *size, dtype=None, device=None, seed=42):
+        if dtype is None:
+            dtype = torch.float32
+        return torch.zeros(*size, dtype=dtype, device=device)
+    
+    def projx(self, x, dim=-1):  # alias for projx compatibility
+        return self.project(x, dim=dim)
+
     def mobius_add(self, x: torch.Tensor, y: torch.Tensor, dim: int = -1):
         return dg_mobius_add(x=x, y=y, c=self.c, dim=dim)
     

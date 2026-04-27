@@ -13,6 +13,7 @@ from Forecasting.Direct_Moving_Window_Segment_Forecaster import DirectHyperbolic
 from Forecasting.Segment_Euclidean_Forecaster import SegmentForecastEuclidean
 from Forecasting.Segment_Forecaster import SegmentedHyperbolicForecaster
 from Forecasting.Multi_Horizon_Forecasting import DirectMultiHorizonHyperbolicForecaster
+from Forecasting.Euclidean_Multi_Horizon_Forecasting import EuclideanMultiHorizonHyperbolicForecaster
 class Model(nn.Module):
     """
     Hyperbolic Forecasting Model
@@ -75,6 +76,20 @@ class Model(nn.Module):
                     recon_dropout=0.2,
                     num_layers=2,
                     window_size=self.window_size
+                )
+            elif self.use_multi_horizon:
+                self.forecaster = EuclideanMultiHorizonHyperbolicForecaster(
+                    lookback=self.seq_len,
+                    pred_len=self.pred_len,
+                    n_features=self.enc_in,
+                    encode_dim=self.encode_dim,
+                    hidden_dim=self.hidden_dim,
+                    manifold_type=self.manifold_type,
+                    segment_length=self.mstl_period,
+                    use_revin=self.use_revin,
+                    encode_dropout=0.3,
+                    recon_dropout=0.2,
+                    
                 )
             else:
 
@@ -207,7 +222,7 @@ class Model(nn.Module):
         # Get individual hyperbolic representations
         x_hat = forecasts["predictions"]
         if self.manifold_type == "Euclidean":
-            return x_hat, torch.tensor(0.0, device=x_hat.device), torch.tensor(0.0, device=x_hat.device)
+            return x_hat, forecasts["consistency_loss"], hierarchy_loss
         x_hyp = forecasts["hyperbolic_states"]["combined_h"]
         hyperbolic_loss = hvcl(z_trajectory=x_hyp, manifold=self.forecaster.manifold)
 

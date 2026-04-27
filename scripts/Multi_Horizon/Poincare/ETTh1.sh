@@ -2,7 +2,7 @@ seq_len=720
 train_epochs=30
 patience=5
 enc_in=7
-manifold_type="Poincare"
+manifold_type="Euclidean"
 data_path=ETTh1.csv
 hidden_dim=256
 num_basis=10 
@@ -26,7 +26,7 @@ python run.py \
   --encode_dim 64 \
   --hidden_dim $hidden_dim \
   --batch_size 32 \
-  --learning_rate 1e-3 \
+  --learning_rate 5e-3 \
   --train_epochs $train_epochs \
   --use_learnable_decomposition \
   --enc_in $enc_in \

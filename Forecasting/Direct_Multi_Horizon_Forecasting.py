@@ -1,11 +1,11 @@
 import torch
 import torch.nn as nn
-from encode.Multi_Horizon.segment_encode_multi_horizon_poincare import SegmentedParallelPoincareMultiHorizon
+from encode.Multi_Horizon.segment_encode_no_decomp_poincare import DirectPoincareNoDecomp
 from Lifting.horizon_hyperbolic_segment_reconstructor import HorizonHyperbolicSegmentReconstructionHead
 from spec import RevIN, safe_expmap
 from DynamicsMvar.poincare_disk import poincareball_factory
 from DynamicsMvar.Poincare_Residual_Dynamics import PoincareLinear
-from spec import safe_expmap, compute_hierarchical_loss_with_manifold_dist
+from spec import compute_hierarchical_loss_with_manifold_dist
 
 class ParallelDirectPoincareDynamics(nn.Module):
     """
@@ -23,19 +23,13 @@ class ParallelDirectPoincareDynamics(nn.Module):
         
         # ===== Single time-conditional velocity network =====
         self.velocity_net = PoincareLinear(
-            encode_dim,  # +1 for time index
+            encode_dim,  
             encode_dim,
             self.ball
         )
         
         # Learnable step sizes per timestep
         self.step_sizes = nn.Parameter(torch.tensor(1.0))
-        
-        # Precompute normalized time indices [0, 1]
-        self.register_buffer(
-            'time_indices',
-            torch.linspace(0, 1, num_horizons).reshape(-1, 1)
-        )
     
     def compute_initial_velocity(self, z_history):
         """
@@ -52,7 +46,7 @@ class ParallelDirectPoincareDynamics(nn.Module):
             return torch.zeros(B, D, device=z_history.device)
         
         # Compute velocities between consecutive segments
-        velocities = self.manifold.logmap(z_history[:, :-1, :], z_history[:, 1:, :])
+        velocities = self.manifold.logmap(z_history[:, :-1, :], z_history[:, 1:, :])  # [B, N-1, D]
         
         # Exponentially weighted average (recent segments weighted more)
         weights = torch.tensor(
@@ -76,7 +70,7 @@ class ParallelDirectPoincareDynamics(nn.Module):
         Returns:
             z_all: [B, num_horizons, encode_dim] - ALL future states
         """
-        B, D = z_0.shape
+        B, D = z_0.shape    
         T = self.num_horizons
         
         predictions = []
@@ -91,7 +85,7 @@ class ParallelDirectPoincareDynamics(nn.Module):
         z_all = self.manifold.expmap(z_0_exp, v_all)           # [B*T, D]
         return z_all.view(B, T, D)                                    # [B, T, D]
 
-class DirectMultiHorizonHyperbolicForecaster(nn.Module):
+class DirectNoDecompHyperbolicForecaster(nn.Module):
     """
     Parallel direct multi-horizon forecaster with geodesic dynamics.
     """
@@ -116,7 +110,7 @@ class DirectMultiHorizonHyperbolicForecaster(nn.Module):
             self.revin = RevIN(num_features=n_features, eps=1e-5, affine=True)
         
         # ===== Encoder =====
-        self.encode_hyperbolic = SegmentedParallelPoincareMultiHorizon(
+        self.encode_hyperbolic = DirectPoincareNoDecomp(
             lookback=lookback,
             num_channels=n_features,
             encode_dim=encode_dim,
@@ -128,16 +122,7 @@ class DirectMultiHorizonHyperbolicForecaster(nn.Module):
         self.manifold = self.encode_hyperbolic.manifold
         
         # ===== Parallel geodesic dynamics for each component =====
-        self.dynamics_trend = ParallelDirectPoincareDynamics(
-            encode_dim, self.manifold, self.num_pred_segments
-        )
-        self.dynamics_coarse = ParallelDirectPoincareDynamics(
-            encode_dim, self.manifold, self.num_pred_segments
-        )
-        self.dynamics_fine = ParallelDirectPoincareDynamics(
-            encode_dim, self.manifold, self.num_pred_segments
-        )
-        self.dynamics_resid = ParallelDirectPoincareDynamics(
+        self.dynamics = ParallelDirectPoincareDynamics(
             encode_dim, self.manifold, self.num_pred_segments
         )
         
@@ -157,7 +142,7 @@ class DirectMultiHorizonHyperbolicForecaster(nn.Module):
         self.mobius_weights = nn.Parameter(torch.ones(4) * 0.25)
         
         print(f"\n{'='*70}")
-        print(f"🚀 PARALLEL Direct Multi-Horizon Hyperbolic Forecaster")
+        print(f"Ablation No Decomposition Direct Multi-Horizon Hyperbolic Forecaster")
         print(f"{'='*70}")
         print(f"Features: {n_features} (channel-independent)")
         print(f"Future segments: {self.num_pred_segments}")
@@ -196,7 +181,7 @@ class DirectMultiHorizonHyperbolicForecaster(nn.Module):
                 
         return combined
     
-    def process_batched_features(self, trend_f, coarse_f, fine_f, resid_f):
+    def process_batched_features(self, x_raw):
         """
         Process batched features through entire pipeline.
         
@@ -206,145 +191,72 @@ class DirectMultiHorizonHyperbolicForecaster(nn.Module):
         Returns:
             dict with predictions: [B, pred_len]
         """
-        B = trend_f.shape[0]
+        B = x_raw.shape[0]
         
         # ===== Encode historical segments =====
-        encode_h = self.encode_hyperbolic(trend_f, coarse_f, fine_f, resid_f)
+        encode_h = self.encode_hyperbolic(x_raw)
         
-        z_trend_hist = encode_h["trend_h"]  # [B, num_hist_segments, encode_dim]
-        z_coarse_hist = encode_h["seasonal_coarse_h"]
-        z_fine_hist = encode_h["seasonal_fine_h"]
-        z_resid_hist = encode_h["residual_h"]
+        z_hist = encode_h["combined_h"]  # [B, num_hist_segments, encode_dim]
         # print(z_trend_hist.shape)
-        _, N_hist, D = z_trend_hist.shape
+        _, N_hist, D = z_hist.shape
         
         # ===== Take window for velocity computation =====
      
-        z_trend_win = z_trend_hist
-        z_coarse_win = z_coarse_hist
-        z_fine_win = z_fine_hist
-        z_resid_win = z_resid_hist
-        v_trend_init = self.dynamics_trend.compute_initial_velocity(z_trend_win)
-        v_coarse_init = self.dynamics_coarse.compute_initial_velocity(z_coarse_win)
-        v_fine_init = self.dynamics_fine.compute_initial_velocity(z_fine_win)
-        v_resid_init = self.dynamics_resid.compute_initial_velocity(z_resid_win)
+        z_win = z_hist
+        v_init = self.dynamics.compute_initial_velocity(z_win)
         
         # Initial states
-        z_trend_0 = z_trend_hist[:, -1, :]
-        z_coarse_0 = z_coarse_hist[:, -1, :]
-        z_fine_0 = z_fine_hist[:, -1, :]
-        z_resid_0 = z_resid_hist[:, -1, :]
+        z_0 = z_hist[:, -1, :]
         
         # ===== PARALLEL DIRECT PREDICTION =====
-        z_trend_future = self.dynamics_trend(z_trend_0, v_trend_init)  # [B*F, T, D]
-        z_coarse_future = self.dynamics_coarse(z_coarse_0, v_coarse_init)
-        z_fine_future = self.dynamics_fine(z_fine_0, v_fine_init)
-        z_resid_future = self.dynamics_resid(z_resid_0, v_resid_init)
+        z_future = self.dynamics(z_0, v_init)  # [B*F, T, D]
         
-        # ===== PARALLEL GEODESIC EVOLUTION =====
-        # Each component: ALL future segments in ONE forward pass!
-        encodings_dict = {
-            "trend_h": z_trend_future,
-            "seasonal_coarse_h": z_coarse_future,
-            "seasonal_fine_h": z_fine_future,
-            "residual_h": z_resid_future
-        }
-        hierarchy_loss = compute_hierarchical_loss_with_manifold_dist(
-            encodings_dict, 
-            manifold=self.manifold,
-            margin=0.1
-        )
         predictions = []
-        # ===== Fuse and reconstruct each future segment =====
             
-        z_fused = self.mobius_fusion(z_trend_future, z_coarse_future, z_fine_future, z_resid_future)
-        prediction = self.reconstructor(z_fused)  # [B, segment_length]
+        prediction = self.reconstructor(z_future)  # [B, segment_length]
         predictions = prediction.reshape(B, self.segment_length * self.num_pred_segments)
         
         return {
             'predictions': predictions,
-            'latent_z': z_fused,
-            'latent_trend': z_trend_future,
-            'latent_coarse': z_coarse_future,
-            'latent_fine': z_fine_future,
-            'latent_resid': z_resid_future,
-            'hierarchy_loss': hierarchy_loss
+            'latent_z': z_future,
         }
     
-    def forward(self, trend, seasonal_coarse, seasonal_fine, residual):
+    def forward(self, x):
         """
-        Channel-independent parallel direct multi-horizon forecasting.
-        
-        Args:
-            trend, seasonal_coarse, seasonal_fine, residual: [B, seq_len, n_features]
+        Args: 
+            x: [B, seq_len, n_features] - raw input (NO decomposition)
         
         Returns:
-            dict with predictions: [B, pred_len, n_features]
+            dict with predictions:  [B, pred_len, n_features]
         """
-        B, L, F = trend.shape
+        B, L, F = x.shape
         
-        # ===== RevIN Normalization =====
-        x_combined = trend + seasonal_coarse + seasonal_fine + residual
-        
+        # RevIN normalization
         if self.use_revin:
-            self.revin(x_combined, mode='norm')
-            trend = self._normalize_component(trend)
-            seasonal_coarse = self._normalize_component(seasonal_coarse)
-            seasonal_fine = self._normalize_component(seasonal_fine)
-            residual = self._normalize_component(residual)
+            x = self.revin(x, mode='norm')
         
-        # ===== Collapse features: [B, L, F] → [B*F, L] =====
-        def collapse(x):
-            return x.permute(0, 2, 1).contiguous().view(B * F, L)
+        # Collapse features into batch:  [B, L, F] → [B*F, L]
+        x_b = x.permute(0, 2, 1).contiguous().view(B * F, L)
         
-        trend_bf = collapse(trend)
-        coarse_bf = collapse(seasonal_coarse)
-        fine_bf = collapse(seasonal_fine)
-        resid_bf = collapse(residual)
-
-        def uncollapse_latent(tensor_b):
-            # tensor_b: [B*F, num_pred_segments, D] -> [B, F, num_pred_segments, D]
-            # print(tensor_b.shape)
-            Bf, N, D = tensor_b.shape
-            return tensor_b.view(B, F, N, D)
-        # ===== Process all features in batch =====
-        batched_out = self.process_batched_features(trend_bf, coarse_bf, fine_bf, resid_bf)
+        # Process through hyperbolic model (no decomposition)
+        batched_out = self.process_batched_features(x_b)
         predictions_norm = batched_out['predictions']  # [B*F, pred_len]
-                
-        # ===== RevIN Denormalization =====
+        
+        # Denormalize
         if self.use_revin:
             predictions_norm = predictions_norm.view(B, F, -1).permute(0, 2, 1).contiguous()
             predictions = self.revin(predictions_norm, mode='denorm')
         else:
-            predictions = predictions_norm
+            predictions = predictions_norm.view(B, F, -1).permute(0, 2, 1).contiguous()
+        
+        # Uncollapse latent states
+        def uncollapse_latent(tensor_b):
+            Bf, S, D = tensor_b.shape
+            return tensor_b.view(B, F, S, D)
         
         return {
             'predictions': predictions,
             'hyperbolic_states': {
-                'combined_h': uncollapse_latent(batched_out['latent_z']),
-                'trend_h': uncollapse_latent(batched_out['latent_trend']),
-                'coarse_h': uncollapse_latent(batched_out['latent_coarse']),
-                'fine_h': uncollapse_latent(batched_out['latent_fine']),
-                'resid_h': uncollapse_latent(batched_out['latent_resid'])
-            },
-            'hierarchy_loss': batched_out["hierarchy_loss"]
-        }
-
-    def _normalize_component(self, component):
-        """
-        Normalize a single component using stored RevIN statistics.
-        
-        Args:
-            component: [B, L, F] 
-        
-        Returns:
-            normalized component: [B, L, F]
-        """
-        # Apply normalization: (x - mean) / std
-        x = (component - self.revin.mean) / self.revin.stdev
-        
-        # Apply affine transformation if enabled
-        if self.revin.affine:
-            x = x * self.revin.affine_weight + self.revin.affine_bias
-        
-        return x
+                "combined_h": uncollapse_latent(batched_out["latent_z"]),
+            }
+        } 

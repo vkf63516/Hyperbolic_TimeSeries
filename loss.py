@@ -47,6 +47,47 @@ def hyperbolic_velocity_consistency_loss(z_trajectory, manifold, beta=1.0):
     
     return loss
 
+def euclidean_velocity_consistency_loss(z_trajectory, beta=1.0):
+    """
+    Euclidean equivalent of hyperbolic_velocity_consistency_loss.
+    Penalizes acceleration in trajectory — encourages smooth linear dynamics.
+    
+    Args:
+        z_trajectory: [B, F, N, D] or [B, N, D]
+        beta: weighting factor
+    
+    Returns:
+        loss: scalar consistency loss
+    """
+    # Handle dimensions
+    if z_trajectory.dim() == 4:
+        B, F, N, D = z_trajectory.shape
+        z_trajectory = z_trajectory.reshape(B * F, N, D)
+        B = B * F
+    elif z_trajectory.dim() == 3:
+        B, N, D = z_trajectory.shape
+    else:
+        raise ValueError(f"Expected 3D or 4D tensor, got shape {z_trajectory.shape}")
+    
+    if N < 3:
+        return torch.tensor(0.0, device=z_trajectory.device, dtype=z_trajectory.dtype)
+    
+    # Euclidean velocities — simple finite difference
+    # logmap(x, y) = y - x in Euclidean space
+    velocities = z_trajectory[:, 1:, :] - z_trajectory[:, :-1, :]  # [B, N-1, D]
+    
+    # Euclidean parallel transport is identity — v transported = v unchanged
+    # So acceleration = v[t+1] - v[t] directly
+    v_curr = velocities[:, :-1, :]  # [B, N-2, D]
+    v_next = velocities[:, 1:, :]   # [B, N-2, D]
+    
+    # Acceleration — no parallel transport needed
+    acceleration = v_next - v_curr  # [B, N-2, D]
+    
+    acceleration_norm_sq = torch.sum(acceleration ** 2, dim=-1)  # [B, N-2]
+    loss = beta * torch.mean(acceleration_norm_sq)
+    
+    return loss
 
 def radial_diversity_loss(z_trajectory, manifold, target_variance=0.1, beta=1.0):
     """

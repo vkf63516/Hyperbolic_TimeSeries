@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import geoopt
 from spec import safe_expmap0
+from DynamicsMvar.poincare_disk import poincareball_factory
 
 
 class SegmentLinearencodeMultiHorizon(nn.Module):
