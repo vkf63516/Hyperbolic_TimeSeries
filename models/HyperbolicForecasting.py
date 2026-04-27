@@ -207,7 +207,7 @@ class Model(nn.Module):
         Returns:
             predictions: [B, pred_len, output_dim]
         """
-        if self.decomposer is not None and self.manifold_type != "Euclidean":
+        if self.decomposer is not None:
             components = self.decomposer(batch_x)
             trend = components['trend']
             seasonal_coarse = components['seasonal_coarse']
@@ -215,7 +215,8 @@ class Model(nn.Module):
             residual = components['residual']
 
             forecasts = self.forecaster(trend, seasonal_coarse, seasonal_fine, residual)
-            hierarchy_loss = forecasts["hierarchy_loss"]
+            if self.manifold_type != "Euclidean":
+                hierarchy_loss = forecasts["hierarchy_loss"]
         else:
             forecasts = self.forecaster(batch_x)
             hierarchy_loss = torch.tensor(0.0, device=x_hat.device)
