@@ -2055,3 +2055,12 @@ mse:1.2563769817352295, mae:0.8449679017066956, rmse:1.120882272720337
 Temp_OneShot_720_Euclidean_96_exp1_Segment_HyperbolicForecasting_custom_temp.csv_ftM_sl720_pl96_exp_ebfixed_Euclidean_0_seed2023  
 mse:0.12580449879169464, mae:0.2716151177883148, rmse:0.3546893000602722
 
+Exchange_720_Euclidean_96_exp1_Segment_HyperbolicForecasting_custom_exchange_rate.csv_ftM_sl720_pl96_exp_ebfixed_Euclidean_0_seed2023  
+mse:0.09063064306974411, mae:0.23229216039180756, rmse:0.30104923248291016
+
+Exchange_720__192_exp1_Segment_HyperbolicForecasting_custom_exchange_rate.csv_ftM_sl720_pl192_exp_ebfixed_Euclidean_0_seed2023  
+mse:0.2215975970029831, mae:0.38450226187705994, rmse:0.47074154019355774
+
+Exchange_720_Euclidean_336_exp1_Segment_HyperbolicForecasting_custom_exchange_rate.csv_ftM_sl720_pl336_exp_ebfixed_Euclidean_0_seed2023  
+mse:0.5377535820007324, mae:0.6002460718154907, rmse:0.7333168387413025
+
