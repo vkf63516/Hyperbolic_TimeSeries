@@ -6,6 +6,7 @@ from spec import RevIN, safe_expmap
 from DynamicsMvar.poincare_disk import poincareball_factory
 from DynamicsMvar.Poincare_Residual_Dynamics import PoincareLinear
 from spec import safe_expmap, compute_hierarchical_loss_with_manifold_dist
+from loss import hyperbolic_velocity_consistency_loss
 
 class ParallelDirectPoincareDynamics(nn.Module):
     """
@@ -261,6 +262,8 @@ class DirectMultiHorizonHyperbolicForecaster(nn.Module):
         prediction = self.reconstructor(z_fused)  # [B, segment_length]
         predictions = prediction.reshape(B, self.segment_length * self.num_pred_segments)
         
+        # ======= Temporal Consistency Loss =======
+        consistency_loss = hyperbolic_velocity_consistency_loss(z_fused, self.manifold)
         return {
             'predictions': predictions,
             'latent_z': z_fused,
@@ -268,7 +271,8 @@ class DirectMultiHorizonHyperbolicForecaster(nn.Module):
             'latent_coarse': z_coarse_future,
             'latent_fine': z_fine_future,
             'latent_resid': z_resid_future,
-            'hierarchy_loss': hierarchy_loss
+            'hierarchy_loss': hierarchy_loss,
+            'consistency_loss': consistency_loss
         }
     
     def forward(self, trend, seasonal_coarse, seasonal_fine, residual):
@@ -327,7 +331,8 @@ class DirectMultiHorizonHyperbolicForecaster(nn.Module):
                 'fine_h': uncollapse_latent(batched_out['latent_fine']),
                 'resid_h': uncollapse_latent(batched_out['latent_resid'])
             },
-            'hierarchy_loss': batched_out["hierarchy_loss"]
+            'hierarchy_loss': batched_out["hierarchy_loss"],
+            'consistency_loss': batched_out["consistency_loss"]
         }
 
     def _normalize_component(self, component):

@@ -4,7 +4,6 @@ from Lifting.horizon_euclidean_segment_reconstructor import EuclideanHorizonSegm
 from encode.Multi_Horizon.segment_encode_multi_horizon_euclidean import SegmentedParallelEuclideanMultiHorizon
 from spec import RevIN, safe_expmap
 
-
 class ParallelDirectEuclideanDynamics(nn.Module):
     def __init__(self, encode_dim, num_horizons):
         super().__init__()
@@ -183,7 +182,6 @@ class EuclideanMultiHorizonHyperbolicForecaster(nn.Module):
         prediction  = self.reconstructor(z_fused)
         predictions = prediction.reshape(B, self.segment_length * self.num_pred_segments)
         
-        # ===== Temporal consistency loss =====
         
         return {
             'predictions':        predictions,
@@ -250,8 +248,6 @@ class EuclideanMultiHorizonHyperbolicForecaster(nn.Module):
                 'fine_h': uncollapse_latent(batched_out['latent_fine']),
                 'resid_h': uncollapse_latent(batched_out['latent_resid'])
             },
-            'hierarchy_loss': batched_out["hierarchy_loss"],
-            'consistency_loss': batched_out["consistency_loss"]
         }
 
     def _normalize_component(self, component):
