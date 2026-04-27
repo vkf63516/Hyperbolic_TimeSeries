@@ -79,7 +79,7 @@ class SegmentedParallelEuclideanMultiHorizon(nn.Module):
             encode_dim=encode_dim, lookback=lookback, num_channels=num_channels, segment_length=segment_length, dropout=encode_dropout
         )
         
-    def forward(self, trend, fine, coarse, residual):
+    def forward(self, trend, coarse, fine, residual):
         """
         Encode decomposed time series components to Euclidean space.
         
@@ -96,12 +96,12 @@ class SegmentedParallelEuclideanMultiHorizon(nn.Module):
         """
         # encode each branch to Euclidean latent vector
         e_trend = self.trend_encode(trend)
-        e_fine = self.seasonal_fine_encode(fine)
-        e_coarse = self.seasonal_coarse_encode(coarse)
+        e_coarse = self.seasonal_fine_encode(coarse)
+        e_fine = self.seasonal_coarse_encode(fine)
         e_residual = self.residual_encode(residual)
         
         # Simple sum (no hierarchy, all components equally weighted)
-        combined_e = e_trend + e_fine + e_coarse + e_residual
+        combined_e = e_trend + e_coarse + e_fine + e_residual
 
         return {
             "trend_e": e_trend,

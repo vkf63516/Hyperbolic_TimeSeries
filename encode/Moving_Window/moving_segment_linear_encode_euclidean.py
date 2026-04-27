@@ -72,7 +72,7 @@ class SegmentParallelEuclideanMovingWindow(nn.Module):
         
 
     
-    def forward(self, trend, fine, coarse, residual):
+    def forward(self, trend, coarse, fine, residual):
         """
         Encode decomposed time series components to Euclidean space.
         
