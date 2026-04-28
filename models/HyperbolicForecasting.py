@@ -13,7 +13,7 @@ from Forecasting.Direct_Moving_Window_Segment_Forecaster import DirectHyperbolic
 from Forecasting.Segment_Euclidean_Forecaster import SegmentForecastEuclidean
 from Forecasting.Segment_Forecaster import SegmentedHyperbolicForecaster
 from Forecasting.Multi_Horizon_Forecasting import DirectMultiHorizonHyperbolicForecaster
-from Forecasting.Euclidean_Multi_Horizon_Forecasting import EuclideanMultiHorizonHyperbolicForecaster
+from Forecasting.Euclidean_Multi_Horizon_Forecasting import EuclideanMultiHorizonForecaster
 class Model(nn.Module):
     """
     Hyperbolic Forecasting Model
@@ -78,18 +78,12 @@ class Model(nn.Module):
                     window_size=self.window_size
                 )
             elif self.use_multi_horizon:
-                self.forecaster = EuclideanMultiHorizonHyperbolicForecaster(
+                self.forecaster = EuclideanMultiHorizonForecaster(
                     lookback=self.seq_len,
                     pred_len=self.pred_len,
                     n_features=self.enc_in,
-                    encode_dim=self.encode_dim,
-                    hidden_dim=self.hidden_dim,
-                    manifold_type=self.manifold_type,
                     segment_length=self.mstl_period,
                     use_revin=self.use_revin,
-                    encode_dropout=0.3,
-                    recon_dropout=0.2,
-                    
                 )
             else:
 
