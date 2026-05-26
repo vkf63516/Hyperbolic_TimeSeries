@@ -2064,3 +2064,15 @@ mse:0.2215975970029831, mae:0.38450226187705994, rmse:0.47074154019355774
 Exchange_720_Euclidean_336_exp1_Segment_HyperbolicForecasting_custom_exchange_rate.csv_ftM_sl720_pl336_exp_ebfixed_Euclidean_0_seed2023  
 mse:0.5377535820007324, mae:0.6002460718154907, rmse:0.7333168387413025
 
+CzeLan_OneShot_720_Poincare_336_exp1_Segment_HyperbolicForecasting_custom_CzeLan.csv_ftM_sl720_pl336_exp_ebfixed_Poincare_0_seed2023  
+mse:0.23699648678302765, mae:0.3050350248813629, rmse:0.48682284355163574
+
+CzeLan_OneShot_720_Poincare_720_exp1_Segment_HyperbolicForecasting_custom_CzeLan.csv_ftM_sl720_pl720_exp_ebfixed_Poincare_0_seed2023  
+mse:0.26724207401275635, mae:0.3337685465812683, rmse:0.5169546008110046
+
+Temp_OneShot_720_Poincare_96_exp1_Segment_HyperbolicForecasting_custom_temp.csv_ftM_sl720_pl96_exp_ebfixed_Poincare_0_seed2023  
+mse:0.12836456298828125, mae:0.2749899625778198, rmse:0.3582800030708313
+
+Temp_OneShot_720__192_exp1_Segment_HyperbolicForecasting_custom_temp.csv_ftM_sl720_pl192_exp_ebfixed_Poincare_0_seed2023  
+mse:0.12853176891803741, mae:0.2748948037624359, rmse:0.3585132658481598
+

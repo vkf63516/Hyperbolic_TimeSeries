@@ -10,10 +10,10 @@ from loss import hyperbolic_velocity_consistency_loss as hvcl, radial_diversity_
 from Forecasting.Moving_Window_Segment_Euclidean_Forecaster import MovingWindowEuclideanForecaster
 from Forecasting.Moving_Window_Segment_Forecaster import MovingWindowHyperbolicForecaster
 from Forecasting.Direct_Moving_Window_Segment_Forecaster import DirectHyperbolicForecaster
+from Forecasting.Direct_Multi_Horizon_Forecasting import DirectNoDecompHyperbolicForecaster
 from Forecasting.Segment_Euclidean_Forecaster import SegmentForecastEuclidean
 from Forecasting.Segment_Forecaster import SegmentedHyperbolicForecaster
 from Forecasting.Multi_Horizon_Forecasting import DirectMultiHorizonHyperbolicForecaster
-from Forecasting.Euclidean_Multi_Horizon_Forecasting import EuclideanMultiHorizonForecaster
 class Model(nn.Module):
     """
     Hyperbolic Forecasting Model
@@ -35,6 +35,7 @@ class Model(nn.Module):
         self.mstl_period = configs.mstl_period
         self.use_segments = configs.use_segments
         self.manifold_type = configs.manifold_type
+        self.use_attention_pooling = configs.use_attention_pooling
         self.use_revin = configs.use_revin
         self.use_multi_horizon = configs.use_multi_horizon
         self.use_moving_window = configs.use_moving_window
@@ -44,12 +45,10 @@ class Model(nn.Module):
         self.use_no_decomposition = configs.use_no_decomposition
         # Model dimensions
         # Number of input features
-        self.trend_period = configs.trend_period
         self.enc_in = configs.enc_in
         self.coarse_period = configs.coarse_period
         self.fine_period = configs.fine_period
-        self.check = True
-        # encodeding: Maps decomposed components to hyperbolic space
+        
         if self.use_learnable_decomposition:
             self.decomposer = LearnableMultivariateDecomposition(
                 n_features=self.enc_in,
@@ -76,14 +75,6 @@ class Model(nn.Module):
                     recon_dropout=0.2,
                     num_layers=2,
                     window_size=self.window_size
-                )
-            elif self.use_multi_horizon:
-                self.forecaster = EuclideanMultiHorizonForecaster(
-                    lookback=self.seq_len,
-                    pred_len=self.pred_len,
-                    n_features=self.enc_in,
-                    segment_length=self.mstl_period,
-                    use_revin=self.use_revin,
                 )
             else:
 
@@ -152,20 +143,35 @@ class Model(nn.Module):
                     )
             elif self.use_multi_horizon:
                 print("********************************")
-                self.forecaster = DirectMultiHorizonHyperbolicForecaster(
-                    lookback=self.seq_len,
-                    pred_len=self.pred_len,
-                    n_features=self.enc_in,
-                    encode_dim=self.encode_dim,
-                    hidden_dim=self.hidden_dim,
-                    curvature=self.curvature,
-                    manifold_type=self.manifold_type,
-                    segment_length=self.mstl_period,
-                    use_revin=self.use_revin,
-                    encode_dropout=0.3,
-                    recon_dropout=0.2,
-                    window_size=self.window_size
-                )
+                if self.use_no_decomposition:
+                    self.forecaster = DirectNoDecompHyperbolicForecaster(
+                        lookback=self.seq_len,
+                        pred_len=self.pred_len,
+                        n_features=self.enc_in,
+                        encode_dim=self.encode_dim,
+                        hidden_dim=self.hidden_dim,
+                        curvature=self.curvature,
+                        manifold_type=self.manifold_type,
+                        segment_length=self.mstl_period,
+                        use_revin=self.use_revin,
+                        encode_dropout=0.3,
+                        recon_dropout=0.2
+                    )
+                else:
+                    self.forecaster = DirectMultiHorizonHyperbolicForecaster(
+                        lookback=self.seq_len,
+                        pred_len=self.pred_len,
+                        n_features=self.enc_in,
+                        encode_dim=self.encode_dim,
+                        hidden_dim=self.hidden_dim,
+                        curvature=self.curvature,
+                        manifold_type=self.manifold_type,
+                        segment_length=self.mstl_period,
+                        use_revin=self.use_revin,
+                        encode_dropout=0.3,
+                        recon_dropout=0.2,
+                        window_size=1
+                    )
 
             else:
 
@@ -209,15 +215,14 @@ class Model(nn.Module):
             residual = components['residual']
 
             forecasts = self.forecaster(trend, seasonal_coarse, seasonal_fine, residual)
-            if self.manifold_type != "Euclidean":
-                hierarchy_loss = forecasts["hierarchy_loss"]
+            hierarchy_loss = forecasts["hierarchy_loss"]
         else:
             forecasts = self.forecaster(batch_x)
-            hierarchy_loss = torch.tensor(0.0, device=x_hat.device)
+            hierarchy_loss = torch.tensor(0.0, device=batch_x.device)
         # Get individual hyperbolic representations
         x_hat = forecasts["predictions"]
+        consistency_loss = hvcl(forecasts["hyperbolic_states"]["combined_h"], self.forecaster.manifold)
         if self.manifold_type == "Euclidean":
             return x_hat, torch.tensor(0.0, device=x_hat.device), torch.tensor(0.0, device=x_hat.device)
-        
-        hyperbolic_loss = forecasts["consistency_loss"]
-        return x_hat, hyperbolic_loss, hierarchy_loss
+
+        return x_hat, consistency_loss, hierarchy_loss

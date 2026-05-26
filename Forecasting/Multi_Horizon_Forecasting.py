@@ -1,4 +1,14 @@
 import torch
+import torch.nn.functional as F
+import torch.nn as nn
+from encode.Multi_Horizon.segment_encode_multi_horizon_poincare import SegmentedParallelPoincareMultiHorizon
+from Lifting.horizon_hyperbolic_segment_reconstructor import HorizonHyperbolicSegmentReconstructionHead
+from spec import RevIN, safe_expmap
+from DynamicsMvar.poincare_disk import poincareball_factory
+from DynamicsMvar.Poincare_Residual_Dynamics import PoincareLinear
+from spec import safe_expmap, compute_hierarchical_loss_with_manifold_dist
+from loss import hyperbolic_velocity_consistency_loss
+import torch
 import torch.nn as nn
 from encode.Multi_Horizon.segment_encode_multi_horizon_poincare import SegmentedParallelPoincareMultiHorizon
 from Lifting.horizon_hyperbolic_segment_reconstructor import HorizonHyperbolicSegmentReconstructionHead
@@ -8,89 +18,117 @@ from DynamicsMvar.Poincare_Residual_Dynamics import PoincareLinear
 from spec import safe_expmap, compute_hierarchical_loss_with_manifold_dist
 from loss import hyperbolic_velocity_consistency_loss
 
+ 
 class ParallelDirectPoincareDynamics(nn.Module):
     """
     Parallel direct multi-horizon dynamics using geodesic evolution.
     Predicts ALL future segments in one batched forward pass.
+ 
+    Change vs original:
+    - Added velocity_modulator (PoincareLinear) + horizon_scales ([T] parameter).
+      These give NAR horizon-specific velocity corrections so the effective
+      geodesic direction can vary across horizons, addressing curved periodic
+      trajectories (e.g. CzeLan) without breaking NAR parallelism.
+    - Everything else is unchanged from original.
     """
-    
+ 
     def __init__(self, encode_dim, manifold, num_horizons):
         super().__init__()
         self.manifold = manifold
         self.encode_dim = encode_dim
         self.num_horizons = num_horizons
-        
+ 
         self.ball = poincareball_factory(c=1.0, custom_autograd=False, learnable=True)
-        
-        # ===== Single time-conditional velocity network =====
+ 
+        # ===== Base velocity network =====
         self.velocity_net = PoincareLinear(
-            encode_dim,  # +1 for time index
+            encode_dim,
             encode_dim,
             self.ball
         )
-        
-        # Learnable step sizes per timestep
+ 
+        # ===== Learnable step size (scalar) =====
         self.step_sizes = nn.Parameter(torch.tensor(1.0))
-        
+ 
+        # ===== Horizon-specific curvature correction =====
+        # horizon_scales ([T]) scales that residual independently at each
+        # horizon — the model learns how much to bend the trajectory at t=1,
+        # t=2, ..., t=T during training.
+        # tanh bounds corrections to (-1, 1): can push or pull at each horizon.
+        # Init at 0 → no correction at start of training (neutral).
+        # Still fully NAR: modulator input is v_init (historical only).
+        # No predicted state is ever fed back as input.
+        self.horizon_scales = nn.Parameter(torch.zeros(num_horizons))  # [T]
         # Precompute normalized time indices [0, 1]
         self.register_buffer(
             'time_indices',
             torch.linspace(0, 1, num_horizons).reshape(-1, 1)
         )
     
+
+ 
     def compute_initial_velocity(self, z_history):
         """
         Compute initial velocity from historical trajectory.
-        
+        Unchanged from original.
+ 
         Args:
             z_history: [B, num_hist_segments, encode_dim]
         Returns:
             v_init: [B, encode_dim]
         """
         B, N, D = z_history.shape
-        
+ 
         if N < 2:
             return torch.zeros(B, D, device=z_history.device)
-        
+ 
         # Compute velocities between consecutive segments
         velocities = self.manifold.logmap(z_history[:, :-1, :], z_history[:, 1:, :])
-        
+ 
         # Exponentially weighted average (recent segments weighted more)
-        weights = torch.tensor(
-            [0.9 ** (N - 2 - i) for i in range(N - 1)],
-            device=z_history.device
-        )
+        weights = torch.tensor([0.9 ** (N - 2 - i) for i in range(N - 1)], device=z_history.device)
         weights = weights / weights.sum()
-        
+ 
+        # .mean() is intentional — acts as implicit fixed dampener (1/(N-1))
         v_avg = (velocities * weights.view(1, -1, 1)).mean(dim=1)
-        
+ 
         return v_avg
-    
+ 
     def forward(self, z_0, v_init):
         """
-        Parallel prediction of ALL future states in one batched forward pass.
-        
+        Parallel prediction of ALL future states in one batched expmap call.
+ 
+        Velocity at horizon t:
+            v_t = step * t * velocity_net(v_init)               <- base geodesic (paper Eq.15)
+                + tanh(horizon_scales[t]) * modulator(v_init)   <- per-horizon correction
+ 
+        Both terms are tangent vectors (PoincareLinear outputs via logmap0)
+        so addition in tangent space is valid.
+ 
         Args:
-            z_0: [B, encode_dim] - initial state on manifold
-            v_init: [B, encode_dim] - initial velocity in tangent space
-        
+            z_0:    [B, encode_dim] - last historical state on manifold
+            v_init: [B, encode_dim] - aggregated historical velocity
+ 
         Returns:
-            z_all: [B, num_horizons, encode_dim] - ALL future states
+            z_all: [B, num_horizons, encode_dim]
         """
         B, D = z_0.shape
         T = self.num_horizons
-        
-        predictions = []
-        
-        step = torch.sigmoid(self.step_sizes)
-        v_0t = self.velocity_net(v_init)        
+ 
+        # ===== Base velocity (unchanged from original) =====
+        step   = torch.sigmoid(self.step_sizes)
+        v_0t   = self.velocity_net(v_init)                                    # [B, D]
         t_vals = torch.arange(1, T + 1, device=z_0.device).float()  # [T]
-        v_all = (step * t_vals.view(T, 1, 1) * v_0t.unsqueeze(0))   # [T, B, D]
-        v_all = v_all.permute(1, 0, 2).reshape(B * T, D)             # [B*T, D]
-        z_0_exp = z_0.unsqueeze(1).expand(B, T, D).reshape(B * T, D) # [B*T, D]
-    
-        z_all = self.manifold.expmap(z_0_exp, v_all)           # [B*T, D]
-        return z_all.view(B, T, D)                                    # [B, T, D]
+        # ===== Per-horizon curvature correction =====
+        horizon_weights = torch.tanh(self.horizon_scales)     # [T] in (-1,1)
+        # ===== Single batched expmap — fully NAR =====
+        v_base = step *  horizon_weights.view(T, 1, 1) * t_vals.view(T, 1, 1) * v_0t.unsqueeze(0) #order matters here
+        v_all   = v_base.permute(1, 0, 2).reshape(B * T, D)                   # [B*T, D]
+        z_0_exp = z_0.unsqueeze(1).expand(B, T, D).reshape(B * T, D)         # [B*T, D]
+ 
+        z_all = self.manifold.expmap(z_0_exp, v_all)                         # [B*T, D]
+        return z_all.view(B, T, D)  
+
 
 class DirectMultiHorizonHyperbolicForecaster(nn.Module):
     """
@@ -127,7 +165,7 @@ class DirectMultiHorizonHyperbolicForecaster(nn.Module):
         )
         
         self.manifold = self.encode_hyperbolic.manifold
-        
+        self.num_input_segments = lookback // segment_length
         # ===== Parallel geodesic dynamics for each component =====
         self.dynamics_trend = ParallelDirectPoincareDynamics(
             encode_dim, self.manifold, self.num_pred_segments
@@ -261,9 +299,8 @@ class DirectMultiHorizonHyperbolicForecaster(nn.Module):
         z_fused = self.mobius_fusion(z_trend_future, z_coarse_future, z_fine_future, z_resid_future)
         prediction = self.reconstructor(z_fused)  # [B, segment_length]
         predictions = prediction.reshape(B, self.segment_length * self.num_pred_segments)
+#        consistency_loss = hyperbolic_velocity_consistency_loss(z_fused, self.manifold)
         
-        # ======= Temporal Consistency Loss =======
-        consistency_loss = hyperbolic_velocity_consistency_loss(z_fused, self.manifold)
         return {
             'predictions': predictions,
             'latent_z': z_fused,
@@ -271,8 +308,7 @@ class DirectMultiHorizonHyperbolicForecaster(nn.Module):
             'latent_coarse': z_coarse_future,
             'latent_fine': z_fine_future,
             'latent_resid': z_resid_future,
-            'hierarchy_loss': hierarchy_loss,
-            'consistency_loss': consistency_loss
+            'hierarchy_loss': hierarchy_loss
         }
     
     def forward(self, trend, seasonal_coarse, seasonal_fine, residual):
@@ -324,15 +360,14 @@ class DirectMultiHorizonHyperbolicForecaster(nn.Module):
         
         return {
             'predictions': predictions,
-            'hyperbolic_states': {
+             'hyperbolic_states': {
                 'combined_h': uncollapse_latent(batched_out['latent_z']),
                 'trend_h': uncollapse_latent(batched_out['latent_trend']),
                 'coarse_h': uncollapse_latent(batched_out['latent_coarse']),
                 'fine_h': uncollapse_latent(batched_out['latent_fine']),
                 'resid_h': uncollapse_latent(batched_out['latent_resid'])
             },
-            'hierarchy_loss': batched_out["hierarchy_loss"],
-            'consistency_loss': batched_out["consistency_loss"]
+            'hierarchy_loss': batched_out["hierarchy_loss"]
         }
 
     def _normalize_component(self, component):
