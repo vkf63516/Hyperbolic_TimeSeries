@@ -11,7 +11,7 @@ window_size=2
 python run.py \
   --is_training 1 \
   --hyperbolic_weight 0.05 \
-  --hierarchy_weight 0.1 \
+  --hierarchy_weight 0.0001 \
   --model_id ETTh1_$seq_len'_'96_$manifold_type'_'type_exp1_Segment \
   --model HyperbolicForecasting \
   --data ETTh1 \
@@ -35,7 +35,6 @@ python run.py \
   --mstl_period 24 \
   --curvature 1.0 \
   --use_revin \
-  --use_wandb \
   --use_segments \
   --window_size $window_size \
   --use_multi_horizon

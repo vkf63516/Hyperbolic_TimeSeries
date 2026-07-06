@@ -68,7 +68,7 @@ class SegmentedParallelPoincareMultiHorizon(nn.Module):
         super().__init__()
         
         self.encode_dim = encode_dim
-        
+        self.num_channels = num_channels
         # Segment-aware encoders (output per-segment encodedings)
         self.trend_encode = SegmentLinearencodeMultiHorizon(
             encode_dim=encode_dim, lookback=lookback, num_channels=num_channels, segment_length=segment_length, dropout=encode_dropout
@@ -89,7 +89,6 @@ class SegmentedParallelPoincareMultiHorizon(nn.Module):
         # Scaling parameter
         self.effective_scale = nn.Parameter(torch.tensor(1.0))
         
-        # Möbius fusion weights
         self.mobius_weights = nn.Parameter(torch.ones(4) * 0.25)
     
     def map_segments_to_hyperbolic(self, segment_encodes):
@@ -102,23 +101,27 @@ class SegmentedParallelPoincareMultiHorizon(nn.Module):
         Returns:
             hyperbolic_encodes: [B, num_segments, encode_dim]
         """
+        BF, N, D = segment_encodes.shape
+        encodes_flat = segment_encodes.reshape(BF * N, D)
+
+
         B, N, D = segment_encodes.shape
         
         # Flatten segments for batch processing
         encodes_flat = segment_encodes.reshape(B * N, D)  # [B*N, encode_dim]
         
-        # Scale
+        # # Scale
         effective_scale = torch.tanh(self.effective_scale)
         scaled_encodes = encodes_flat * effective_scale
         
-        # Map to hyperbolic space
-        hyperbolic_flat = safe_expmap0(self.manifold, scaled_encodes)  # [B*N, encode_dim]
+        # # Map to hyperbolic space
+        hyperbolic_flat = self.manifold.expmap0(scaled_encodes)  # [B*N, encode_dim]
         
         # Project to manifold
         hyperbolic_flat = self.manifold.projx(hyperbolic_flat)
         
         # Reshape back to sequence
-        hyperbolic_encodes = hyperbolic_flat.view(B, N, D)  # [B, num_segments, encode_dim]
+        hyperbolic_encodes = hyperbolic_flat.view(BF, N, D)  # [B, num_segments, encode_dim]
         
         return hyperbolic_encodes
     

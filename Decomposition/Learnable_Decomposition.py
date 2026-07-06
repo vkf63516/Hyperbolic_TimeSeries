@@ -5,9 +5,11 @@ import pandas as pd
 from scipy.signal import find_peaks
 from statsmodels.tsa.stattools import acf
 
+
 class LearnableMultivariateDecomposition(nn.Module):
     """
-    End-to-end learnable decomposition optimized for forecasting. 
+    End-to-end learnable decomposition optimized for forecasting.
+
     """
     def __init__(self, n_features, kernel_size, detected_periods=None):
         super().__init__()
@@ -44,6 +46,7 @@ class LearnableMultivariateDecomposition(nn.Module):
         """
         # Transpose to [B, n_features, seq_len] for Conv1d
         x = x.transpose(1, 2)
+
         
         # Decompose hierarchically (same as your orthogonalMSTL logic)
         trend = self.trend_filter(x)
@@ -52,7 +55,7 @@ class LearnableMultivariateDecomposition(nn.Module):
         residual = x - trend - seasonal_coarse - seasonal_fine
         # Transpose back to [B, seq_len, n_features]
         return {
-            'trend': trend. transpose(1, 2),
+            'trend': trend.transpose(1, 2),
             'seasonal_coarse': seasonal_coarse.transpose(1, 2),
             'seasonal_fine': seasonal_fine.transpose(1, 2),
             'residual': residual.transpose(1, 2)
