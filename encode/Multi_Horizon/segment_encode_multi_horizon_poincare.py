@@ -10,8 +10,8 @@ class SegmentLinearencodeMultiHorizon(nn.Module):
     """
     This done for each feature 
     Produces ONE encodeding per segment.
-    Input:  [B, seq_len]
-    Output: [B, num_segments, encode_dim]  # One encodeding per segment
+    Input:  [Bf, seq_len]
+    Output: [Bf, num_segments, encode_dim]  # One encodeding per segment
     """
     
     def __init__(self, lookback, encode_dim, num_channels, segment_length=24, dropout=0.1, individual=False):
@@ -36,9 +36,9 @@ class SegmentLinearencodeMultiHorizon(nn.Module):
     def forward(self, x):
         """
         Args:
-            x: [B, 720] - full historical sequence
+            x: [Bf, 720] - full historical sequence
         Returns:
-            z: [B, 64] - ONE point in hyperbolic space
+            z: [Bf, 30, 64] - each segment is a point on the mainifold
         """
         B = x.shape[0]
         
@@ -47,19 +47,20 @@ class SegmentLinearencodeMultiHorizon(nn.Module):
             x = torch.cat([x, pad], dim=1)
         
         # Reshape into segments
-        x_seg = x.view(B, self.num_segments, self.segment_length)  # [B, num_seg, seg_len]
+        x_seg = x.view(B, self.num_segments, self.segment_length)  # [B, num_segments, seg_len]
         
         # encode each segment (KEEP segment structure!)
     
         seg_encode = self.temporal_linears(x_seg)  # [B, num_segments, encode_dim]
         seg_encode = self.dropout(seg_encode)
+        # print(seg_encode.shape)
         
         return seg_encode
 
 
 class SegmentedParallelPoincareMultiHorizon(nn.Module):
     """
-    Encode each feature for moving window that outputs [B, num_segments, encode_dim].
+    Encode each feature for multi horizon that outputs [B, num_segments, encode_dim].
     Each segment is independently mapped to hyperbolic space.
     """
     
@@ -96,20 +97,14 @@ class SegmentedParallelPoincareMultiHorizon(nn.Module):
         Map each segment encodeding to hyperbolic space independently.
         
         Args:
-            segment_encodes: [B, num_segments, encode_dim]
+            segment_encodes: [Bf, num_segments, encode_dim]
         
         Returns:
-            hyperbolic_encodes: [B, num_segments, encode_dim]
+            hyperbolic_encodes: [Bf, num_segments, encode_dim]
         """
-        BF, N, D = segment_encodes.shape
-        encodes_flat = segment_encodes.reshape(BF * N, D)
+        Bf, N, D = segment_encodes.shape
+        encodes_flat = segment_encodes.reshape(Bf * N, D)
 
-
-        B, N, D = segment_encodes.shape
-        
-        # Flatten segments for batch processing
-        encodes_flat = segment_encodes.reshape(B * N, D)  # [B*N, encode_dim]
-        
         # # Scale
         effective_scale = torch.tanh(self.effective_scale)
         scaled_encodes = encodes_flat * effective_scale
@@ -121,7 +116,7 @@ class SegmentedParallelPoincareMultiHorizon(nn.Module):
         hyperbolic_flat = self.manifold.projx(hyperbolic_flat)
         
         # Reshape back to sequence
-        hyperbolic_encodes = hyperbolic_flat.view(BF, N, D)  # [B, num_segments, encode_dim]
+        hyperbolic_encodes = hyperbolic_flat.view(Bf, N, D)  # [B, num_segments, encode_dim]
         
         return hyperbolic_encodes
     
@@ -130,18 +125,18 @@ class SegmentedParallelPoincareMultiHorizon(nn.Module):
         Fuse components for each segment independently using Möbius addition.
         
         Args:
-            z_trend_h, z_coarse_h, z_fine_h, z_residual_h: [B, num_segments, encode_dim]
+            z_trend_h, z_coarse_h, z_fine_h, z_residual_h: [Bf, num_segments, encode_dim]
         
         Returns:
-            combined_h: [B, num_segments, encode_dim]
+            combined_h: [Bf, num_segments, encode_dim]
         """
-        B, N, D = z_trend_h.shape
+        Bf, N, D = z_trend_h.shape
         
         # Flatten for batch Möbius operations
-        z_trend_flat = z_trend_h.reshape(B * N, D)
-        z_coarse_flat = z_coarse_h.reshape(B * N, D)
-        z_fine_flat = z_fine_h.reshape(B * N, D)
-        z_residual_flat = z_residual_h.reshape(B * N, D)
+        z_trend_flat = z_trend_h.reshape(Bf * N, D)
+        z_coarse_flat = z_coarse_h.reshape(Bf * N, D)
+        z_fine_flat = z_fine_h.reshape(Bf * N, D)
+        z_residual_flat = z_residual_h.reshape(Bf * N, D)
         
         # Normalize weights
         weights = torch.softmax(self.mobius_weights, dim=0)
@@ -162,7 +157,7 @@ class SegmentedParallelPoincareMultiHorizon(nn.Module):
         combined_flat = self.manifold.projx(combined_flat)
         
         # Reshape back to sequence
-        combined_h = combined_flat.view(B, N, D)
+        combined_h = combined_flat.view(Bf, N, D)
         
         return combined_h
     
@@ -171,24 +166,24 @@ class SegmentedParallelPoincareMultiHorizon(nn.Module):
         Encode with segment structure preserved.
         
         Args
-            trend, seasonal_coarse, seasonal_fine, residual: [B, seq_len]
+            trend, seasonal_coarse, seasonal_fine, residual: [Bf, seq_len]
         
         Returns:
-            dict with hyperbolic encodedings [B, num_segments, encode_dim] for each component
+            dict with hyperbolic encodedings [Bf, num_segments, encode_dim] for each component
         """
-        # Encode to per-segment encodedings: [B, encode_dim]
+        # Encode to per-segment encodedings: 
         z_trend_segments = self.trend_encode(trend)
         z_coarse_segments = self.seasonal_coarse_encode(seasonal_coarse)
         z_fine_segments = self.seasonal_fine_encode(seasonal_fine)
         z_residual_segments = self.residual_encode(residual)
         
-        # Map each segment to hyperbolic space: [B, encode_dim]
+        # Map each segment to hyperbolic space: [Bf, num_segments, encode_dim]
         z_trend_h = self.map_segments_to_hyperbolic(z_trend_segments)
         z_coarse_h = self.map_segments_to_hyperbolic(z_coarse_segments)
         z_fine_h = self.map_segments_to_hyperbolic(z_fine_segments)
         z_residual_h = self.map_segments_to_hyperbolic(z_residual_segments)
         
-        # Möbius fusion for each segment: [B, encode_dim]
+        # Möbius fusion for each segment: [Bf, num_segments, encode_dim]
         combined_h = self.mobius_fusion_segments(z_trend_h, z_coarse_h, z_fine_h, z_residual_h)
         
         return {

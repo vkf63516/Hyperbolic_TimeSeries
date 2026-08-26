@@ -1,4 +1,4 @@
-seq_len=96
+seq_len=720
 train_epochs=30
 patience=6
 enc_in=137
@@ -18,8 +18,8 @@ python run.py \
   --seq_len $seq_len \
   --pred_len 96 \
   --lradj "type3" \
-  --encode_dim 32 \
-  --hidden_dim 64 \
+  --encode_dim 64 \
+  --hidden_dim 256 \
   --batch_size 32 \
   --use_wandb \
   --learning_rate 1e-3 \

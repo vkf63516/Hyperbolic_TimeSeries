@@ -63,6 +63,7 @@ class Exp_Main(Exp_Basic):
                 'use_no_decomposition': args.use_no_decomposition,
                 'use_moving_window': args.use_moving_window,
                 'use_multi_horizon': args.use_multi_horizon,
+                'use_multi_horizon_CD': args.use_multi_horizon_CD,
                 'loss': args.loss,
                 'patience': args.patience,
             }

@@ -11,6 +11,7 @@ from loss import hyperbolic_velocity_consistency_loss
 import torch
 import torch.nn as nn
 from encode.Multi_Horizon.segment_encode_multi_horizon_poincare import SegmentedParallelPoincareMultiHorizon
+from encode.Multi_Horizon.segment_no_encode_multi_horizon_poincare import SegmentedParallelPoincareMultiHorizonPL
 from Lifting.horizon_hyperbolic_segment_reconstructor import HorizonHyperbolicSegmentReconstructionHead
 from spec import RevIN, safe_expmap
 from DynamicsMvar.poincare_disk import poincareball_factory
@@ -18,6 +19,55 @@ from DynamicsMvar.Poincare_Residual_Dynamics import PoincareLinear
 from spec import safe_expmap, compute_hierarchical_loss_with_manifold_dist
 from loss import hyperbolic_velocity_consistency_loss
 
+class StaticPoincareNoDynamics(nn.Module):
+    def __init__(self, encode_dim, manifold, num_horizons):
+        super().__init__()
+        self.manifold = manifold
+        self.num_horizons = num_horizons
+        self.ball = poincareball_factory(c=1.0, custom_autograd=False, learnable=True)
+
+        # Single shared PoincareLinear -- same role as velocity_net,
+        # but applied directly to z_0 instead of to a history-derived velocity.
+        self.static_map = PoincareLinear(encode_dim, encode_dim, self.ball)
+
+        # Same per-horizon scalar structure as the original's horizon_scales,
+        # kept for a fair, minimal-difference comparison.
+        self.horizon_scales = nn.Parameter(torch.zeros(num_horizons))
+
+    def compute_initial_velocity(self, z_history):
+        B, N, D = z_history.shape
+        
+        return torch.zeros(B, D, device=z_history.device)
+
+        # # Pull each historical point into the tangent space at the origin,
+        # # average there (Euclidean average of tangent vectors is well-defined),
+        # # then push the average back onto the manifold. This gives a single
+        # # "typical position" summary of the whole window -- no direction,
+        # # no rate of change, just a pooled location.
+        # tangent_pts = self.manifold.logmap0(z_history)          # [B, N, D]
+        # tangent_avg = tangent_pts.mean(dim=1)                    # [B, D]
+        # z_summary = self.manifold.expmap0(tangent_avg)           # [B, D]
+        # return z_summary
+
+
+    def forward(self, z_0, v_init):
+        B, D = z_0.shape
+        T = self.num_horizons
+        
+
+        z_static = self.static_map(z_0)                      # [B, D], no history, no logmap
+        horizon_weights = torch.tanh(self.horizon_scales)     # [T], same as original
+
+        # Static analog of the original's "v_base" step, but applied directly
+        # to z_static rather than to a velocity, and via Möbius scaling
+        # rather than expmap-based extrapolation.
+        z_all = torch.stack([
+            self.manifold.mobius_scalar_mul(1.0 + horizon_weights[t], z_static)
+            for t in range(T)
+        ], dim=1)  # [B, T, D]
+
+        z_all = self.manifold.projx(z_all.reshape(B * T, D)).view(B, T, D)
+        return z_all
  
 class ParallelDirectPoincareDynamics(nn.Module):
     """
@@ -150,7 +200,7 @@ class DirectMultiHorizonHyperbolicForecaster(nn.Module):
         self.use_revin = use_revin
         self.window_size = window_size
         self.manifold_type = manifold_type
-        
+        self.no_dynamics = False
         if self.use_revin:
             self.revin = RevIN(num_features=n_features, eps=1e-5, affine=True)
         
@@ -167,19 +217,26 @@ class DirectMultiHorizonHyperbolicForecaster(nn.Module):
         self.manifold = self.encode_hyperbolic.manifold
         self.num_input_segments = lookback // segment_length
         # ===== Parallel geodesic dynamics for each component =====
-        self.dynamics_trend = ParallelDirectPoincareDynamics(
-            encode_dim, self.manifold, self.num_pred_segments
-        )
-        self.dynamics_coarse = ParallelDirectPoincareDynamics(
-            encode_dim, self.manifold, self.num_pred_segments
-        )
-        self.dynamics_fine = ParallelDirectPoincareDynamics(
-            encode_dim, self.manifold, self.num_pred_segments
-        )
-        self.dynamics_resid = ParallelDirectPoincareDynamics(
-            encode_dim, self.manifold, self.num_pred_segments
-        )
-        
+        if self.no_dynamics:
+            print("USING NO dynamics")
+            self.dynamics_trend = StaticPoincareNoDynamics(encode_dim, self.manifold, self.num_pred_segments)
+            self.dynamics_coarse = StaticPoincareNoDynamics(encode_dim, self.manifold, self.num_pred_segments)
+            self.dynamics_fine = StaticPoincareNoDynamics(self.encode_dim, self.manifold, self.num_pred_segments)
+            self.dynamics_resid = StaticPoincareNoDynamics(self.encode_dim, self.manifold, self.num_pred_segments)
+        else:
+            self.dynamics_trend = ParallelDirectPoincareDynamics(
+                encode_dim, self.manifold, self.num_pred_segments
+            )
+            self.dynamics_coarse = ParallelDirectPoincareDynamics(
+                encode_dim, self.manifold, self.num_pred_segments
+            )
+            self.dynamics_fine = ParallelDirectPoincareDynamics(
+                encode_dim, self.manifold, self.num_pred_segments
+            )
+            self.dynamics_resid = ParallelDirectPoincareDynamics(
+                encode_dim, self.manifold, self.num_pred_segments
+            )
+            
         # ===== ONE decoder for all segments =====
         self.reconstructor = HorizonHyperbolicSegmentReconstructionHead(
             encode_dim=encode_dim,
@@ -210,10 +267,10 @@ class DirectMultiHorizonHyperbolicForecaster(nn.Module):
         Fuse components for each segment independently using Möbius addition.
         
         Args:
-            z_next_trend, z_next_coarsr, z_next_fine, z_next_resid: [B, encode_dim]
+            z_next_trend, z_next_coarse, z_next_fine, z_next_resid: [Bf, H, encode_dim]
         
         Returns:
-            combined: [B, encode_dim]
+            combined: [Bf, H, encode_dim]
         """
         # Normalize weights
         weights = torch.softmax(self.mobius_weights, dim=0)
@@ -240,21 +297,20 @@ class DirectMultiHorizonHyperbolicForecaster(nn.Module):
         Process batched features through entire pipeline.
         
         Args:
-            trend_f, coarse_f, fine_f, resid_f: [B, seq_len]
+            trend_f, coarse_f, fine_f, resid_f: [Bf, seq_len]
         
         Returns:
-            dict with predictions: [B, pred_len]
+            dict with predictions: [Bf, pred_len]
         """
-        B = trend_f.shape[0]
+        Bf = trend_f.shape[0]
         
         # ===== Encode historical segments =====
         encode_h = self.encode_hyperbolic(trend_f, coarse_f, fine_f, resid_f)
         
-        z_trend_hist = encode_h["trend_h"]  # [B, num_hist_segments, encode_dim]
+        z_trend_hist = encode_h["trend_h"]  # [Bf, num_segments, encode_dim]
         z_coarse_hist = encode_h["seasonal_coarse_h"]
         z_fine_hist = encode_h["seasonal_fine_h"]
         z_resid_hist = encode_h["residual_h"]
-        # print(z_trend_hist.shape)
         _, N_hist, D = z_trend_hist.shape
         
         # ===== Take window for velocity computation =====
@@ -275,7 +331,7 @@ class DirectMultiHorizonHyperbolicForecaster(nn.Module):
         z_resid_0 = z_resid_hist[:, -1, :]
         
         # ===== PARALLEL DIRECT PREDICTION =====
-        z_trend_future = self.dynamics_trend(z_trend_0, v_trend_init)  # [B*F, T, D]
+        z_trend_future = self.dynamics_trend(z_trend_0, v_trend_init)  # [B*F, H, D]
         z_coarse_future = self.dynamics_coarse(z_coarse_0, v_coarse_init)
         z_fine_future = self.dynamics_fine(z_fine_0, v_fine_init)
         z_resid_future = self.dynamics_resid(z_resid_0, v_resid_init)
@@ -297,8 +353,8 @@ class DirectMultiHorizonHyperbolicForecaster(nn.Module):
         # ===== Fuse and reconstruct each future segment =====
             
         z_fused = self.mobius_fusion(z_trend_future, z_coarse_future, z_fine_future, z_resid_future)
-        prediction = self.reconstructor(z_fused)  # [B, segment_length]
-        predictions = prediction.reshape(B, self.segment_length * self.num_pred_segments)
+        prediction = self.reconstructor(z_fused)  # [Bf, segment_length, H]
+        predictions = prediction.reshape(Bf, self.segment_length * self.num_pred_segments)
 #        consistency_loss = hyperbolic_velocity_consistency_loss(z_fused, self.manifold)
         
         return {
@@ -321,7 +377,7 @@ class DirectMultiHorizonHyperbolicForecaster(nn.Module):
         Returns:
             dict with predictions: [B, pred_len, n_features]
         """
-        B, L, F = trend.shape
+        B, N, F = trend.shape
         
         # ===== RevIN Normalization =====
         x_combined = trend + seasonal_coarse + seasonal_fine + residual
@@ -333,9 +389,9 @@ class DirectMultiHorizonHyperbolicForecaster(nn.Module):
             seasonal_fine = self._normalize_component(seasonal_fine)
             residual = self._normalize_component(residual)
         
-        # ===== Collapse features: [B, L, F] → [B*F, L] =====
+        # ===== Collapse features: [B, N, F] → [B*F, N] =====
         def collapse(x):
-            return x.permute(0, 2, 1).contiguous().view(B * F, L)
+            return x.permute(0, 2, 1).contiguous().view(B * F, N)
         
         trend_bf = collapse(trend)
         coarse_bf = collapse(seasonal_coarse)
@@ -343,10 +399,9 @@ class DirectMultiHorizonHyperbolicForecaster(nn.Module):
         resid_bf = collapse(residual)
 
         def uncollapse_latent(tensor_b):
-            # tensor_b: [B*F, num_pred_segments, D] -> [B, F, num_pred_segments, D]
-            # print(tensor_b.shape)
-            Bf, N, D = tensor_b.shape
-            return tensor_b.view(B, F, N, D)
+            # tensor_b: [B*F, pred_len, D] -> [B, F, pred_len, D]
+            Bf, H, D = tensor_b.shape
+            return tensor_b.view(B, F, H, D)
         # ===== Process all features in batch =====
         batched_out = self.process_batched_features(trend_bf, coarse_bf, fine_bf, resid_bf)
         predictions_norm = batched_out['predictions']  # [B*F, pred_len]
@@ -375,10 +430,10 @@ class DirectMultiHorizonHyperbolicForecaster(nn.Module):
         Normalize a single component using stored RevIN statistics.
         
         Args:
-            component: [B, L, F] 
+            component: [B, N, F] 
         
         Returns:
-            normalized component: [B, L, F]
+            normalized component: [B, N, F]
         """
         # Apply normalization: (x - mean) / std
         x = (component - self.revin.mean) / self.revin.stdev

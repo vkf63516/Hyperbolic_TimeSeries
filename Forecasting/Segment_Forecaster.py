@@ -2,8 +2,7 @@ import sys
 import torch
 import torch.nn as nn
 import geoopt
-from encode.Linear.segment_linear_encode_poincare import SegmentedParallelPoincare
-from encode.Linear.segment_linear_encode_lorentz import SegmentedParallelLorentz
+from encode.Linear.segment_linear_encode_poincare import SegmentedParallelPoincareMW
 from DynamicsMvar.Poincare_Residual_Dynamics import HyperbolicPoincareDynamics
 from DynamicsMvar.Lorentz_Residual_Dynamics import HyperbolicLorentzDynamics
 from Lifting.hyperbolic_segment_reconstructor import HyperbolicSegmentReconstructionHead  # NEW
@@ -12,7 +11,7 @@ from spec import RevIN, safe_expmap, compute_hierarchical_loss_with_manifold_dis
 
 class SegmentedHyperbolicForecaster(nn.Module):
     """
-    Segment-aware hyperbolic forecaster.
+    Segment-aware hyperbolic forecaster. Channel Dependent Version.
     
     Key improvements over point-level:
     1. Encodes sequences as segments (e.g., daily patterns in hourly data)
@@ -23,8 +22,8 @@ class SegmentedHyperbolicForecaster(nn.Module):
                  curvature, manifold_type, segment_length=24, 
                  use_attention_pooling=False, use_revin=False,
                  use_truncated_bptt=False, truncate_every=4, window_size=2,  # Truncate every N segments
-                 dynamic_dropout=0.3, encode_dropout=0.5, recon_dropout=0.2, 
-                 num_layers=2, share_feature_weights=True):
+                 dynamic_dropout=0.3, encode_dropout=0.3, recon_dropout=0.2, 
+                 num_layers=1, share_feature_weights=True):
         """
         Args:
             lookback: int - lookback window (should be divisible by segment_length)
@@ -74,6 +73,7 @@ class SegmentedHyperbolicForecaster(nn.Module):
         else:
         # Adaptive:  cap at 15 segments for efficiency
             self.window_size = min(15, num_input_segments)
+        print(f"Channel-Dependent Moving Window Hyperbolic Forecaster")
         print(f"Window size: {self.window_size} segments")
         self.share_feature_weights = share_feature_weights
         if self.use_revin:
@@ -81,7 +81,8 @@ class SegmentedHyperbolicForecaster(nn.Module):
         
         # Segmented encoder
         if manifold_type == "Poincare":
-            self.encode_hyperbolic = SegmentedParallelPoincare(
+            print(self.encode_dropout)
+            self.encode_hyperbolic = SegmentedParallelPoincareMW(
                 lookback=lookback,
                 input_dim=n_features,
                 encode_dim=encode_dim,
@@ -218,6 +219,11 @@ class SegmentedHyperbolicForecaster(nn.Module):
         
         if self.use_revin:
             self.revin(x_combined, mode='norm')
+            trend = self._normalize_component(trend)
+            seasonal_coarse = self._normalize_component(seasonal_coarse)
+            seasonal_fine = self._normalize_component(seasonal_fine)
+            residual = self._normalize_component(residual)
+
         
         encode_h = self.encode_hyperbolic(trend, seasonal_coarse, seasonal_fine, residual)
         
@@ -345,3 +351,22 @@ class SegmentedHyperbolicForecaster(nn.Module):
             'hyperbolic_states': hyperbolic_states,
             'hierarchy_loss': average_hierarchy_loss
         }
+
+    def _normalize_component(self, component):
+        """
+        Normalize a single component using stored RevIN statistics.
+        
+        Args:
+            component: [B, L, F] 
+        
+        Returns:
+            normalized component: [B, L, F]
+        """
+        # Apply normalization: (x - mean) / std
+        x = (component - self.revin.mean) / self.revin.stdev
+        
+        # Apply affine transformation if enabled
+        if self.revin.affine:
+            x = x * self.revin.affine_weight + self.revin.affine_bias
+        
+        return x

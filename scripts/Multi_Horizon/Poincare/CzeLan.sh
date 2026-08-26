@@ -93,7 +93,6 @@ python run.py \
   --encode_dim 64 \
   --hidden_dim 256 \
   --batch_size 32 \
-  --use_wandb \
   --learning_rate 5e-3 \
   --train_epochs $train_epochs \
   --use_learnable_decomposition \

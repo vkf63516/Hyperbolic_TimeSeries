@@ -7,7 +7,7 @@ import sys
 sys.path.append(str(Path(__file__).resolve().parents[0]))
 from spec import safe_expmap, safe_expmap0
 
-class SegmentLinearencode(nn.Module):
+class SegmentLinearencodeMW(nn.Module):
     def __init__(self, input_dim, output_dim, segment_length, dropout=0.1,
                  lookback=None, use_segment_norm=False, share_feature_weights=False):
         super().__init__()
@@ -100,9 +100,10 @@ class SegmentLinearencode(nn.Module):
             output = torch.einsum('bci,cio->bco', x, weights.transpose(1, 2)) + biases.unsqueeze(0)
         
         output = output.mean(dim=1)
+        output = self.dropout(output)
         return output
 
-class SegmentedParallelPoincare(nn.Module):
+class SegmentedParallelPoincareMW(nn.Module):
     """
     Segmented version of ParallelPoincare - follows exact same logic but uses segments.
     
@@ -114,7 +115,7 @@ class SegmentedParallelPoincare(nn.Module):
     
     Everything else (Möbius fusion, scaling, projection) is IDENTICAL to ParallelPoincare.
     """
-    def __init__(self, lookback, input_dim, encode_dim=32,
+    def __init__(self, lookback, input_dim, encode_dim=64,
                  curvature=1.0, segment_length=24, encode_dropout=0.1,
                  use_segment_norm=False, share_feature_weights=False):
         """
@@ -131,7 +132,7 @@ class SegmentedParallelPoincare(nn.Module):
         super().__init__()
         
         # Segment-aware Linear encoders 
-        self.trend_encode = SegmentLinearencode(
+        self.trend_encode = SegmentLinearencodeMW(
             input_dim=input_dim,
             output_dim=encode_dim,
             lookback=lookback,
@@ -140,7 +141,7 @@ class SegmentedParallelPoincare(nn.Module):
             dropout=encode_dropout,
             share_feature_weights=share_feature_weights
         )
-        self.seasonal_coarse_encode = SegmentLinearencode(
+        self.seasonal_coarse_encode = SegmentLinearencodeMW(
             input_dim=input_dim,
             output_dim=encode_dim,
             lookback=lookback,
@@ -149,7 +150,7 @@ class SegmentedParallelPoincare(nn.Module):
             dropout=encode_dropout,
             share_feature_weights=share_feature_weights
         )
-        self.seasonal_fine_encode = SegmentLinearencode(
+        self.seasonal_fine_encode = SegmentLinearencodeMW(
             input_dim=input_dim,
             output_dim=encode_dim,
             lookback=lookback,
@@ -158,7 +159,7 @@ class SegmentedParallelPoincare(nn.Module):
             dropout=encode_dropout,
             share_feature_weights=share_feature_weights
         )
-        self.residual_encode = SegmentLinearencode(
+        self.residual_encode = SegmentLinearencodeMW(
             input_dim=input_dim,
             output_dim=encode_dim,
             lookback=lookback,
@@ -172,7 +173,7 @@ class SegmentedParallelPoincare(nn.Module):
         self.manifold = geoopt.manifolds.PoincareBall(c=curvature)
         
         # Scaling parameter (SAME as ParallelPoincare)
-        self.effective_scale = nn.Parameter(torch.tensor(0.1))
+        self.effective_scale = nn.Parameter(torch.tensor(1.0))
         
         # Learnable weights for Möbius combination (SAME as ParallelPoincare)
         self.mobius_weights = nn.Parameter(torch.ones(4) * 0.25)

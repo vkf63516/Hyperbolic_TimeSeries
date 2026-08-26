@@ -12,7 +12,7 @@ import gc
 def setup_device():
     if torch.cuda.is_available():
         try:
-            torch.cuda. empty_cache()
+            torch.cuda.empty_cache()
             device = torch.device('cuda')
             print("Using GPU")
         except: 
@@ -36,6 +36,9 @@ parser.add_argument('--hyperbolic_weight', type=float, default=0.2, help='tempor
 parser.add_argument('--hierarchy_weight', type=float, default=0.0001, help='hierarchy weight')
 parser.add_argument('--use_multi_horizon', action='store_true', default=False, 
                     help='one shot forecaster for Hyperbolic')
+parser.add_argument('--use_multi_horizon_CD', action='store_true', default=False, 
+                    help='one shot forecaster for Hyperbolic Channel Dependent')
+
 parser.add_argument('--share_feature_weights', action='store_true', default=False,
                     help='share weights across features (for high-D data)')
 parser.add_argument('--mstl_period', type=int, default=24,
@@ -277,7 +280,8 @@ Exp = Exp_Main
 #    torch.cuda.empty_cache()
 if args.is_training:
     for ii in range(args.itr):
-        set_seed(fix_seed_list[ii])
+        seed = fix_seed_list[ii]
+        set_seed(seed)
         # setting record of experiments
         setting = '{}_{}_{}_{}_ft{}_sl{}_pl{}_{}_eb{}_{}_{}_seed{}'.format(
             args.model_id,
