@@ -133,6 +133,7 @@ def set_seed(seed):
 fix_seed_list = range(2023, 2033)
 args.use_gpu = True if torch.cuda.is_available() and args.use_gpu else False
 
+
 if args.use_gpu and args.use_multi_gpu:
     args.devices = args.devices.replace(' ', '')
     device_ids = args.devices.split(',')
@@ -147,142 +148,15 @@ print(f'Hyperbolic encodeding Mode: {mode_str}')
 print(f'{"="*60}\n')
 
 Exp = Exp_Main
-#if args.is_training:
-#    all_mse = []
-#    all_mae = []
-#    all_settings = []
-#
-#    for ii in range(args.itr):
-#        seed = fix_seed_list[ii]
-#        set_seed(seed)
-#
-#        setting = '{}_{}_{}_{}_ft{}_sl{}_pl{}_{}_eb{}_{}_{}_seed{}'.format(
-#            args.model_id,
-#            args.model,
-#            args.data,
-#            args.data_path,
-#            args.features,
-#            args.seq_len,
-#            args.pred_len,
-#            args.des,
-#            args.encode,
-#            args.manifold_type,
-#            ii,
-#            seed)
-#
-#        all_settings.append(setting)
-#        exp = Exp(args)
-#        device = setup_device()
-#
-#        print(f'\n>>> Run {ii+1}/{args.itr} | Seed {seed} <<<')
-#        print(f'>>>>>>>start training : {setting}>>>>>>>>>>>>>>>>>>>>>>>>>>>')
-#        exp.train(setting)
-#
-#        print(f'>>>>>>>testing : {setting}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<')
-#        metrics = exp.test(setting)
-#
-#        if metrics is not None:
-#            mse, mae = metrics
-#            all_mse.append(mse)
-#            all_mae.append(mae)
-#            print(f'Run {ii+1} | Seed {seed}: MSE={mse:.4f}, MAE={mae:.4f}')
-#        else:
-#            print(f'WARNING: Run {ii+1} returned no metrics - check test() return value')
-#
-#        torch.cuda.empty_cache()
-#        gc.collect()
-#
-#    # ============================================================
-#    # Aggregate results across all runs
-#    # ============================================================
-#    if len(all_mse) > 1:
-#        mse_arr = np.array(all_mse)
-#        mae_arr = np.array(all_mae)
-#
-#        mse_mean = np.mean(mse_arr)
-#        mse_std  = np.std(mse_arr, ddof=1)   # ddof=1 = sample std
-#        mae_mean = np.mean(mae_arr)
-#        mae_std  = np.std(mae_arr, ddof=1)
-#
-#        # 95% confidence interval
-#        n = len(mse_arr)
-#        mse_ci = stats.t.interval(
-#            0.95, df=n-1,
-#            loc=mse_mean,
-#            scale=stats.sem(mse_arr)
-#        )
-#        mae_ci = stats.t.interval(
-#            0.95, df=n-1,
-#            loc=mae_mean,
-#            scale=stats.sem(mae_arr)
-#        )
-#
-#        print(f'\n{"="*60}')
-#        print(f'FINAL RESULTS: {args.data} | pred_len={args.pred_len} | {n} runs')
-#        print(f'{"="*60}')
-#        print(f'Individual MSEs : {[f"{v:.4f}" for v in mse_arr]}')
-#        print(f'Individual MAEs : {[f"{v:.4f}" for v in mae_arr]}')
-#        print(f'MSE : {mse_mean:.4f} ± {mse_std:.4f}')
-#        print(f'MAE : {mae_mean:.4f} ± {mae_std:.4f}')
-#        print(f'MSE 95% CI : [{mse_ci[0]:.4f}, {mse_ci[1]:.4f}]')
-#        print(f'MAE 95% CI : [{mae_ci[0]:.4f}, {mae_ci[1]:.4f}]')
-#        print(f'{"="*60}\n')
-#
-#        # Save everything to file
-#        result_path = (
-#            f'./results_multiseed/'
-#            f'{args.model_id}_{args.data}_pl{args.pred_len}_{n}runs.txt'
-#        )
-#        os.makedirs('./results_multiseed/', exist_ok=True)
-#
-#        with open(result_path, 'w') as f:
-#            f.write(f'Dataset     : {args.data}\n')
-#            f.write(f'Data path   : {args.data_path}\n')
-#            f.write(f'pred_len    : {args.pred_len}\n')
-#            f.write(f'Model       : {args.model}\n')
-#            f.write(f'N runs      : {n}\n')
-#            f.write(f'Seeds       : {fix_seed_list[:n]}\n')
-#            f.write(f'\nIndividual results:\n')
-#            for i, (s, m, ma) in enumerate(zip(fix_seed_list[:n], mse_arr, mae_arr)):
-#                f.write(f'  Seed {s}: MSE={m:.4f}, MAE={ma:.4f}\n')
-#            f.write(f'\nAggregated:\n')
-#            f.write(f'  MSE : {mse_mean:.4f} ± {mse_std:.4f}\n')
-#            f.write(f'  MAE : {mae_mean:.4f} ± {mae_std:.4f}\n')
-#            f.write(f'  MSE 95% CI : [{mse_ci[0]:.4f}, {mse_ci[1]:.4f}]\n')
-#            f.write(f'  MAE 95% CI : [{mae_ci[0]:.4f}, {mae_ci[1]:.4f}]\n')
-#
-#        print(f'Results saved to {result_path}')
-#
-#else:
-#    # Inference only - single run
-#    ii = 0
-#    seed = fix_seed_list[ii]
-#    set_seed(seed)
-#
-#    setting = '{}_{}_{}_{}_ft{}_sl{}_pl{}_{}_eb{}_{}_{}_seed{}'.format(
-#        args.model_id,
-#        args.model,
-#        args.data,
-#        args.data_path,
-#        args.features,
-#        args.seq_len,
-#        args.pred_len,
-#        args.des,
-#        args.encode,
-#        args.manifold_type,
-#        ii,
-#        seed)
-#
-#    device = setup_device()
-#    exp = Exp(args)
-#    print(f'>>>>>>>testing : {setting}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<')
-#    exp.test(setting, test=1)
-#    torch.cuda.empty_cache()
 if args.is_training:
+    all_mse = []
+    all_mae = []
+    all_settings = []
+
     for ii in range(args.itr):
         seed = fix_seed_list[ii]
         set_seed(seed)
-        # setting record of experiments
+
         setting = '{}_{}_{}_{}_ft{}_sl{}_pl{}_{}_eb{}_{}_{}_seed{}'.format(
             args.model_id,
             args.model,
@@ -295,24 +169,97 @@ if args.is_training:
             args.encode,
             args.manifold_type,
             ii,
-            fix_seed_list[ii])
+            seed)
 
-        exp = Exp(args)  # set experiments
-        print('>>>>>>>start training : {}>>>>>>>>>>>>>>>>>>>>>>>>>>'.format(setting))
+        all_settings.append(setting)
+        exp = Exp(args)
         device = setup_device()
 
+        print(f'\n>>> Run {ii+1}/{args.itr} | Seed {seed} <<<')
+        print(f'>>>>>>>start training : {setting}>>>>>>>>>>>>>>>>>>>>>>>>>>>')
         exp.train(setting)
 
-        print('>>>>>>>testing : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
-        exp.test(setting)
+        print(f'>>>>>>>testing : {setting}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<')
+        metrics = exp.test(setting)
 
-        # if args.do_predict:
-        #     print('>>>>>>>predicting : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
-        #     exp.predict(setting, True)
+        if metrics is not None:
+            mse, mae = metrics
+            all_mse.append(mse)
+            all_mae.append(mae)
+            print(f'Run {ii+1} | Seed {seed}: MSE={mse:.4f}, MAE={mae:.4f}')
+        else:
+            print(f'WARNING: Run {ii+1} returned no metrics - check test() return value')
 
         torch.cuda.empty_cache()
+        gc.collect()
+
+    # ============================================================
+    # Aggregate results across all runs
+    # ============================================================
+    if len(all_mse) > 1:
+        mse_arr = np.array(all_mse)
+        mae_arr = np.array(all_mae)
+
+        mse_mean = np.mean(mse_arr)
+        mse_std  = np.std(mse_arr, ddof=1)   # ddof=1 = sample std
+        mae_mean = np.mean(mae_arr)
+        mae_std  = np.std(mae_arr, ddof=1)
+
+        # 95% confidence interval
+        n = len(mse_arr)
+        mse_ci = stats.t.interval(
+            0.95, df=n-1,
+            loc=mse_mean,
+            scale=stats.sem(mse_arr)
+        )
+        mae_ci = stats.t.interval(
+            0.95, df=n-1,
+            loc=mae_mean,
+            scale=stats.sem(mae_arr)
+        )
+
+        print(f'\n{"="*60}')
+        print(f'FINAL RESULTS: {args.data} | pred_len={args.pred_len} | {n} runs')
+        print(f'{"="*60}')
+        print(f'Individual MSEs : {[f"{v:.4f}" for v in mse_arr]}')
+        print(f'Individual MAEs : {[f"{v:.4f}" for v in mae_arr]}')
+        print(f'MSE : {mse_mean:.4f} ± {mse_std:.4f}')
+        print(f'MAE : {mae_mean:.4f} ± {mae_std:.4f}')
+        print(f'MSE 95% CI : [{mse_ci[0]:.4f}, {mse_ci[1]:.4f}]')
+        print(f'MAE 95% CI : [{mae_ci[0]:.4f}, {mae_ci[1]:.4f}]')
+        print(f'{"="*60}\n')
+
+        # Save everything to file
+        result_path = (
+            f'./results_multiseed/'
+            f'{args.model_id}_{args.data}_pl{args.pred_len}_{n}runs.txt'
+        )
+        os.makedirs('./results_multiseed/', exist_ok=True)
+
+        with open(result_path, 'w') as f:
+            f.write(f'Dataset     : {args.data}\n')
+            f.write(f'Data path   : {args.data_path}\n')
+            f.write(f'pred_len    : {args.pred_len}\n')
+            f.write(f'Model       : {args.model}\n')
+            f.write(f'N runs      : {n}\n')
+            f.write(f'Seeds       : {fix_seed_list[:n]}\n')
+            f.write(f'\nIndividual results:\n')
+            for i, (s, m, ma) in enumerate(zip(fix_seed_list[:n], mse_arr, mae_arr)):
+                f.write(f'  Seed {s}: MSE={m:.4f}, MAE={ma:.4f}\n')
+            f.write(f'\nAggregated:\n')
+            f.write(f'  MSE : {mse_mean:.4f} ± {mse_std:.4f}\n')
+            f.write(f'  MAE : {mae_mean:.4f} ± {mae_std:.4f}\n')
+            f.write(f'  MSE 95% CI : [{mse_ci[0]:.4f}, {mse_ci[1]:.4f}]\n')
+            f.write(f'  MAE 95% CI : [{mae_ci[0]:.4f}, {mae_ci[1]:.4f}]\n')
+
+        print(f'Results saved to {result_path}')
+
 else:
+    # Inference only - single run
     ii = 0
+    seed = fix_seed_list[ii]
+    set_seed(seed)
+
     setting = '{}_{}_{}_{}_ft{}_sl{}_pl{}_{}_eb{}_{}_{}_seed{}'.format(
         args.model_id,
         args.model,
@@ -325,10 +272,65 @@ else:
         args.encode,
         args.manifold_type,
         ii,
-        fix_seed_list[ii])
-    device = setup_device()
+        seed)
 
-    exp = Exp(args)  # set experiments
-    print('>>>>>>>testing : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
+    device = setup_device()
+    exp = Exp(args)
+    print(f'>>>>>>>testing : {setting}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<')
     exp.test(setting, test=1)
     torch.cuda.empty_cache()
+#if args.is_training:
+#    for ii in range(args.itr):
+#        random.seed(fix_seed_list[ii])
+#        torch.manual_seed(fix_seed_list[ii])
+#        np.random.seed(fix_seed_list[ii])
+#        # setting record of experiments
+#        setting = '{}_{}_{}_{}_ft{}_sl{}_pl{}_{}_eb{}_{}_{}_seed{}'.format(
+#            args.model_id,
+#            args.model,
+#            args.data,
+#            args.data_path,
+#            args.features,
+#            args.seq_len,
+#            args.pred_len,
+#            args.des,
+#            args.encode,
+#            args.manifold_type,
+#            ii,
+#            fix_seed_list[ii])
+#
+#        exp = Exp(args)  # set experiments
+#        print('>>>>>>>start training : {}>>>>>>>>>>>>>>>>>>>>>>>>>>'.format(setting))
+#        device = setup_device()
+#
+#        exp.train(setting)
+#
+#        print('>>>>>>>testing : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
+#        exp.test(setting)
+#
+#        # if args.do_predict:
+#        #     print('>>>>>>>predicting : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
+#        #     exp.predict(setting, True)
+#
+#        torch.cuda.empty_cache()
+#else:
+#    ii = 0
+#    setting = '{}_{}_{}_{}_ft{}_sl{}_pl{}_{}_eb{}_{}_{}_seed{}'.format(
+#        args.model_id,
+#        args.model,
+#        args.data,
+#        args.data_path,
+#        args.features,
+#        args.seq_len,
+#        args.pred_len,
+#        args.des,
+#        args.encode,
+#        args.manifold_type,
+#        ii,
+#        fix_seed_list[ii])
+#    device = setup_device()
+#
+#    exp = Exp(args)  # set experiments
+#    print('>>>>>>>testing : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
+#    exp.test(setting, test=1)
+#    torch.cuda.empty_cache()

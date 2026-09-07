@@ -1,4 +1,4 @@
-### HyperForecast: Velocity-Driven Hyperbolic Dynamics with Learnable Decomposition for Time Series Forecasting ###
+### Hyperbolic Time Series Forecasting with Learnable Decomposition and Manifold Dynamics ###
 
 This repository contains the official implementation of HyperForecast, a hyperbolic geometry–based framework for long-term time series forecasting. The model combines learnable multi-scale decomposition with geodesic dynamics in hyperbolic space to capture hierarchical temporal structure across frequencies.
 
@@ -14,6 +14,9 @@ Embeds decomposed temporal segments in hyperbolic space (Poincaré or Lorentz mo
 
 Velocity-Driven Geodesic Forecasting
 Forecasts future values by evolving latent representations along geodesics using learned velocity fields.
+Offer Dual Forecasting Frameworks:
+ + Non-Autoregressive Forecasting (Multi Horizon)
+ + Autoregressive Forecasting (Moving Window) 
 
 Manifold-Aware Training
 Includes hierarchy and temporal consistency regularization to stabilize long-horizon forecasting.
@@ -28,4 +31,5 @@ We would like to thank the authors of the following open-source projects for the
 
 [DLinear (AAAI 2023)](https://github.com/cure-lab/LTSF-Linear/tree/main)
 
+[Poincare-Resnet](https://github.com/maxvanspengler/poincare-resnet)
 [Poincare]

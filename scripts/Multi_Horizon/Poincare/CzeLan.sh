@@ -45,7 +45,7 @@ window_size=5
 #  --is_training 1 \
 #  --hyperbolic_weight 0.05 \
 #  --hierarchy_weight 0.05 \
-#  --model_id CzeLan_OneShot_$seq_len'_'$manifold'_'192_exp1_Segment \
+#  --model_id CzeLan_OneShot_$seq_len'_'$manifold_type'_'192_exp1_Segment \
 #  --model HyperbolicForecasting \
 #  --data custom \
 #  --root_path ./time-series-dataset/dataset/ \
