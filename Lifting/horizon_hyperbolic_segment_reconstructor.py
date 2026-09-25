@@ -39,12 +39,7 @@ class HorizonHyperbolicSegmentReconstructionHead(nn.Module):
         """
         B, N, D = z_t.shape
         v = self.manifold.logmap0(z_t)
-        if self.manifold_type == "Lorentzian":
-            if v.shape[-1] != self.encode_dim:
-                # This can happen legitimately with Lorentz (input D+1, output D)
-                print(f"?? Reconstructor: input dim {z_t.shape[-1]}, tangent dim {v.shape[-1]}, expected {self.encode_dim}")
-            # Clamp for stability
-            v = torch.clamp(v, min=-10.0, max=10.0)
+       
         segment_flat = self.fc(v)
         segment = segment_flat.reshape(B * self.output_dim, N * self.segment_length)
         return segment

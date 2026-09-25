@@ -31,7 +31,7 @@ def compute_hierarchical_loss_with_manifold_dist(encodedings_dict, manifold, mar
     fine_h = encodedings_dict["seasonal_fine_h"]
     residual_h = encodedings_dict["residual_h"]
     
-    # Origin on Lorentz manifold
+    # Origin on manifold
     origin = manifold.origin(trend_h.shape[-1], device=trend_h.device)  # [1, 0, 0, ..., 0]
     
     # Hyperbolic distances from origin (encodes depth)
@@ -65,25 +65,6 @@ def compute_hierarchical_loss_with_manifold_dist(encodedings_dict, manifold, mar
     return total_loss
 
 
-def safe_expmap0_lorentz(manifold, v, eps=1e-8, initial_scale=0.1):
-    """
-    Safe expmap0 for Lorentz manifold based on MiT implementation. 
-    Uses tanh scaling to prevent overflow in acosh. 
-    """
-    # Apply tanh scaling like MiT
-    scale_factor = torch.tensor(initial_scale, device=v.device, dtype=v.dtype)
-    effective_scale = torch.tanh(scale_factor)  # Maps to (-1, 1)
-    
-    scaled_v = v * effective_scale
-    
-    # Use native expmap0 (geoopt handles the math correctly)
-    result = manifold.expmap0(scaled_v)
-    
-    # Project to ensure manifold constraint
-    result = manifold.projx(result)
-    
-    return result
-
 
 def safe_expmap(manifold, base_point, v, eps=1e-15, max_norm=8.5):
     """Similar to safe_expmap0 but for non-origin base points"""
@@ -108,17 +89,16 @@ def safe_expmap0(manifold, v, eps=1e-15, max_norm=7.0):
     """
     Safely map tangent vector v to manifold point.
     
-    For Lorentz: ensures norm(v) < max_norm to avoid overflow
     For Poincaré: ensures ||v|| < max_norm for stability
     
     Args:
-        manifold: geoopt.Lorentz or geoopt.PoincareBall
+        manifold: geoopt.PoincareBall
         v: tangent vector [B, D]
         eps: numerical stability epsilon
         max_norm: maximum allowed norm (default 0.99 keeps safe margin)
     
     Returns:
-        Point on manifold [B, D+1] for Lorentz, [B, D] for Poincaré
+        Point on manifold [B, D+1] for [B, D] for Poincaré
     """
     # Clip norm to safe region
     v_norm = torch.norm(v, dim=-1, keepdim=True).clamp(min=eps)

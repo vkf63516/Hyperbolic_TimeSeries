@@ -2,7 +2,7 @@
 Unified exp_main.py supporting both segment-level and point-level hyperbolic encodedings
 
 Controlled by args.use_segments flag:
-- Point-level hyperbolic space (ParallelLorentzBlock)
+- Point-level hyperbolic space ()
 """
 from wandb_logger import WandbLogger
 from data_provider.data_factory import data_provider

@@ -1,6 +1,6 @@
 import torch
 import torch.nn.functional as Func
-from geoopt.manifolds import Lorentz, PoincareBall
+from geoopt.manifolds import PoincareBall
 
 def hyperbolic_velocity_consistency_loss(z_trajectory, manifold, beta=1.0):
     """
@@ -59,7 +59,7 @@ def radial_diversity_loss(z_trajectory, manifold, target_variance=0.1, beta=1.0)
                      [B, F, N, D] - batch, features, segments, embedding_dim
                      [B, N, D] - batch, segments, embedding_dim
                      [B, D] - batch, embedding_dim
-        manifold: geoopt manifold (Poincare or Lorentz)
+        manifold: geoopt manifold (Poincare)
         target_variance: Target variance for radii (σ²_target)
         beta: weighting factor for the loss
     
@@ -109,25 +109,7 @@ def compute_hyperbolic_radius(points, manifold):
         radii: [N] tensor of radii
     """
     curvature = manifold.c
-    if isinstance(manifold, Lorentz):
-        # Lorentzian model: r = (1/√c) * arccosh(-√c * x_0)
-        # Origin in Lorentz:  o = (1/√c, 0, ..., 0)
-        # Inner product: <o, x>_L = -x_0/√c
-        # Distance: d(o, x) = (1/√c) * arccosh(-√c * x_0)
-        
-        sqrt_c = torch.sqrt(torch.tensor(curvature, device=points.device))
-        x_0 = points[:, 0]  # Time component
-        
-        # For numerical stability:  arccosh(x) requires x >= 1
-        # In Lorentz model:  -√c * x_0 should be >= 1
-        inner_arg = -sqrt_c * x_0
-        
-        # Clamp to ensure numerical stability
-        inner_arg = torch.clamp(inner_arg, min=1.0 + 1e-7)
-        
-        radii = (1.0 / sqrt_c) * torch.acosh(inner_arg)
-        
-    elif isinstance(manifold, PoincareBall):
+    if isinstance(manifold, PoincareBall):
         # Poincaré ball:  r = (1/√c) * artanh(√c * ||x||)
         # where ||x|| is Euclidean norm
         
@@ -191,7 +173,7 @@ def curvature_regularization_loss(z_trajectory, manifold, r_threshold=0.5,
                      [B, F, N, D] - batch, features, segments, embedding_dim
                      [B, N, D] - batch, segments, embedding_dim
                      [B, D] - batch, embedding_dim
-        manifold: geoopt manifold (Poincare or Lorentz)
+        manifold: geoopt manifold (Poincare)
         r_threshold:  Minimum desired mean radius (default:  0.5)
         formulation: 'mean' (weaker) or 'per_point' (stronger)
         r_min_per_point:  Minimum radius per point (for per_point formulation)

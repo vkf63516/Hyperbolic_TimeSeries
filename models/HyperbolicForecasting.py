@@ -135,21 +135,7 @@ class Model(nn.Module):
                             encode_dropout=0.3,
                             recon_dropout=0.2,
                         )
-                elif self.manifold_type == "Lorentzian":
-                    self.forecaster = MovingWindowHyperbolicForecaster(
-                        lookback=self.seq_len,
-                        pred_len=self.pred_len,
-                        n_features=self.enc_in,
-                        encode_dim=self.encode_dim,
-                        hidden_dim=self.hidden_dim,
-                        curvature=self.curvature,
-                        manifold_type=self.manifold_type,
-                        segment_length=self.mstl_period,
-                        use_revin=self.use_revin,
-                        window_size=self.window_size,
-                        encode_dropout=0.3,
-                        recon_dropout=0.2,
-                    )
+
             elif self.use_multi_horizon:
                 print("********************************")
                 if self.use_no_decomposition:

@@ -10,7 +10,7 @@ Learnable Multi-Scale Decomposition
 Automatically separates time series into trend, coarse seasonal, fine seasonal, and residual components.
 
 Hyperbolic Latent Space Modeling
-Embeds decomposed temporal segments in hyperbolic space (Poincaré or Lorentz models) to encode hierarchical frequency structure.
+Embeds decomposed temporal segments in hyperbolic space (Poincaré models) to encode hierarchical frequency structure.
 
 Velocity-Driven Geodesic Forecasting
 Forecasts future values by evolving latent representations along geodesics using learned velocity fields.

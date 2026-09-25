@@ -4,7 +4,6 @@ import torch.nn as nn
 import geoopt
 from encode.Linear.segment_linear_encode_poincare import SegmentedParallelPoincareMW
 from DynamicsMvar.Poincare_Residual_Dynamics import HyperbolicPoincareDynamics
-from DynamicsMvar.Lorentz_Residual_Dynamics import HyperbolicLorentzDynamics
 from Lifting.hyperbolic_segment_reconstructor import HyperbolicSegmentReconstructionHead  # NEW
 from spec import RevIN, safe_expmap, compute_hierarchical_loss_with_manifold_dist
 
@@ -32,7 +31,7 @@ class SegmentedHyperbolicForecaster(nn.Module):
             encode_dim: int - hyperbolic encodeding dimension
             hidden_dim: int - hidden dimension for MLPs
             curvature: float - manifold curvature
-            manifold_type: str - "Poincare" or "Lorentzian"
+            manifold_type: str - "Poincare"
             segment_length: int - length of each segment (e.g., 24 for daily in hourly data)
             use_attention_pooling: bool - attention pooling over segments during encoding
             use_revin: bool - use reversible instance normalization
@@ -91,16 +90,7 @@ class SegmentedHyperbolicForecaster(nn.Module):
                 encode_dropout=self.encode_dropout,
                 share_feature_weights=self.share_feature_weights,
             )
-        elif manifold_type == "Lorentzian":  # Lorentzian
-            self.encode_hyperbolic = SegmentedParallelLorentz(
-                lookback=lookback,
-                input_dim=n_features,
-                encode_dim=encode_dim,
-                curvature=curvature,
-                segment_length=segment_length,
-                encode_dropout=self.encode_dropout,
-                share_feature_weights=self.share_feature_weights
-            )
+
         self.manifold = self.encode_hyperbolic.manifold
         self.dynamics = self._create_dynamics()
     
@@ -122,11 +112,7 @@ class SegmentedHyperbolicForecaster(nn.Module):
                 encode_dim=self.encode_dim,
                 manifold=self.manifold
             )
-        if self.manifold_type == "Lorentzian":
-            return HyperbolicLorentzDynamics(
-                encode_dim=self.encode_dim,
-                manifold=self.manifold
-            )
+
 
     def mobius_fusion_segments(self, z_next_trend, z_next_coarse, z_next_fine, z_next_resid):
         """

@@ -1,10 +1,7 @@
 import torch
 import torch.nn as nn
 from encode.Moving_Window.moving_segment_linear_encode_poincare import SegmentedParallelPoincareMovingWindow
-from encode.Moving_Window.moving_segment_linear_encode_lorentz import SegmentedParallelLorentzMovingWindow
-from encode.Linear.segment_linear_encode_lorentz import SegmentedParallelLorentz
 from DynamicsMvar.Poincare_Residual_Dynamics import HyperbolicPoincareDynamics
-from DynamicsMvar.Lorentz_Residual_Dynamics import HyperbolicLorentzDynamics
 from Lifting.hyperbolic_segment_reconstructor import HyperbolicSegmentReconstructionHead
 from spec import RevIN, safe_expmap, safe_expmap0, compute_hierarchical_loss_with_manifold_dist
 
@@ -73,15 +70,6 @@ class MovingWindowHyperbolicForecaster(nn.Module):
                 encode_dropout=encode_dropout,
                 num_channels=self.n_features
             )
-        else:
-            self.encode_hyperbolic = SegmentedParallelLorentzMovingWindow(
-                lookback=lookback,
-                encode_dim=encode_dim,
-                curvature=curvature,
-                segment_length=segment_length,
-                encode_dropout=encode_dropout
-            )
-
         
         self.manifold = self.encode_hyperbolic.manifold
         
@@ -91,12 +79,7 @@ class MovingWindowHyperbolicForecaster(nn.Module):
                 encode_dim=encode_dim,
                 manifold=self.manifold
             )
-        if manifold_type == "Lorentzian":
-            self.dynamics = HyperbolicLorentzDynamics(
-                encode_dim=encode_dim,
-                manifold=self.manifold
-            )
-    
+
         self.reconstructor = HyperbolicSegmentReconstructionHead(
             encode_dim=encode_dim,
             output_dim=1,
@@ -107,7 +90,6 @@ class MovingWindowHyperbolicForecaster(nn.Module):
             dropout=recon_dropout,
         )
         self.mobius_weights = nn.Parameter(torch.ones(4) * 0.25)
-        self.lorentz_weights = nn.Parameter(torch.ones(4) * 0.25)
 
 
 
@@ -141,67 +123,6 @@ class MovingWindowHyperbolicForecaster(nn.Module):
                 
         return combined
 
-    def weighted_lorentz_mean_segments(self, points, weights):
-        """
-        ? FIXED: Conservative fusion with multiple fallback strategies.
-        """
-        B, D_plus_1 = points[0].shape
-        
-        # Compute weighted tangent
-        tangents = [self.manifold.logmap0(p) for p in points]
-        weighted_tangent = sum(w * t for w, t in zip(weights, tangents))
-        
-        # ? FIX 5: Check for NaN/Inf in tangents BEFORE clamping
-        if torch.isnan(weighted_tangent).any() or torch.isinf(weighted_tangent).any():
-            print(f"?? Invalid tangent at segment {points[0]}, using first point")
-            return points[0]
-        
-        # ? FIX 6: More conservative clamping (5.0 ? 2.0)
-        tangent_norm = torch.norm(weighted_tangent, dim=-1, keepdim=True)
-        max_norm = 2.0  # Was 5.0
-        if (tangent_norm > max_norm).any():
-            weighted_tangent = weighted_tangent / tangent_norm * torch.clamp(tangent_norm, max=max_norm)
-        
-        # Try to map to manifold
-        current_mean = safe_expmap0(self.manifold, weighted_tangent)
-        current_mean = self.manifold.projx(current_mean)
-        
-        # ? FIX 7: Check for NaN BEFORE iteration
-        if torch.isnan(current_mean).any() or torch.isinf(current_mean).any():
-            print(f"?? NaN in initial mean at {points[0]}, using first point")
-            return point[0]
-        
-        # ? FIX 8: Reduced iterations (10 ? 5) with smaller steps
-        for iteration in range(5):
-            tangent_vecs = [self.manifold.logmap(current_mean, p) for p in points]
-            weighted_vec = sum(w * v for w, v in zip(weights, tangent_vecs))
-            
-            # Early convergence
-            if torch.norm(weighted_vec, dim=-1).max() < 1e-5:
-                break
-            
-            # Conservative update
-            vec_norm = torch.norm(weighted_vec, dim=-1, keepdim=True)
-            if (vec_norm > max_norm).any():
-                weighted_vec = weighted_vec / vec_norm * torch.clamp(vec_norm, max=max_norm)
-            
-            # ? FIX 9: Smaller step size (0.3 ? 0.1)
-            next_mean = safe_expmap(self.manifold, current_mean, 0.1 * weighted_vec)
-            next_mean = self.manifold.projx(next_mean)
-            
-            if torch.isnan(next_mean).any():
-                break  # Keep current_mean
-            
-            current_mean = next_mean
-        
-        return current_mean
-    
-    def lorentz_fusion(self, z_trend_h, z_coarse_h, z_fine_h, z_residual_h):
-        """Fusion across all segment positions."""
-        weights = torch.softmax(self.lorentz_weights, dim=0)
-        points = [z_trend_h, z_coarse_h, z_fine_h, z_residual_h]
-        combined_h = self.weighted_lorentz_mean_segments(points, weights)
-        return combined_h
 
     def compute_combined_velocity_incremental(self, z_current, cached_velocities=None, decay=0.9):
         """
@@ -355,16 +276,12 @@ class MovingWindowHyperbolicForecaster(nn.Module):
             )
             hierarchy_losses.append(step_hierarchy_loss)
             latent_trend.append(z_next_trend)
-            # === Möbius/Lorentz Fusion ===
+            # === Möbius Fusion ===
             if self.manifold_type == "Poincare":
                 z_fused = self.mobius_fusion_segments(
                     z_next_trend, z_next_coarse, z_next_fine, z_next_resid
                 )
-            else:
-                z_fused = self.lorentz_fusion(
-                    z_next_trend, z_next_coarse, z_next_fine, z_next_resid
-                )
-            
+
             latent_z.append(z_fused)  # [B, D]
         
         # === Batched Reconstruction ===
