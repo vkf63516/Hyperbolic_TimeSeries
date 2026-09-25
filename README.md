@@ -6,19 +6,19 @@ HyperForecast models trend, seasonal, and residual components as trajectories on
 
 Key Features
 
-Learnable Multi-Scale Decomposition
+**Learnable Multi-Scale Decomposition**
 Automatically separates time series into trend, coarse seasonal, fine seasonal, and residual components.
 
-Hyperbolic Latent Space Modeling
+**Hyperbolic Latent Space Modeling**
 Embeds decomposed temporal segments in hyperbolic space (Poincaré models) to encode hierarchical frequency structure.
 
-Velocity-Driven Geodesic Forecasting
+**Velocity-Driven Geodesic Forecasting**
 Forecasts future values by evolving latent representations along geodesics using learned velocity fields.
 Offer Dual Forecasting Frameworks:
  + Non-Autoregressive Forecasting (Multi Horizon)
  + Autoregressive Forecasting (Moving Window) 
 
-Manifold-Aware Training
+**Manifold-Aware Training**
 Includes hierarchy and temporal consistency regularization to stabilize long-horizon forecasting.
 
 Acknowledgements
