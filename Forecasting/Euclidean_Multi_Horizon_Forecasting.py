@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 from spec import RevIN, safe_expmap
-
 class SegmentLinearencodeMultiHorizon(nn.Module):
     """
     This done for each feature 
@@ -126,7 +125,7 @@ class ParallelDirectEuclideanDynamics(nn.Module):
             dtype=z_history.dtype
         )
         weights = weights / weights.sum()
-        return (velocities * weights.view(1, -1, 1)).sum(dim=1)
+        return (velocities * weights.view(1, -1, 1)).mean(dim=1)
 
     def forward(self, z_0, v_init):
         B, D = z_0.shape
@@ -141,7 +140,7 @@ class ParallelDirectEuclideanDynamics(nn.Module):
 
 
 class EuclideanMultiHorizonForecaster(nn.Module):
-    def __init__(self, lookback, pred_len, n_features, encode_dim=64, segment_length=24,
+    def __init__(self, lookback, pred_len, n_features, encode_dim, hidden_dim, segment_length=24,
                  use_revin=True, manifold_type="Euclidean", encode_dropout=0.3):
         super().__init__()
 
@@ -153,7 +152,7 @@ class EuclideanMultiHorizonForecaster(nn.Module):
         self.num_pred_segments = pred_len // segment_length
         self.use_revin = use_revin
         self.encode_dim = encode_dim
-        self.use_no_decomposition = True
+        self.use_no_decomposition = False
 
         num_segments = lookback // segment_length
 
@@ -209,6 +208,7 @@ class EuclideanMultiHorizonForecaster(nn.Module):
 
         # Fusion weights
         self.fusion_weights = nn.Parameter(torch.ones(4) * 0.25)
+        self.reconstructor = nn.Linear(encode_dim, segment_length)
 
         print(f"\n{'='*70}")
         print(f"PARALLEL Direct Multi-Horizon Euclidean Forecaster")
@@ -256,10 +256,9 @@ class EuclideanMultiHorizonForecaster(nn.Module):
         z_fused = self.weighted_sum_fusion(
             z_trend_future, z_coarse_future, z_fine_future, z_resid_future
         )
-
+        
         remade = nn.Linear(self.encode_dim, self.segment_length)
-
-        predictions = remade(z_fused)
+        predictions = self.reconstructor(z_fused)
         # ===== Reconstruct — MLP directly, no logmap0 =====
         # B_full, T, D = z_fused.shape
         # z_flat = z_fused.reshape(B_full * T, D)

@@ -19,6 +19,24 @@ import math
 # --------------------------
 # Clamping with safe Exponential map - supports both 2D and 3D inputs
 # --------------------------
+def safe_norm(v, dim=-1, keepdim=True):
+    # eps inside sqrt -> finite gradient at v = 0
+    eps = 1e-6
+    return torch.sqrt((v * v).sum(dim=dim, keepdim=keepdim) + eps)
+
+def expmap0(v):
+    """v: [..., D-1] tangent coords at e1 -> point on S^{D-1} in R^D."""
+    n = safe_norm(v)
+    # sin(n)/n written via sinc: smooth at n=0
+    sinc = torch.sinc(n / math.pi)
+    return torch.cat([torch.cos(n), sinc * v], dim=-1)
+
+def logmap0(x, max_angle=math.pi - 1e-3):
+    """x: [..., D] on sphere -> [..., D-1] tangent coords at e1."""
+    x0, u = x[..., :1], x[..., 1:]
+    s = safe_norm(u)
+    theta = torch.atan2(s, x0).clamp(max=max_angle)  # stable near base point
+    return (theta / s) * u
 
 def compute_hierarchical_loss_with_manifold_dist(encodedings_dict, manifold, margin=0.1):
     """
@@ -31,7 +49,7 @@ def compute_hierarchical_loss_with_manifold_dist(encodedings_dict, manifold, mar
     fine_h = encodedings_dict["seasonal_fine_h"]
     residual_h = encodedings_dict["residual_h"]
     
-    # Origin on manifold
+    # Origin on Lorentz manifold
     origin = manifold.origin(trend_h.shape[-1], device=trend_h.device)  # [1, 0, 0, ..., 0]
     
     # Hyperbolic distances from origin (encodes depth)
@@ -63,7 +81,59 @@ def compute_hierarchical_loss_with_manifold_dist(encodedings_dict, manifold, mar
     # print(f"Hierarchy Loss: {hierarchy_loss}")
     total_loss = hierarchy_loss + 0.5 * coherency
     return total_loss
+def _safe_norm(x, dim=-1, eps=1e-8):
+    # The sqrt has a bad gradient at exactly 0, so add eps inside it
+    return torch.sqrt((x * x).sum(dim=dim) + eps)
 
+def compute_hierarchical_loss_euclidean(encodings_dict, margin=0.1, coherency_weight=0.5):
+    """
+    Enforce hierarchy using Euclidean norms (distance from origin).
+    Hierarchy: trend < coarse < fine < residual (distance from origin)
+    """
+    trend = encodings_dict["trend_e"]
+    coarse = encodings_dict["coarse_e"]
+    fine = encodings_dict["fine_e"]
+    residual = encodings_dict["resid_e"]
+
+    # Part 1: Norm-based hierarchy (origin = zero vector)
+    trend_norm = _safe_norm(trend)
+    coarse_norm = _safe_norm(coarse)
+    fine_norm = _safe_norm(fine)
+    residual_norm = _safe_norm(residual)
+
+    hierarchy_loss = (
+        torch.relu(trend_norm + margin - coarse_norm) +
+        torch.relu(coarse_norm + margin - fine_norm) +
+        torch.relu(fine_norm + margin - residual_norm)
+    ).mean()
+
+    # Part 2: Parent-child proximity
+    trend_to_coarse = _safe_norm(trend - coarse)
+    coarse_to_fine = _safe_norm(coarse - fine)
+    fine_to_residual = _safe_norm(fine - residual)
+
+    coherency = (trend_to_coarse + coarse_to_fine + fine_to_residual).mean()
+
+    return hierarchy_loss + coherency_weight * coherency
+
+def safe_expmap0_lorentz(manifold, v, eps=1e-8, initial_scale=0.1):
+    """
+    Safe expmap0 for Lorentz manifold based on MiT implementation. 
+    Uses tanh scaling to prevent overflow in acosh. 
+    """
+    # Apply tanh scaling like MiT
+    scale_factor = torch.tensor(initial_scale, device=v.device, dtype=v.dtype)
+    effective_scale = torch.tanh(scale_factor)  # Maps to (-1, 1)
+    
+    scaled_v = v * effective_scale
+    
+    # Use native expmap0 (geoopt handles the math correctly)
+    result = manifold.expmap0(scaled_v)
+    
+    # Project to ensure manifold constraint
+    result = manifold.projx(result)
+    
+    return result
 
 
 def safe_expmap(manifold, base_point, v, eps=1e-15, max_norm=8.5):
@@ -89,16 +159,17 @@ def safe_expmap0(manifold, v, eps=1e-15, max_norm=7.0):
     """
     Safely map tangent vector v to manifold point.
     
+    For Lorentz: ensures norm(v) < max_norm to avoid overflow
     For Poincaré: ensures ||v|| < max_norm for stability
     
     Args:
-        manifold: geoopt.PoincareBall
+        manifold: geoopt.Lorentz or geoopt.PoincareBall
         v: tangent vector [B, D]
         eps: numerical stability epsilon
         max_norm: maximum allowed norm (default 0.99 keeps safe margin)
     
     Returns:
-        Point on manifold [B, D+1] for [B, D] for Poincaré
+        Point on manifold [B, D+1] for Lorentz, [B, D] for Poincaré
     """
     # Clip norm to safe region
     v_norm = torch.norm(v, dim=-1, keepdim=True).clamp(min=eps)
