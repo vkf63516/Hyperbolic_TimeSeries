@@ -257,7 +257,6 @@ class EuclideanMultiHorizonForecaster(nn.Module):
             z_trend_future, z_coarse_future, z_fine_future, z_resid_future
         )
         
-        remade = nn.Linear(self.encode_dim, self.segment_length)
         predictions = self.reconstructor(z_fused)
         # ===== Reconstruct — MLP directly, no logmap0 =====
         # B_full, T, D = z_fused.shape
